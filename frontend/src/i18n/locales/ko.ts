@@ -617,6 +617,11 @@ export default {
       autoArchiveLabel: '완료된 인쇄 자동 아카이브',
       wearCostLabel: '출력 시간당 마모 비용 ({{currency}})',
       wearCostHelp: '이 프린터로 한 시간 출력할 때 드는 마모 및 부품 비용입니다. 지금부터 모든 출력의 비용에 더해지며, 이전 출력은 바뀌지 않습니다. 비워 두면 꺼집니다.',
+      plateClearLabel: '플레이트 비움 확인',
+      plateClearInherit: '전역 설정 사용',
+      plateClearOn: '항상 필요',
+      plateClearOff: '필요 없음',
+      plateClearHelp: '대기열의 출력이 이 프린터의 플레이트가 비었다는 확인을 기다릴지 정합니다. 플레이트 체인저가 스스로 플레이트를 비우는 프린터는 필요 없음을 선택하세요. 전역 설정은 설정 → 워크플로 → 대기열 및 전송에 있습니다.',
       fromPrinterSettings: '프린터 설정에서',
       modelOptional: '모델 (선택사항)',
       saveChanges: '변경사항 저장'

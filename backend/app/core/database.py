@@ -6107,6 +6107,14 @@ async def _run_migrations(conn):
     # (``print_cost_estimate.fill_plate_estimates``).
     await _safe_execute(conn, "ALTER TABLE print_archives ADD COLUMN plate_estimates JSON")
 
+    # Migration: per-printer plate-clear override (#2860). One of {inherit, on,
+    # off}; 'inherit' keeps following the require_plate_clear setting, so
+    # existing printers behave as before.
+    await _safe_execute(
+        conn,
+        "ALTER TABLE printers ADD COLUMN plate_clear_override VARCHAR(10) NOT NULL DEFAULT 'inherit'",
+    )
+
     await _backfill_archive_run_photos(conn)
     await _migrate_h3c_queue_tray_ids(conn)
 
