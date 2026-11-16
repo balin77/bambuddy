@@ -1266,17 +1266,20 @@ def _wear_order(printer: Printer) -> tuple[float, int]:
     return hours, printer.id
 
 
-def finish_needs_plate_confirmation(override: str | None, require_plate_clear: bool) -> bool:
+def finish_needs_plate_confirmation(
+    override: str | None, require_plate_clear: bool, *, job_clears_plate: bool = False
+) -> bool:
     """Whether a printer waits for someone to confirm its plate after a print (#2860).
 
     The printer's own override wins over the require_plate_clear setting;
-    "inherit" (or no override) follows it.
+    "inherit" (or no override) follows it. A job that clears its own plate
+    needs no confirmation where the setting would otherwise ask for it (#3576).
     """
     if override == "on":
         return True
     if override == "off":
         return False
-    return require_plate_clear
+    return require_plate_clear and not job_clears_plate
 
 
 async def load_plate_clear_policy(db: AsyncSession, printer_id: int) -> tuple[str | None, bool]:
@@ -9326,6 +9329,7 @@ class PrintScheduler:
             # archive that already asked keeps asking.
             if item.confirm_outcome:
                 archive.confirm_requested = True
+            archive.clears_plate = item.clears_plate  # the job's own plate clearing rides along (#3576)
 
             file_path = settings.base_dir / archive.file_path
             filename = archive.filename
@@ -9412,6 +9416,7 @@ class PrintScheduler:
                     item.archive_id = archive.id
                     if item.confirm_outcome:
                         archive.confirm_requested = True  # ask-for-outcome opt-in (#1898)
+                    archive.clears_plate = item.clears_plate  # the job's own plate clearing rides along (#3576)
                     if budget_reservation is not None:
                         budget_reservation.print_archive_id = archive.id
                     if item.cleanup_library_after_dispatch and not library_file.is_external:

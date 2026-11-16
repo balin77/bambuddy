@@ -1653,6 +1653,8 @@ export default {
       gcodeInjection: 'G-code',
       confirmOutcome: 'Consulta de resultado',
       confirmOutcomeTitle: 'Pregunta cómo salió la impresión al terminar',
+      clearsPlate: 'Despeja la cama',
+      clearsPlateTitle: 'Despeja su propia cama: sin confirmación de cama tras una impresión correcta, salvo que la impresora esté configurada como «Requerir siempre»',
     },
     // Empty state
     empty: {
@@ -1695,6 +1697,7 @@ export default {
       timelapse: 'Time-lapse',
       useAms: 'Usar AMS',
       confirmOutcome: 'Preguntar el resultado',
+      clearsPlate: 'Despejar la cama automáticamente',
       nozzleOffsetCali: 'Calibración del offset de boquillas',
       applyChanges: 'Aplicar cambios',
       selectAll: 'Seleccionar todo',
@@ -4277,6 +4280,8 @@ export default {
     title: 'Gestor de archivos',
     subtitle: 'Organice y gestione sus archivos de impresión',
     uploadFiles: 'Subir archivos',
+    clearsPlateOnUpload: 'Los archivos despejan la cama automáticamente',
+    clearsPlateOnUploadHelp: 'Se aplica a todos los archivos de esta subida. Solo para archivos laminados que terminan con un cambio de placa o un empuje del objeto: tras una impresión correcta, la cola no espera la confirmación de la cama.',
     newFolder: 'Nueva carpeta',
     folderName: 'Nombre de la carpeta',
     folderNamePlaceholder: 'p. ej., Piezas funcionales',
@@ -4464,6 +4469,8 @@ export default {
       truncatedCols: 'Mostrando las primeras {{shown}} de {{total}} columnas',
     },
     details: {
+      clearsPlate: 'Despeja la cama automáticamente',
+      clearsPlateHelp: 'El archivo termina con un cambio de placa o un empuje del objeto. Tras una impresión correcta, la cola inicia el siguiente trabajo sin esperar la confirmación de la cama, salvo que la impresora esté configurada como «Requerir siempre». Los nuevos trabajos de impresión de este archivo empiezan con este ajuste.',
       title: 'Detalles del archivo',
       size: 'Tamaño',
       type: 'Tipo',
@@ -5814,6 +5821,8 @@ export default {
     noPrintableCostCenters: 'No hay ningún centro de costes activo disponible para imprimir. Pide a un administrador que te conceda acceso de impresión.',
     askForOutcome: 'Preguntar el resultado',
     askForOutcomeTitle: 'Preguntar cómo salió la impresión al terminar',
+    clearsPlate: 'Despeja la cama automáticamente',
+    clearsPlateTitle: 'El archivo despeja la cama por sí mismo (cambiador de placas o empuje del objeto). Tras una impresión correcta, la cola inicia el siguiente trabajo sin esperar la confirmación de cama despejada, salvo que la impresora esté configurada como «Requerir siempre».',
   },
 
   // Backup

@@ -1669,6 +1669,8 @@ export default {
       gcodeInjection: 'G-kod',
       confirmOutcome: 'Resultatfråga',
       confirmOutcomeTitle: 'Frågar hur utskriften blev när den är klar',
+      clearsPlate: 'Tömmer plattan',
+      clearsPlateTitle: 'Tömmer sin egen platta: ingen plattbekräftelse efter en lyckad utskrift, om inte skrivaren är inställd på "Kräv alltid"',
     },
     // Empty state
     empty: {
@@ -1711,6 +1713,7 @@ export default {
       timelapse: 'Timelapse',
       useAms: 'Använd AMS',
       confirmOutcome: 'Fråga efter resultat',
+      clearsPlate: 'Töm plattan automatiskt',
       nozzleOffsetCali: 'Munstyckesoffsetskalibrering',
       applyChanges: 'Tillämpa ändringar',
       selectAll: 'Markera alla',
@@ -4337,6 +4340,8 @@ errors: {
     title: 'Filhanterare',
     subtitle: 'Organisera och hantera dina utskriftsfiler',
     uploadFiles: 'Ladda upp filer',
+    clearsPlateOnUpload: 'Filer tömmer plattan automatiskt',
+    clearsPlateOnUploadHelp: 'Gäller varje fil i den här uppladdningen. Endast för skivade filer som slutar med ett plattbyte eller push-off: efter en lyckad utskrift väntar kön inte på plattbekräftelse.',
     newFolder: 'Ny mapp',
     folderName: 'Mappnamn',
     folderNamePlaceholder: 't.ex. Funktionella delar',
@@ -4524,6 +4529,8 @@ errors: {
       truncatedCols: 'Visar de första {{shown}} av {{total}} kolumnerna',
     },
     details: {
+      clearsPlate: 'Tömmer plattan automatiskt',
+      clearsPlateHelp: 'Filen slutar med ett plattbyte eller push-off. Efter en lyckad utskrift startar kön nästa jobb utan att vänta på plattbekräftelse, om inte skrivaren är inställd på "Kräv alltid". Nya utskriftsjobb från den här filen startar med den här inställningen.',
       title: 'Filinformation',
       size: 'Storlek',
       type: 'Typ',
@@ -5883,6 +5890,8 @@ errors: {
     noPrintableCostCenters: 'Inget aktivt kostnadsställe är tillgängligt för utskrift. Be en administratör att ge dig utskriftsåtkomst.',
     askForOutcome: 'Fråga efter resultat',
     askForOutcomeTitle: 'Fråga hur utskriften blev när den är klar',
+    clearsPlate: 'Tömmer plattan automatiskt',
+    clearsPlateTitle: 'Filen tömmer plattan själv (plattbytare eller push-off). Efter en lyckad utskrift startar kön nästa jobb utan att vänta på bekräftelse för tömd platta, om inte skrivaren är inställd på "Kräv alltid".',
   },
 
   // Backup
