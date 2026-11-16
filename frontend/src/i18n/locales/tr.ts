@@ -1400,6 +1400,7 @@ export default {
     failed: {
       generic: 'Gönderim başarısız',
       upload_failed: 'Yazıcıya yükleme başarısız',
+      plate_changer_empty: 'Plaka değiştirici boş, iş kuyrukta kalıyor',
       start_command_failed: 'Yazıcı başlatma komutunu reddetti',
     },
     dismiss: 'Kapat',

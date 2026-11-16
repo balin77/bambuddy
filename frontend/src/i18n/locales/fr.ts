@@ -1400,6 +1400,7 @@ export default {
     failed: {
       generic: 'Échec de l\'envoi',
       upload_failed: 'Échec du téléversement vers l\'imprimante',
+      plate_changer_empty: 'Changeur de plateaux vide, la tâche reste dans la file',
       start_command_failed: 'L\'imprimante a rejeté la commande de démarrage',
     },
     dismiss: 'Fermer',

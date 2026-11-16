@@ -1400,6 +1400,7 @@ export default {
     failed: {
       generic: 'Despacho fallido',
       upload_failed: 'Fallo al subir a la impresora',
+      plate_changer_empty: 'Cambiador de placas vacío, el trabajo permanece en la cola',
       start_command_failed: 'La impresora rechazó el comando de inicio',
     },
     dismiss: 'Cerrar',
