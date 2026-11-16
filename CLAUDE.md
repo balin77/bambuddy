@@ -28,13 +28,50 @@ git remote add upstream https://github.com/maziggy/bambuddy.git
 git fetch upstream --tags
 ```
 
+**Feature nach `farm` bringen: Cherry-Pick, kein Merge.** Feature-Branches
+zweigen von `upstream/dev` ab. `dev` ist dem Release (`main`) meist um
+viele Commits voraus. Ein `git merge feature/x` nach `farm` würde diesen
+ganzen unveröffentlichten `dev`-Stand mitziehen. Deshalb:
+```bash
+git checkout farm
+git cherry-pick -x <feature-commits>   # nur die eigenen Commits, ohne CHANGELOG
+```
+Konflikte entstehen typischerweise, weil `dev` an derselben Stelle schon
+andere Zeilen eingefügt hat (i18n-Keys, Migrationen in `database.py`,
+Formularfelder). Lösung: Aus jedem Konfliktblock **nur die Zeilen des
+Features** übernehmen und die nur auf `dev` vorhandenen verwerfen. Danach
+per `git grep` prüfen, dass keine dev-only-Bezeichner hereingerutscht sind,
+und die betroffenen Tests, `tsc` und `check:i18n` laufen lassen.
+
 **Sync bei neuem Upstream-Release** (z. B. wöchentlich oder bei neuem Tag):
 1. `main`/`dev` des Forks auf `upstream/main`/`upstream/dev` vorspulen.
 2. Feature-Branches auf `upstream/dev` rebasen und Tests laufen lassen.
-3. `farm`: `git merge upstream/main`, dann offene Feature-Branches mergen.
-   Konflikte lösen, Tests laufen lassen, pushen. Daraus baut CI das neue Image.
-4. Ist ein Feature upstream gemergt, wird sein Branch nicht mehr nach `farm`
-   gemergt. Der Code kommt dann über `upstream/main`.
+3. `farm` neu aufbauen: `git merge upstream/main`. Für Features, die
+   **noch nicht** im neuen Release sind, die Commits erneut per Cherry-Pick
+   holen, falls der Merge sie verliert oder Konflikte macht. Tests laufen
+   lassen und pushen. Daraus baut CI das neue Image.
+4. Ist ein Feature im Upstream-Release enthalten, nichts mehr nach `farm`
+   holen. Der Code kommt dann über `upstream/main`.
+
+**Bekannte Testumgebung Windows:** Unter Windows schlagen einige
+Upstream-Tests auch auf dem unveränderten Release fehl, z. B.
+`test_force_color_plate_scope_migration.py` und
+`test_send_all_timelapse_per_plate_3275.py`. Vor einer Fehlersuche immer
+gegen ein sauberes `upstream/main` vergleichen (`git worktree add`).
+Massgeblich ist Linux bzw. die CI.
+
+## 1a. Stand (16.11.2026)
+
+| Thema | Upstream | Im Fork |
+|-------|----------|---------|
+| Plattenbestätigung **pro Drucker** | Issue #2860, PR #3540 (Draft, von Keybored02) | Per Cherry-Pick auf `farm` übernommen (`595d81fbc`, Autor bleibt Keybored02). **Nicht selbst weiterentwickeln.** Fällt weg, sobald es im Release ist. |
+| Plattenzähler / Kapazität pro Drucker | Issue **#3575** (von uns, wartet auf Zuweisung) | Feature B unten |
+| Auto-Räumung **pro Datei/Auftrag** | Issue **#3576** (von uns, wartet auf Zuweisung) | Feature A unten |
+| Button-Texte auf Touch markierbar | Issue **#3577** (von uns, wartet auf Zuweisung) | Feature C unten |
+
+Upstream-PRs werden erst gestellt, wenn das Issue dem Nutzer (`balin77`)
+zugewiesen ist. Bis dahin entsteht der Code auf `feature/*` und läuft über
+`farm` auf dem Server.
 
 ## 2. Harte Regeln
 
@@ -79,7 +116,14 @@ git fetch upstream --tags
 
 ## 3. Features
 
-### Feature A – Automatische Plattenräumung pro Datei (`feature/auto-plate-clear`)
+Alle Features bauen auf der Override-Einstellung pro Drucker aus #3540 auf
+(`printers.plate_clear_override`, `_plate_gate()` im Scheduler). Diese
+Einstellung erweitern, keine parallele Logik bauen.
+
+### Feature A – Automatische Plattenräumung pro Datei, Issue #3576 (`feature/clears-plate-per-job`)
+
+Vorrang: Steht ein Drucker auf *Immer verlangen*, wartet er immer. Das Flag
+wirkt nur dort, wo sonst die globale Einstellung greifen würde.
 
 **Problem:** Die globale Einstellung `require_plate_clear` lässt die
 Warteschlange nach jedem fertigen Druck auf die Bestätigung „Platte geräumt“
@@ -106,7 +150,12 @@ die ganze Farm.
   Flag, mit und ohne globalen Schalter. Dazu API-Tests, Migrationstest und
   Frontend-Tests für Dialog und Schalter.
 
-### Feature B – Kapazität des Plattenwechslers pro Drucker (`feature/plate-changer-capacity`, nach A)
+### Feature B – Kapazität des Plattenwechslers pro Drucker, Issue #3575 (`feature/plate-changer-capacity`)
+
+Zählt bei jedem erfolgreich beendeten Auftrag herunter, dessen Platte
+automatisch geräumt wurde: entweder weil der Drucker auf *Nie verlangen*
+steht (#3540) oder weil der Auftrag das Flag aus Feature A hat.
+Datenfelder laut Issue: `printers.plate_capacity`, `printers.plates_remaining`.
 
 **Problem:** Bambuddy weiss nicht, wie viele Platten im Wechsler liegen bzw.
 wie viel Platz im Auffangbehälter ist. Startet ein automatisch räumender
@@ -124,8 +173,17 @@ beschädigen. Das ist **die wichtigste Sicherheitsregel der Farm**.
   „Nachgefüllt / Geleert“, der den Zähler zurücksetzt.
 - Ohne gesetzte Kapazität ändert sich nichts.
 
-Ob B als eigener Upstream-PR angeboten wird, entscheidet der Nutzer nach A.
-Auf `farm` kommen beide.
+### Feature C – Button-Texte nicht markierbar, Issue #3577 (`fix/button-text-selection`)
+
+Eine globale CSS-Regel in `frontend/src/index.css` für `button` und
+`[role='button']`: `user-select: none`, `-webkit-user-select: none`,
+`-webkit-touch-callout: none`. Eingabefelder und normaler Text bleiben
+markierbar. Klein und unabhängig von A und B, eignet sich als erster PR.
+Vor dem Fix auf dem Handy reproduzieren und Vorher/Nachher-Screenshots für
+den PR festhalten.
+
+**Reihenfolge:** C und B können parallel laufen, A danach. B ist für die
+Sicherheit der Farm am wichtigsten. Auf `farm` kommen alle drei.
 
 ## 4. Deployment auf den Druckserver
 
