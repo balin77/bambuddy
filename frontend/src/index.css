@@ -71,6 +71,16 @@
     user-select: none;
     -webkit-touch-callout: none;
   }
+
+  /* A `role="button"` row (Collapsible's summary) may hold a field; iOS
+     Safari will not focus or edit one under `user-select: none`, so fields
+     keep text selection wherever they sit. */
+  input,
+  textarea,
+  [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
+  }
 }
 
 @theme {
