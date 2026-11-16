@@ -65,9 +65,12 @@ Massgeblich ist Linux bzw. die CI.
 | Thema | Upstream | Im Fork |
 |-------|----------|---------|
 | Plattenbestätigung **pro Drucker** | Issue #2860, PR #3540 (Draft, von Keybored02) | Per Cherry-Pick auf `farm` übernommen (`595d81fbc`, Autor bleibt Keybored02). **Nicht selbst weiterentwickeln.** Fällt weg, sobald es im Release ist. |
-| Plattenzähler / Kapazität pro Drucker | Issue **#3575** (von uns, wartet auf Zuweisung) | Feature B unten |
-| Auto-Räumung **pro Datei/Auftrag** | Issue **#3576** (von uns, wartet auf Zuweisung) | Feature A unten |
-| Button-Texte auf Touch markierbar | Issue **#3577** (von uns, wartet auf Zuweisung) | Feature C unten |
+| Plattenzähler / Kapazität pro Drucker | Issue **#3575** (von uns, wartet auf Zuweisung) | Feature B: `feature/plate-changer-capacity`, auf `farm` (`c764a159`, `6b84c76a`). PR-/Wiki-Entwurf in `farm/drafts/` |
+| Auto-Räumung **pro Datei/Auftrag** | Issue **#3576** (von uns, wartet auf Zuweisung) | Feature A: `feature/clears-plate-per-job`, auf `farm` (`ed0196ab`, `60aa5b43`) + Integration A+B (`57cf7da6`, `7d67ad29`, nur `farm`). Entwürfe in `farm/drafts/` |
+| Button-Texte auf Touch markierbar | Issue **#3577** (von uns, wartet auf Zuweisung) | Feature C: `fix/button-text-selection`, auf `farm` (`e1782a8b`, `41eeb035`). Entwurf in `farm/drafts/` |
+
+Wer von A und B **zweiter** upstream landet, übernimmt die Integration aus
+`57cf7da6`: `consume_auto_cleared_plate(..., job_clears_plate=...)`.
 
 Upstream-PRs werden erst gestellt, wenn das Issue dem Nutzer (`balin77`)
 zugewiesen ist. Bis dahin entsteht der Code auf `feature/*` und läuft über
