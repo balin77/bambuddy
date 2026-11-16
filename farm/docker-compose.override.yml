@@ -1,0 +1,16 @@
+# Farm override for the Bambuddy print server.
+#
+# Lives NEXT TO the unmodified upstream docker-compose.yml in /opt/bambuddy
+# (docker compose merges docker-compose.override.yml automatically). It only
+# swaps the image for the farm build; everything else (volumes, network mode,
+# env) stays exactly as upstream defines it.
+#
+# Rules:
+#   - The compose project name must stay `bambuddy` (run from /opt/bambuddy,
+#     do not pass -p), so the existing volumes bambuddy_bambuddy_data and
+#     bambuddy_bambuddy_logs keep being used.
+#   - NEVER run `docker compose down -v` (it deletes the data volumes).
+#   - BAMBUDDY_IMAGE is only set by update-bambuddy.sh for a rollback.
+services:
+  bambuddy:
+    image: ${BAMBUDDY_IMAGE:-ghcr.io/balin77/bambuddy:farm}
