@@ -1,3 +1,7 @@
 # Force CRLF line endings for Windows batch files so cmd.exe can parse them
 # regardless of the user's core.autocrlf setting.
 *.bat text eol=crlf
+
+# Farm deploy files run on Linux; keep LF on every checkout
+farm/*.sh text eol=lf
+farm/*.yml text eol=lf
