@@ -489,6 +489,7 @@ export interface Printer {
   camera_light_auto: boolean;  // picked for the chamber light when camera_light_mode is 'selected' (#1655)
   plate_clear_override: PlateClearOverride;  // overrides the require_plate_clear setting for this printer (#2860)
   plate_capacity: number | null;  // plates the plate changer holds; null = no counting (#3575)
+  plate_changer_show_count: boolean;  // show the plate count on the printer card (#3575)
   plates_remaining: number | null;  // plates left before a refill / bin emptying is due (#3575)
   plate_detection_enabled: boolean;  // Check plate before print
   plate_detection_roi?: PlateDetectionROI;  // ROI for plate detection
@@ -829,6 +830,7 @@ export interface PrinterCreate {
   plate_clear_override?: PlateClearOverride;
   plate_capacity?: number | null;
   plates_remaining?: number | null;
+  plate_changer_show_count?: boolean;
   plate_detection_enabled?: boolean;
   plate_detection_roi?: PlateDetectionROI;
   wear_cost_per_hour?: number | null;
