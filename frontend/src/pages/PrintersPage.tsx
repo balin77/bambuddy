@@ -106,6 +106,7 @@ import {
   MoreVertical,
   Trash2,
   RefreshCw,
+  PackagePlus,
   RotateCw,
   Box,
   HardDrive,
@@ -2906,6 +2907,93 @@ function PrinterCard({
     onError: (error: Error) => showToast(error.message || t('printers.toast.failedToSendCommand'), 'error'),
   });
 
+  // Plate changer count (#3575): null capacity means no counting. A missing count with
+  // a capacity set reads as empty, the same fail-safe the scheduler uses.
+  const plateCapacity = printer.plate_capacity;
+  const platesRemaining = plateCapacity != null ? Math.max(0, printer.plates_remaining ?? 0) : null;
+  const plateChangerEmpty = plateCapacity != null && platesRemaining === 0;
+  const [showRefillConfirm, setShowRefillConfirm] = useState(false);
+  const refillPlatesMutation = useMutation({
+    mutationFn: () => api.refillPlates(printer.id),
+    onSuccess: (updated: Printer) => {
+      showToast(t('printers.plateChanger.refilledToast', { capacity: updated.plate_capacity }));
+      queryClient.invalidateQueries({ queryKey: ['printers'] });
+    },
+    onError: (error: Error) => showToast(error.message || t('printers.plateChanger.refillFailed'), 'error'),
+  });
+  const plateChangerText = plateChangerEmpty
+    ? t('printers.plateChanger.empty')
+    : t('printers.plateChanger.count', { remaining: platesRemaining, capacity: plateCapacity });
+  const plateChangerPillClass = plateChangerEmpty
+    ? 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'
+    : 'bg-bambu-dark-tertiary text-bambu-gray';
+  // Not gated on `connected`: the count is Bambuddy-side state, like the plate-clear gate (#2864).
+  const plateChangerPill = plateCapacity != null ? (
+    <span
+      className={`inline-flex min-w-0 flex-shrink-0 items-center rounded-full px-2 py-0.5 text-[length:var(--pc-t10,10px)] font-medium ${plateChangerPillClass}`}
+      title={t('printers.plateChanger.countTitle')}
+    >
+      {plateChangerText}
+    </span>
+  ) : null;
+  const refillDisabled = refillPlatesMutation.isPending || !hasPermission('printers:clear_plate');
+  const refillTitle = !hasPermission('printers:clear_plate')
+    ? t('printers.permission.noControl')
+    : t('printers.plateChanger.refillTitle', { capacity: plateCapacity });
+  // At 0 the queue holds all jobs for this printer; resetting the count releases them,
+  // so it always goes through a confirmation, never a single tap.
+  const plateChangerAction = `${plateChangerText}: ${t('printers.plateChanger.refill')}`;
+  // Compact: icon and bare numbers only, so the printer name keeps its room; the
+  // full text lives in the title and aria-label.
+  const compactPlateChangerButton = plateCapacity != null ? (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        setShowRefillConfirm(true);
+      }}
+      disabled={refillDisabled}
+      className={`inline-flex flex-shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[length:var(--pc-t10,10px)] font-medium transition-colors disabled:opacity-50 ${plateChangerPillClass} ${
+        plateChangerEmpty ? 'hover:bg-red-500/30' : 'hover:text-white'
+      }`}
+      title={`${plateChangerAction} (${refillTitle})`}
+      aria-label={plateChangerAction}
+    >
+      {refillPlatesMutation.isPending ? (
+        <Loader2 className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)] flex-shrink-0 animate-spin" />
+      ) : (
+        <PackagePlus className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)] flex-shrink-0" />
+      )}
+      <span>{`${platesRemaining}/${plateCapacity}`}</span>
+    </button>
+  ) : null;
+  // Expanded view, one row (pill left, refill right): next to expandedClearPlateButton in
+  // the live-status block, and in the slot for a powered-down or maintenance printer.
+  // The button is prominent only at 0.
+  const expandedRefillPlatesButton = plateCapacity != null ? (
+    <div className="mt-2 flex items-center justify-between gap-2">
+      {plateChangerPill}
+      <button
+        type="button"
+        onClick={() => setShowRefillConfirm(true)}
+        disabled={refillDisabled}
+        className={
+          plateChangerEmpty
+            ? 'flex-1 inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-red-100 dark:bg-red-500/20 border border-red-300 dark:border-red-400/40 text-red-700 dark:text-red-400 hover:bg-red-500/30 transition-colors text-xs font-medium disabled:opacity-50'
+            : 'inline-flex items-center justify-center gap-1.5 px-2 py-1 rounded-lg border border-bambu-dark-tertiary text-bambu-gray hover:text-white hover:bg-bambu-dark-tertiary transition-colors text-xs disabled:opacity-50'
+        }
+        title={refillTitle}
+      >
+        {refillPlatesMutation.isPending ? (
+          <Loader2 className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)] animate-spin" />
+        ) : (
+          <PackagePlus className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+        )}
+        {t('printers.plateChanger.refill')}
+      </button>
+    </div>
+  ) : null;
+
   // Post-print outcome confirmation (#1898): one-tap "good" from the card,
   // reject goes through the dialog for the optional reason + reprint.
   const [showConfirmOutcome, setShowConfirmOutcome] = useState(false);
@@ -4024,6 +4112,7 @@ function PrinterCard({
                       );
                     })()}
                   </div>
+                  {viewMode === 'compact' && compactPlateChangerButton}
                   {viewMode === 'compact' && showClearPlateButton && (
                     <button
                       type="button"
@@ -4994,6 +5083,7 @@ function PrinterCard({
             })()}
 
             {viewMode === 'expanded' && showClearPlateButton && expandedClearPlateButton}
+            {viewMode === 'expanded' && expandedRefillPlatesButton}
 
             {/* Controls */}
             {viewMode === 'expanded' && (() => {
@@ -6743,6 +6833,10 @@ function PrinterCard({
           expandedClearPlateButton
         )}
 
+        {/* Plate changer count and refill control without live status (powered down or
+            maintenance): the count is Bambuddy-side state, so it stays reachable (#3575). */}
+        {(printer.is_active === false || !status?.connected) && viewMode === 'expanded' && expandedRefillPlatesButton}
+
         {/* Bottom block (power row + action bar). Wrapped together so the
             power row hugs the action bar at the card bottom instead of
             floating up when there's less filament content above. */}
@@ -7304,6 +7398,26 @@ function PrinterCard({
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Plate changer refill confirmation (#3575): at 0 the queue holds all jobs for this
+          printer, so resetting the count releases them and must not happen on a stray tap. */}
+      {showRefillConfirm && plateCapacity != null && (
+        // React events bubble through the portal to the card's onClick, which would
+        // switch the compact card size on a backdrop click.
+        <div onClick={(e) => e.stopPropagation()}>
+        <ConfirmModal
+          title={t('printers.plateChanger.refillConfirmTitle')}
+          message={t('printers.plateChanger.refillConfirmMessage', { capacity: plateCapacity })}
+          confirmText={t('printers.plateChanger.refill')}
+          variant="warning"
+          onConfirm={() => {
+            refillPlatesMutation.mutate();
+            setShowRefillConfirm(false);
+          }}
+          onCancel={() => setShowRefillConfirm(false)}
+        />
         </div>
       )}
 
@@ -8675,6 +8789,7 @@ function EditPrinterModal({
     is_active: printer.is_active,
     wear_cost_per_hour: printer.wear_cost_per_hour ? String(printer.wear_cost_per_hour) : '',
     plate_clear_override: printer.plate_clear_override ?? 'inherit',
+    plate_capacity: printer.plate_capacity != null ? String(printer.plate_capacity) : '',
   });
   const { data: settings } = useUiSettings();
   const currency = getCurrencySymbol(settings?.currency || 'USD');
@@ -8735,6 +8850,13 @@ function EditPrinterModal({
       wear_cost_per_hour: Number(form.wear_cost_per_hour) > 0 ? Number(form.wear_cost_per_hour) : null,
       plate_clear_override: form.plate_clear_override,
     };
+    // Empty, 0 or negative turns plate changer counting off (#3575); only sent when changed,
+    // and the count itself is never sent
+    const capacityRaw = Math.round(Number(form.plate_capacity));
+    const plateCapacityValue = form.plate_capacity.trim() === '' || !(capacityRaw > 0) ? null : Math.min(999, capacityRaw);
+    if (plateCapacityValue !== (printer.plate_capacity ?? null)) {
+      data.plate_capacity = plateCapacityValue;
+    }
     // Only include access_code if it was changed
     if (form.access_code) {
       data.access_code = form.access_code;
@@ -8916,6 +9038,24 @@ function EditPrinterModal({
                 <option value="off">{t('printers.modal.plateClearOff')}</option>
               </select>
               <p className="text-xs text-bambu-gray mt-1">{t('printers.modal.plateClearHelp')}</p>
+            </div>
+            <div>
+              <label htmlFor="edit_plate_capacity" className="block text-sm text-bambu-gray mb-1">
+                {t('printers.modal.plateCapacityLabel')}
+              </label>
+              <input
+                id="edit_plate_capacity"
+                type="number"
+                min={0}
+                max={999}
+                step={1}
+                inputMode="numeric"
+                className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none"
+                value={form.plate_capacity}
+                onChange={(e) => setForm({ ...form, plate_capacity: e.target.value })}
+                placeholder={t('printers.modal.plateCapacityPlaceholder')}
+              />
+              <p className="text-xs text-bambu-gray mt-1">{t('printers.modal.plateCapacityHelp')}</p>
             </div>
             {/* Maintenance Mode toggle (#1476) — checkbox is the inverse of
                 is_active because the user-facing concept is "is this printer

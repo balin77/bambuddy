@@ -6115,6 +6115,14 @@ async def _run_migrations(conn):
         "ALTER TABLE printers ADD COLUMN plate_clear_override VARCHAR(10) NOT NULL DEFAULT 'inherit'",
     )
 
+    # Migration: per-printer plate changer capacity (#3575). NULL capacity keeps
+    # counting off, so existing printers behave as before.
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN plate_capacity INTEGER")
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN plates_remaining INTEGER")
+    await _safe_execute(
+        conn, "ALTER TABLE notification_providers ADD COLUMN on_plate_changer_empty BOOLEAN DEFAULT TRUE"
+    )
+
     await _backfill_archive_run_photos(conn)
     await _migrate_h3c_queue_tray_ids(conn)
 
@@ -6333,6 +6341,7 @@ _PG_COLUMNS_SET_FROM_MODEL = (
     ("notification_providers", "on_billing_charge_failed"),
     ("notification_providers", "on_ha_sensor_alert"),
     ("notification_providers", "on_location_ha_sensor_alert"),
+    ("notification_providers", "on_plate_changer_empty"),
     ("notification_providers", "on_plate_clear_required"),
     ("notification_providers", "on_print_confirm_request"),
     ("notification_providers", "on_print_pause_upcoming"),
