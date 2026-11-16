@@ -56,6 +56,21 @@
   [role="button"]:not([aria-disabled="true"]) {
     cursor: pointer;
   }
+
+  /* Button labels are not text (#3577).  On a phone, tablet or the installed
+     PWA a tap that lasts a little long or moves a little started a text
+     selection on the label, with handles and the copy menu, instead of
+     pressing the button.  The shared Button component never set
+     `select-none`, and most of the app's buttons are raw `<button>`s, so the
+     rule lives here rather than at each call site.  Inputs, textareas and
+     ordinary text stay selectable; only the label of a control is excluded,
+     along with iOS's long-press callout on it. */
+  button,
+  [role="button"] {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
 }
 
 @theme {
