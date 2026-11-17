@@ -67,7 +67,7 @@ Massgeblich ist Linux bzw. die CI.
 | Plattenbestätigung **pro Drucker** | Issue #2860, PR #3540 (Draft, von Keybored02) | Per Cherry-Pick auf `farm` übernommen (`595d81fbc`, Autor bleibt Keybored02). **Nicht selbst weiterentwickeln.** Fällt weg, sobald es im Release ist. |
 | Plattenzähler / Kapazität pro Drucker | Issue **#3575** (von uns, wartet auf Zuweisung) | Feature B: `feature/plate-changer-capacity`, auf `farm` (`c764a159`, `6b84c76a`). PR-/Wiki-Entwurf in `farm/drafts/` |
 | Auto-Räumung **pro Datei/Auftrag** | Issue **#3576** (von uns, wartet auf Zuweisung) | Feature A: `feature/clears-plate-per-job`, auf `farm` (`ed0196ab`, `60aa5b43`) + Integration A+B (`57cf7da6`, `7d67ad29`, nur `farm`). Entwürfe in `farm/drafts/` |
-| Button-Texte auf Touch markierbar | Issue **#3577** (von uns, wartet auf Zuweisung) | Feature C: `fix/button-text-selection`, auf `farm` (`e1782a8b`, `41eeb035`). Entwurf in `farm/drafts/` |
+| Button-Texte auf Touch markierbar, AMS-Slot-Kacheln per Tipp | Issue **#3577** (von uns, wartet auf Zuweisung) | Feature C: `fix/button-text-selection` (auf `upstream/dev` rebased), auf `farm` (`e1782a8b`, `41eeb035`, Kacheln `89b56c76`, `ddd0c857`). Entwurf `farm/drafts/PR-3577-button-text-selection.md`, Screenshots `pr-assets/3577/` |
 | Geladenes Filament zuerst (Queue-Modus mit Höchstwartezeit) | Issue **#3587** (von uns, wartet auf Zuweisung) | `feature/queue-loaded-filament-first` (von `upstream/dev`), auf `farm` (`851b46ab`; dort ohne `model_dispatch_order`/#3536, Reservierung beachtet Plattengates und leere Plattenwechsler). Entwürfe `farm/drafts/PR-3587.md`, `WIKI-3587.md` |
 
 Wer von A und B **zweiter** upstream landet, übernimmt die Integration aus
@@ -182,9 +182,10 @@ beschädigen. Das ist **die wichtigste Sicherheitsregel der Farm**.
 Eine globale CSS-Regel in `frontend/src/index.css` für `button` und
 `[role='button']`: `user-select: none`, `-webkit-user-select: none`,
 `-webkit-touch-callout: none`. Eingabefelder und normaler Text bleiben
-markierbar. Klein und unabhängig von A und B, eignet sich als erster PR.
-Vor dem Fix auf dem Handy reproduzieren und Vorher/Nachher-Screenshots für
-den PR festhalten.
+markierbar. Erweitert: die AMS-Slot-Kacheln in `FilamentHoverCard.tsx` sind
+Buttons (Tipp, Enter, Leertaste öffnen die Karte; zweiter Tipp, Tipp daneben,
+Escape oder Fokus weg schliessen; immer nur eine Karte offen; Maus-Hover
+unverändert). Kein Wiki-PR nötig (keine neue Einstellung, kein neuer Ablauf).
 
 **Reihenfolge:** C und B können parallel laufen, A danach. B ist für die
 Sicherheit der Farm am wichtigsten. Auf `farm` kommen alle drei.
