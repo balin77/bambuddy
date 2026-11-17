@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '../utils';
+import { render, screen, fireEvent, createEvent, waitFor, act } from '../utils';
 import { FilamentHoverCard, EmptySlotHoverCard } from '../../components/FilamentHoverCard';
 import { setColorCatalog, __resetColorCatalogForTests } from '../../utils/colors';
 
@@ -880,5 +880,189 @@ describe('FilamentHoverCard — assigned spool swatch (#2967)', () => {
     vi.advanceTimersByTime(100);
     await waitFor(() => expect(screen.getByText('Mist')).toBeInTheDocument());
     expect(header().style.backgroundImage).toBe('');
+  });
+});
+
+// The tile is the tap target (#3577): a tap on the material text selected the
+// word on a phone and the card, which only listened for mouseenter, never opened.
+// jsdom's pointer events carry no pointerType, so stamp one on like a browser would.
+const pointer = (el: Element, type: 'pointerDown' | 'pointerEnter', pointerType: string) => {
+  const ev = createEvent[type](el);
+  Object.defineProperty(ev, 'pointerType', { value: pointerType });
+  fireEvent(el, ev);
+};
+
+const advance = (ms: number) => act(() => { vi.advanceTimersByTime(ms); });
+
+describe.each([
+  ['FilamentHoverCard', 'filament-slot', (children: React.ReactNode, extra = {}) => (
+    <FilamentHoverCard
+      data={baseFilamentData}
+      slotLabel="AMS A Slot 2"
+      configureSlot={{ enabled: true, onConfigure: vi.fn() }}
+      {...extra}
+    >
+      {children}
+    </FilamentHoverCard>
+  )],
+  ['EmptySlotHoverCard', 'empty-slot', (children: React.ReactNode, extra = {}) => (
+    <EmptySlotHoverCard
+      slotLabel="AMS A Slot 2"
+      configureSlot={{ enabled: true, onConfigure: vi.fn() }}
+      {...extra}
+    >
+      {children}
+    </EmptySlotHoverCard>
+  )],
+])('%s as a tap target (#3577)', (_name, testId, build) => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  const configureButton = () => screen.queryByRole('button', { name: /^configure$/i });
+
+  it('is a focusable, named button that reports its state', () => {
+    render(build(<span>PLA</span>));
+    const tile = screen.getByTestId(testId);
+    expect(tile).toHaveAttribute('role', 'button');
+    expect(tile).toHaveAttribute('tabindex', '0');
+    expect(tile.getAttribute('aria-label')).toMatch(/^Show details for AMS A Slot 2: .+/);
+    expect(tile).toHaveAttribute('aria-expanded', 'false');
+    expect(tile).not.toHaveAttribute('aria-controls');
+  });
+
+  it('opens on a click and closes on the second click', () => {
+    render(build(<span>PLA</span>));
+    const tile = screen.getByTestId(testId);
+    fireEvent.click(screen.getByText('PLA'));
+    expect(configureButton()).toBeInTheDocument();
+    expect(tile).toHaveAttribute('aria-expanded', 'true');
+    const cardId = tile.getAttribute('aria-controls')!;
+    expect(document.getElementById(cardId)).toContainElement(configureButton());
+    fireEvent.click(screen.getByText('PLA'));
+    expect(configureButton()).not.toBeInTheDocument();
+    expect(tile).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('opens on Enter and on Space, and Space does not scroll the page', () => {
+    render(build(<span>PLA</span>));
+    const tile = screen.getByTestId(testId);
+    tile.focus();
+    fireEvent.keyDown(tile, { key: 'Enter' });
+    expect(configureButton()).toBeInTheDocument();
+    fireEvent.keyDown(tile, { key: 'Enter' });
+    expect(configureButton()).not.toBeInTheDocument();
+    const notPrevented = fireEvent.keyDown(tile, { key: ' ' });
+    expect(notPrevented).toBe(false);
+    expect(configureButton()).toBeInTheDocument();
+  });
+
+  it('closes on Escape and returns focus to the tile', () => {
+    render(build(<span>PLA</span>));
+    const tile = screen.getByTestId(testId);
+    fireEvent.click(tile);
+    // Focus sits on the card's own button, as after a click inside it.
+    configureButton()!.focus();
+    fireEvent.keyDown(configureButton()!, { key: 'Escape' });
+    expect(configureButton()).not.toBeInTheDocument();
+    expect(tile).toHaveFocus();
+  });
+
+  it('closes on a press outside the tile and the card', () => {
+    render(build(<span>PLA</span>));
+    fireEvent.click(screen.getByTestId(testId));
+    fireEvent.pointerDown(configureButton()!);
+    expect(configureButton()).toBeInTheDocument();
+    fireEvent.pointerDown(document.body);
+    expect(configureButton()).not.toBeInTheDocument();
+  });
+
+  it('does not toggle the tile when a button inside the card is clicked', () => {
+    const onConfigure = vi.fn();
+    render(build(<span>PLA</span>, { configureSlot: { enabled: true, onConfigure } }));
+    fireEvent.click(screen.getByTestId(testId));
+    fireEvent.click(configureButton()!);
+    expect(onConfigure).toHaveBeenCalledTimes(1);
+    // The action dismisses the card itself; it must not be re-opened by the
+    // click bubbling to the tile.
+    expect(configureButton()).not.toBeInTheDocument();
+  });
+
+  it('ignores Enter and Space typed on a control inside the card', () => {
+    render(build(<span>PLA</span>));
+    fireEvent.click(screen.getByTestId(testId));
+    fireEvent.keyDown(configureButton()!, { key: 'Enter' });
+    expect(configureButton()).toBeInTheDocument();
+  });
+
+  it('does not double-toggle on the emulated mouse events after a touch tap', () => {
+    render(build(<span>PLA</span>));
+    const tile = screen.getByTestId(testId);
+    // What a browser sends for one tap, in order.
+    pointer(tile, 'pointerEnter', 'touch');
+    pointer(tile, 'pointerDown', 'touch');
+    fireEvent.mouseEnter(tile);
+    advance(200);
+    expect(configureButton()).not.toBeInTheDocument();
+    fireEvent.click(tile);
+    expect(configureButton()).toBeInTheDocument();
+    // A late emulated mouseleave must not close it either.
+    fireEvent.mouseLeave(tile);
+    advance(200);
+    expect(configureButton()).toBeInTheDocument();
+    // Second tap closes it.
+    pointer(tile, 'pointerDown', 'touch');
+    fireEvent.mouseEnter(tile);
+    advance(200);
+    fireEvent.click(tile);
+    expect(configureButton()).not.toBeInTheDocument();
+  });
+
+  it('keeps real mouse hover working once the touch window has passed', () => {
+    render(build(<span>PLA</span>));
+    const tile = screen.getByTestId(testId);
+    pointer(tile, 'pointerDown', 'touch');
+    advance(1500);
+    fireEvent.mouseEnter(tile);
+    advance(100);
+    expect(configureButton()).toBeInTheDocument();
+    fireEvent.mouseLeave(tile);
+    advance(150);
+    expect(configureButton()).not.toBeInTheDocument();
+  });
+
+  it('does not close a hover-opened card on a mouse click', () => {
+    render(build(<span>PLA</span>));
+    const tile = screen.getByTestId(testId);
+    fireEvent.mouseEnter(tile);
+    advance(100);
+    pointer(tile, 'pointerDown', 'mouse');
+    fireEvent.click(tile);
+    expect(configureButton()).toBeInTheDocument();
+  });
+
+  it('keeps the card text selectable although the tile is not', () => {
+    render(build(<span>PLA</span>));
+    fireEvent.click(screen.getByTestId(testId));
+    const card = document.getElementById(screen.getByTestId(testId).getAttribute('aria-controls')!)!;
+    expect(card).toHaveClass('select-text');
+    expect(screen.getByTestId(testId)).not.toContainElement(card);
+  });
+});
+
+describe('FilamentHoverCard disabled tile (#3577)', () => {
+  it('stays inert: not focusable, no toggling, aria-disabled', () => {
+    render(
+      <FilamentHoverCard data={baseFilamentData} disabled>
+        <span>PLA</span>
+      </FilamentHoverCard>
+    );
+    const tile = screen.getByTestId('filament-slot');
+    expect(tile).toHaveAttribute('aria-disabled', 'true');
+    expect(tile).not.toHaveAttribute('tabindex');
+    expect(tile).not.toHaveAttribute('aria-expanded');
+    fireEvent.click(tile);
+    fireEvent.keyDown(tile, { key: 'Enter' });
+    expect(screen.queryByText('PLA Basic')).not.toBeInTheDocument();
   });
 });

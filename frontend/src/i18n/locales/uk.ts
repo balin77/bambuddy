@@ -861,6 +861,9 @@ export default {
       hide: "Сховати зовнішню котушку",
       show: "Показати зовнішню котушку",
     },
+    amsSlot: {
+      openDetails: 'Показати відомості про {{slot}}: {{material}}',
+    },
     // Camera
     openCameraOverlay: "Відкрити накладання камери",
     openCameraWindow: "Відкрити камеру в новому вікні",

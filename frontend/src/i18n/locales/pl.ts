@@ -864,6 +864,9 @@ export default {
       hide: 'Ukryj szpulę zewnętrzną',
       show: 'Pokaż szpulę zewnętrzną',
     },
+    amsSlot: {
+      openDetails: 'Pokaż szczegóły dla {{slot}}: {{material}}',
+    },
     // Camera
     openCameraOverlay: 'Otwórz nakładkę kamery',
     openCameraWindow: 'Otwórz kamerę w nowym oknie',

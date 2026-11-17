@@ -857,6 +857,9 @@ export default {
       hide: 'Ocultar bobina externa',
       show: 'Mostrar bobina externa',
     },
+    amsSlot: {
+      openDetails: 'Mostrar detalles de {{slot}}: {{material}}',
+    },
     // Camera
     openCameraOverlay: 'Abrir la cámara superpuesta',
     openCameraWindow: 'Abrir la cámara en una ventana nueva',

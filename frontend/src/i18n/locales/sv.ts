@@ -862,6 +862,9 @@ export default {
       hide: 'Dölj extern rulle',
       show: 'Visa extern rulle',
     },
+    amsSlot: {
+      openDetails: 'Visa detaljer för {{slot}}: {{material}}',
+    },
     // Camera
     openCameraOverlay: 'Öppna kameran i överlägg',
     openCameraWindow: 'Öppna kameran i nytt fönster',
