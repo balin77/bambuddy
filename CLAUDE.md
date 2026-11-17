@@ -68,6 +68,7 @@ Massgeblich ist Linux bzw. die CI.
 | Plattenzähler / Kapazität pro Drucker | Issue **#3575** (von uns, wartet auf Zuweisung) | Feature B: `feature/plate-changer-capacity`, auf `farm` (`c764a159`, `6b84c76a`). PR-/Wiki-Entwurf in `farm/drafts/` |
 | Auto-Räumung **pro Datei/Auftrag** | Issue **#3576** (von uns, wartet auf Zuweisung) | Feature A: `feature/clears-plate-per-job`, auf `farm` (`ed0196ab`, `60aa5b43`) + Integration A+B (`57cf7da6`, `7d67ad29`, nur `farm`). Entwürfe in `farm/drafts/` |
 | Button-Texte auf Touch markierbar | Issue **#3577** (von uns, wartet auf Zuweisung) | Feature C: `fix/button-text-selection`, auf `farm` (`e1782a8b`, `41eeb035`). Entwurf in `farm/drafts/` |
+| Geladenes Filament zuerst (Queue-Modus mit Höchstwartezeit) | Issue **#3587** (von uns, wartet auf Zuweisung) | `feature/queue-loaded-filament-first` (von `upstream/dev`), auf `farm` (`851b46ab`; dort ohne `model_dispatch_order`/#3536, Reservierung beachtet Plattengates und leere Plattenwechsler). Entwürfe `farm/drafts/PR-3587.md`, `WIKI-3587.md` |
 
 Wer von A und B **zweiter** upstream landet, übernimmt die Integration aus
 `57cf7da6`: `consume_auto_cleared_plate(..., job_clears_plate=...)`.
