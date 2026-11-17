@@ -5974,6 +5974,7 @@ function PrinterCard({
                                     {/* Hover card wraps only the visual content */}
                                     {filamentData ? (
                                       <FilamentHoverCard
+                                        slotLabel={`${cardLabel} ${t('ams.slot')} ${slotIdx + 1}`}
                                         data={filamentData}
                                         actions={renderAmsSlotActions({
                                           amsId: ams.id,
@@ -6081,6 +6082,7 @@ function PrinterCard({
                                       </FilamentHoverCard>
                                     ) : (
                                       <EmptySlotHoverCard
+                                        slotLabel={`${cardLabel} ${t('ams.slot')} ${slotIdx + 1}`}
                                         kind={emptyKind ?? undefined}
                                         assigned={pending ?? undefined}
                                         actions={renderAmsSlotActions({
@@ -6392,6 +6394,7 @@ function PrinterCard({
                                 {/* Hover card wraps only the visual content */}
                                 {filamentData ? (
                                   <FilamentHoverCard
+                                    slotLabel={getAmsLabel(ams.id)}
                                     data={filamentData}
                                     actions={renderAmsSlotActions({
                                       amsId: ams.id,
@@ -6498,6 +6501,7 @@ function PrinterCard({
                                   </FilamentHoverCard>
                                 ) : (
                                   <EmptySlotHoverCard
+                                    slotLabel={getAmsLabel(ams.id)}
                                     kind={emptyKind ?? undefined}
                                     assigned={pending ?? undefined}
                                     actions={renderAmsSlotActions({
@@ -6714,6 +6718,7 @@ function PrinterCard({
                                 <div key={extTrayId} className="relative group w-full" style={filamentSlotStyle}>
                                   {!isEmpty ? (
                                     <FilamentHoverCard
+                                      slotLabel={extLabel ? `${t('ams.externalSpool')} ${extLabel}` : t('ams.externalSpool')}
                                       data={extFilamentData}
                                       actions={extActions}
                                       spoolman={{
@@ -6815,6 +6820,7 @@ function PrinterCard({
                                     </FilamentHoverCard>
                                   ) : (
                                     <EmptySlotHoverCard
+                                      slotLabel={extLabel ? `${t('ams.externalSpool')} ${extLabel}` : t('ams.externalSpool')}
                                       kind={emptyKind ?? undefined}
                                       assigned={pending ?? undefined}
                                       actions={extActions}

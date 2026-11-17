@@ -849,6 +849,9 @@ export default {
       hide: 'Externe Spule ausblenden',
       show: 'Externe Spule einblenden',
     },
+    amsSlot: {
+      openDetails: 'Details anzeigen für {{slot}}: {{material}}',
+    },
     // Camera
     openCameraOverlay: 'Kamera-Overlay öffnen',
     openCameraWindow: 'Kamera in neuem Fenster öffnen',

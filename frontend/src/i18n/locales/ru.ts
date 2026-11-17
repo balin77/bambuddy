@@ -815,6 +815,9 @@ export default {
       hide: "Скрыть внешнюю катушку",
       show: "Показать внешнюю катушку",
     },
+    amsSlot: {
+      openDetails: 'Показать сведения о {{slot}}: {{material}}',
+    },
     openCameraOverlay: "Открыть камеру поверх интерфейса",
     openCameraWindow: "Открыть камеру в новом окне",
     firmwareUpdateAvailable: "Доступно обновление прошивки: {{current}} → {{latest}}",

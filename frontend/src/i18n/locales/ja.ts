@@ -848,6 +848,9 @@ export default {
       hide: '外部スプールを非表示にする',
       show: '外部スプールを表示する',
     },
+    amsSlot: {
+      openDetails: '{{slot}}の詳細を表示: {{material}}',
+    },
     // Camera
     openCameraOverlay: 'カメラオーバーレイを開く',
     openCameraWindow: 'カメラを新しいウィンドウで開く',

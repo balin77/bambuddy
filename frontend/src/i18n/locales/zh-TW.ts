@@ -849,6 +849,9 @@ export default {
       hide: '隱藏外部料卷',
       show: '顯示外部料卷',
     },
+    amsSlot: {
+      openDetails: '顯示 {{slot}} 的詳細資料：{{material}}',
+    },
     // Camera
     openCameraOverlay: '開啟攝影機疊加層',
     openCameraWindow: '在新視窗中開啟攝影機',

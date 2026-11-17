@@ -854,6 +854,9 @@ export default {
       hide: 'Externe spoel verbergen',
       show: 'Externe spoel weergeven',
     },
+    amsSlot: {
+      openDetails: 'Details van {{slot}} tonen: {{material}}',
+    },
     // Camera
     openCameraOverlay: 'Camera-overlay openen',
     openCameraWindow: 'Camera in nieuw venster openen',

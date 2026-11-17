@@ -849,6 +849,9 @@ export default {
       hide: 'Nascondi bobina esterna',
       show: 'Mostra bobina esterna',
     },
+    amsSlot: {
+      openDetails: 'Mostra i dettagli di {{slot}}: {{material}}',
+    },
     // Camera
     openCameraOverlay: 'Apri overlay camera',
     openCameraWindow: 'Apri camera in nuova finestra',

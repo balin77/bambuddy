@@ -856,6 +856,9 @@ export default {
       hide: 'Hide external spool',
       show: 'Show external spool',
     },
+    amsSlot: {
+      openDetails: 'Show details for {{slot}}: {{material}}',
+    },
     // Camera
     openCameraOverlay: 'Open camera overlay',
     openCameraWindow: 'Open camera in new window',
