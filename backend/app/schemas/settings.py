@@ -497,6 +497,13 @@ class AppSettings(BaseModel):
         default=False,
         description="Shortest Job First — scheduler prioritizes shorter print jobs over longer ones",
     )
+    filament_override_inventory: bool = Field(
+        default=False,
+        description=(
+            "Offer built-in inventory colours in the print dialog's filament override and hint at "
+            "out-of-stock filament in waiting reasons (#3590). Install-wide, off by default."
+        ),
+    )
     queue_loaded_filament_first: bool = Field(
         default=False,
         description=(
@@ -878,6 +885,7 @@ class AppSettingsUpdate(BaseModel):
     queue_shortest_first: bool | None = None
     queue_loaded_filament_first: bool | None = None
     queue_max_wait_hours: int | None = Field(default=None, ge=QUEUE_MAX_WAIT_HOURS_MIN, le=QUEUE_MAX_WAIT_HOURS_MAX)
+    filament_override_inventory: bool | None = None
     queue_max_concurrent_uploads: int | None = Field(default=None, ge=1, le=16)
     preheat_enabled: bool | None = None
     preheat_filament_targets: str | None = None

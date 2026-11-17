@@ -1672,6 +1672,8 @@ export interface AppSettings {
   require_plate_clear: boolean;
   // Shortest job first scheduling
   queue_shortest_first: boolean;
+  // Offer the built-in inventory's colours in the print dialog's filament override (#3590).
+  filament_override_inventory: boolean;
   // How many printers the queue may upload to at once (#2555). 1 restores the
   // old strictly-serial behaviour, where every printer waited out every other
   // printer's transfer.
