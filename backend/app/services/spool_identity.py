@@ -12,11 +12,7 @@ from backend.app.models.spool import Spool
 from backend.app.services.slicer_filament_resolver import realign_builtin_filament_id
 from backend.app.utils.color_utils import color6_key
 from backend.app.utils.filament_ids import GENERIC_FILAMENT_IDS, normalize_slicer_filament
-from backend.app.utils.filament_types import (
-    canonical_filament_type,
-    printer_filament_type,
-    support_filament_type,
-)
+from backend.app.utils.filament_types import canonical_filament_type, printer_filament_type
 
 # "GF" + family letter + two digits (GFL05, GFS00) or SUNLU's GFSNL03.
 _SPECIFIC_BAMBU_ID = re.compile(r"GF[A-Z]\d{2}|GFSNL\d+")
@@ -33,13 +29,15 @@ def spool_tray_type(
     """The ``tray_type`` a spool's slot carries.
 
     The material column is reduced to the printer's name for it; a preset's own
-    type (``type_override``) wins when there is one; a support material keeps
-    the slicer's suffix (#2902, #3559).
+    type (``type_override``) wins when there is one (#2902). ``tray_info_idx``
+    and ``name_hint`` are the hooks for the support-material suffix (#3559),
+    which farm does not have yet.
     """
     tray_type = printer_filament_type(material)
     if type_override:
         tray_type = printer_filament_type(type_override)
-    return support_filament_type(tray_type, tray_info_idx, name_hint)
+    del tray_info_idx, name_hint  # no support suffix on farm (#3559 is dev-only)
+    return tray_type
 
 
 @dataclass(frozen=True)

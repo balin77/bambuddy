@@ -34,12 +34,6 @@ class TestSpoolTrayType:
     def test_type_override_wins(self):
         assert spool_tray_type("PLA", type_override="PETG") == "PETG"
 
-    def test_support_id(self):
-        assert spool_tray_type("PLA", tray_info_idx="GFS00") == "PLA-S"
-
-    def test_support_name_hint(self):
-        assert spool_tray_type("PLA", name_hint="Some Support for PLA") == "PLA-S"
-
     def test_plain_pla_untouched(self):
         assert spool_tray_type("PLA", name_hint="Bambu PLA Basic") == "PLA"
 
@@ -68,14 +62,6 @@ class TestOverrideIdentity:
 
     def test_lowercase_rgba_upper(self):
         assert spool_override_identity(_spool(rgba="aabbccdd")).color == "#AABBCC"
-
-    def test_support_spool(self):
-        ident = spool_override_identity(_spool(slicer_filament="GFS02"))
-        assert ident.type == "PLA-S"
-
-    def test_support_by_name(self):
-        ident = spool_override_identity(_spool(slicer_filament_name="Acme Support for PLA"))
-        assert ident.type == "PLA-S"
 
     def test_plus_material(self):
         assert spool_override_identity(_spool(material="PLA+", brand="eSUN")).type == "PLA"
