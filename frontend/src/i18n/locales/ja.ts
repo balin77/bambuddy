@@ -849,7 +849,7 @@ export default {
       show: '外部スプールを表示する',
     },
     amsSlot: {
-      openDetails: '{{slot}}の詳細を表示: {{material}}',
+      tileLabel: '{{slot}}：{{material}}',
     },
     // Camera
     openCameraOverlay: 'カメラオーバーレイを開く',

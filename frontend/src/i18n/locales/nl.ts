@@ -855,7 +855,7 @@ export default {
       show: 'Externe spoel weergeven',
     },
     amsSlot: {
-      openDetails: 'Details van {{slot}} tonen: {{material}}',
+      tileLabel: '{{slot}} - {{material}}',
     },
     // Camera
     openCameraOverlay: 'Camera-overlay openen',

@@ -926,7 +926,7 @@ describe.each([
     const tile = screen.getByTestId(testId);
     expect(tile).toHaveAttribute('role', 'button');
     expect(tile).toHaveAttribute('tabindex', '0');
-    expect(tile.getAttribute('aria-label')).toMatch(/^Show details for AMS A Slot 2: .+/);
+    expect(tile.getAttribute('aria-label')).toMatch(/^AMS A Slot 2 - .+/);
     expect(tile).toHaveAttribute('aria-expanded', 'false');
     expect(tile).not.toHaveAttribute('aria-controls');
   });
@@ -1041,12 +1041,102 @@ describe.each([
     expect(configureButton()).toBeInTheDocument();
   });
 
+  it('keeps a hover-opened card open on a pen tap', () => {
+    render(build(<span>PLA</span>));
+    const tile = screen.getByTestId(testId);
+    fireEvent.mouseEnter(tile);
+    advance(100);
+    pointer(tile, 'pointerDown', 'pen');
+    fireEvent.click(tile);
+    expect(configureButton()).toBeInTheDocument();
+    // A second pen tap is a real toggle.
+    pointer(tile, 'pointerDown', 'pen');
+    fireEvent.click(tile);
+    expect(configureButton()).not.toBeInTheDocument();
+  });
+
+  it('closes on Escape pressed anywhere in the document', () => {
+    render(build(<span>PLA</span>));
+    fireEvent.click(screen.getByTestId(testId));
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    outside.focus();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(configureButton()).not.toBeInTheDocument();
+    expect(outside).toHaveFocus();
+    outside.remove();
+  });
+
+  it('closes when focus moves outside the tile and the card', () => {
+    render(build(<span>PLA</span>));
+    const tile = screen.getByTestId(testId);
+    tile.focus();
+    fireEvent.keyDown(tile, { key: 'Enter' });
+    expect(configureButton()).toBeInTheDocument();
+    act(() => configureButton()!.focus());
+    expect(configureButton()).toBeInTheDocument();
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    act(() => outside.focus());
+    expect(screen.queryByRole('button', { name: /^configure$/i })).not.toBeInTheDocument();
+    outside.remove();
+  });
+
+  it('does not throw when unmounted with a pending show timer', () => {
+    const { unmount } = render(build(<span>PLA</span>));
+    fireEvent.mouseEnter(screen.getByTestId(testId));
+    unmount();
+    expect(() => advance(500)).not.toThrow();
+    expect(configureButton()).not.toBeInTheDocument();
+  });
+
   it('keeps the card text selectable although the tile is not', () => {
     render(build(<span>PLA</span>));
     fireEvent.click(screen.getByTestId(testId));
     const card = document.getElementById(screen.getByTestId(testId).getAttribute('aria-controls')!)!;
     expect(card).toHaveClass('select-text');
     expect(screen.getByTestId(testId)).not.toContainElement(card);
+  });
+});
+
+describe('only one slot card is open at a time (#3577)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  const renderTwo = () =>
+    render(
+      <>
+        <FilamentHoverCard data={baseFilamentData} slotLabel="Slot A" configureSlot={{ enabled: true, onConfigure: vi.fn() }}>
+          <span>A</span>
+        </FilamentHoverCard>
+        <FilamentHoverCard data={baseFilamentData} slotLabel="Slot B" configureSlot={{ enabled: true, onConfigure: vi.fn() }}>
+          <span>B</span>
+        </FilamentHoverCard>
+      </>
+    );
+  const tiles = () => screen.getAllByTestId('filament-slot');
+  const cards = () => screen.queryAllByRole('button', { name: /^configure$/i });
+
+  it('opening B by click closes A', () => {
+    renderTwo();
+    fireEvent.click(tiles()[0]);
+    expect(cards()).toHaveLength(1);
+    fireEvent.click(tiles()[1]);
+    expect(cards()).toHaveLength(1);
+    expect(tiles()[0]).toHaveAttribute('aria-expanded', 'false');
+    expect(tiles()[1]).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('opening B by keyboard closes A', () => {
+    renderTwo();
+    tiles()[0].focus();
+    fireEvent.keyDown(tiles()[0], { key: 'Enter' });
+    tiles()[1].focus();
+    fireEvent.keyDown(tiles()[1], { key: ' ' });
+    expect(cards()).toHaveLength(1);
+    expect(tiles()[0]).toHaveAttribute('aria-expanded', 'false');
+    expect(tiles()[1]).toHaveAttribute('aria-expanded', 'true');
   });
 });
 

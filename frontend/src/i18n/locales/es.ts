@@ -850,7 +850,7 @@ export default {
       show: 'Mostrar bobina externa',
     },
     amsSlot: {
-      openDetails: 'Mostrar detalles de {{slot}}: {{material}}',
+      tileLabel: '{{slot}} - {{material}}',
     },
     // Camera
     openCameraOverlay: 'Abrir la cámara superpuesta',

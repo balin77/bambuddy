@@ -65,14 +65,18 @@ interface ConfigureSlotConfig {
 // toggles the card and the emulated hover cannot toggle it a second time.
 const TOUCH_HOVER_GUARD_MS = 1000;
 
+// Only one slot card is open at a time: opening a card closes the one before it.
+let closeOpenSlotCard: (() => void) | null = null;
+
 const INTERACTIVE_SELECTOR = 'a[href], button, input, select, textarea, [role="button"]';
 
 /**
  * Open/close behaviour shared by the filled and the empty slot tile (#3577).
  *
  * The tile is a keyboard- and touch-operable button: a tap (or Enter / Space)
- * toggles the card, Escape closes it and puts focus back on the tile, a pointer
- * press anywhere outside the tile and the card closes it. Mouse hover keeps
+ * toggles the card, Escape closes it (focus goes back to the tile if it was in
+ * the tile or card), a pointer press or focus move outside the tile and the
+ * card closes it, and opening one card closes any other. Mouse hover keeps
  * its original open-on-enter / close-on-leave timing. Without the tap path a
  * touch device had no way to open the card at all except by the emulated
  * mouseenter, which a tap on the material text turned into a text selection
@@ -85,6 +89,7 @@ function useSlotCard(disabled: boolean | undefined) {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTouchRef = useRef(Number.NEGATIVE_INFINITY);
   const pointerTypeRef = useRef<string | null>(null);
+  const openedByHoverRef = useRef(false);
   const cardId = useId();
 
   const clearTimer = useCallback(() => {
@@ -96,7 +101,10 @@ function useSlotCard(disabled: boolean | undefined) {
     if (disabled || recentTouch()) return;
     clearTimer();
     // Small delay to prevent flicker on quick mouse movements
-    timeoutRef.current = setTimeout(() => setIsVisible(true), 80);
+    timeoutRef.current = setTimeout(() => {
+      openedByHoverRef.current = true;
+      setIsVisible(true);
+    }, 80);
   };
 
   const handleMouseLeave = () => {
@@ -115,30 +123,62 @@ function useSlotCard(disabled: boolean | undefined) {
   // Clearing the timeout is not optional: a pending show timer would re-open it.
   const dismiss = useCallback(() => {
     clearTimer();
+    openedByHoverRef.current = false;
     setIsVisible(false);
   }, [clearTimer]);
 
-  const toggle = (mouse: boolean) => {
+  const toggle = () => {
     clearTimer();
-    // A mouse click lands on a card that hover has just opened; closing it
-    // again would make every click a flicker. Leaving the tile closes it.
-    setIsVisible((v) => (mouse ? true : !v));
+    openedByHoverRef.current = false;
+    setIsVisible((v) => !v);
   };
 
   useEffect(() => clearTimer, [clearTimer]);
 
-  // A press outside the tile and its card closes the card. This is the only
-  // way to dismiss it on touch, which never sends a mouseleave (#2631).
+  // One card at a time: a newly opened card closes the previous one.
   useEffect(() => {
     if (!isVisible) return;
+    if (closeOpenSlotCard && closeOpenSlotCard !== dismiss) closeOpenSlotCard();
+    closeOpenSlotCard = dismiss;
+    return () => {
+      if (closeOpenSlotCard === dismiss) closeOpenSlotCard = null;
+    };
+  }, [isVisible, dismiss]);
+
+  // A press or focus move outside the tile and its card closes the card, and
+  // Escape closes it from anywhere. A press is the only way to dismiss it on
+  // touch, which never sends a mouseleave (#2631).
+  useEffect(() => {
+    if (!isVisible) return;
+    const inside = (node: Node | null) =>
+      !!node && (!!triggerRef.current?.contains(node) || !!cardRef.current?.contains(node));
     const onPointerDown = (e: globalThis.PointerEvent) => {
       const target = e.target as Node | null;
-      if (!target) return;
-      if (triggerRef.current?.contains(target) || cardRef.current?.contains(target)) return;
+      if (!target || inside(target)) return;
       dismiss();
     };
+    // Focus that was inside the tile or card and lands outside both closes it.
+    // Tracked through focusin so it does not rely on relatedTarget.
+    let focusWasInside = inside(document.activeElement);
+    const onFocusIn = (e: FocusEvent) => {
+      const nowInside = inside(e.target as Node | null);
+      if (focusWasInside && !nowInside) dismiss();
+      focusWasInside = nowInside;
+    };
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const hadFocus = inside(document.activeElement);
+      dismiss();
+      if (hadFocus) triggerRef.current?.focus();
+    };
     document.addEventListener('pointerdown', onPointerDown, true);
-    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('focusin', onFocusIn);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('focusin', onFocusIn);
+      document.removeEventListener('keydown', onKeyDown);
+    };
   }, [isVisible, dismiss, triggerRef, cardRef]);
 
   const notePointer = (e: PointerEvent<HTMLElement>) => {
@@ -168,22 +208,21 @@ function useSlotCard(disabled: boolean | undefined) {
         if (!e.currentTarget.contains(target)) return;
         const control = target.closest(INTERACTIVE_SELECTOR);
         if (control && control !== e.currentTarget && e.currentTarget.contains(control)) return;
-        const mouse = pointerTypeRef.current === 'mouse';
+        const touch = pointerTypeRef.current === 'touch';
         pointerTypeRef.current = null;
-        toggle(mouse);
-      },
-      onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
-        if (e.key === 'Escape') {
-          if (!isVisible) return;
-          e.stopPropagation();
-          dismiss();
-          triggerRef.current?.focus();
+        // A mouse or pen click lands on a card that hover has just opened;
+        // closing it again would make every click a flicker.
+        if (!touch && openedByHoverRef.current) {
+          openedByHoverRef.current = false;
           return;
         }
+        toggle();
+      },
+      onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
         if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          if (!e.repeat) toggle(false);
+          if (!e.repeat) toggle();
         }
       },
     };
@@ -394,7 +433,7 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
       data-testid="filament-slot"
       className={`relative ${TILE_FOCUS_CLASS} ${className}`}
       {...triggerProps(
-        t('printers.amsSlot.openDetails', {
+        t('printers.amsSlot.tileLabel', {
           slot: slotLabel ?? t('ams.slot'),
           material: [data.profile, displayColorName].filter(Boolean).join(', '),
         }),
@@ -535,7 +574,7 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
                         className="flex items-center gap-1 text-xs text-bambu-gray hover:text-white transition-colors"
                         title="Copy spool UUID"
                       >
-                        <span className="font-mono text-[10px] truncate max-w-[80px] select-text">
+                        <span className="font-mono text-[10px] truncate max-w-[80px]">
                           {data.trayUuid.slice(0, 8)}...
                         </span>
                         {copied ? (
@@ -753,7 +792,7 @@ export function EmptySlotHoverCard({ children, className = '', configureSlot, on
       className={`relative ${TILE_FOCUS_CLASS} ${className}`}
       data-testid="empty-slot"
       {...triggerProps(
-        t('printers.amsSlot.openDetails', {
+        t('printers.amsSlot.tileLabel', {
           slot: slotLabel ?? t('ams.slot'),
           material: assigned
             ? assigned.label

@@ -850,7 +850,7 @@ export default {
       show: 'Externe Spule einblenden',
     },
     amsSlot: {
-      openDetails: 'Details anzeigen für {{slot}}: {{material}}',
+      tileLabel: '{{slot}} - {{material}}',
     },
     // Camera
     openCameraOverlay: 'Kamera-Overlay öffnen',
