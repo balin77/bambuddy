@@ -819,7 +819,7 @@ export default {
       show: '외부 스풀 표시',
     },
     amsSlot: {
-      openDetails: '{{slot}} 상세 정보 보기: {{material}}',
+      tileLabel: '{{slot}} - {{material}}',
     },
     openCameraOverlay: '카메라 오버레이 열기',
     openCameraWindow: '새 창에서 카메라 열기',

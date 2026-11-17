@@ -865,7 +865,7 @@ export default {
       show: 'Show external spool',
     },
     amsSlot: {
-      openDetails: 'Show details for {{slot}}: {{material}}',
+      tileLabel: '{{slot}} - {{material}}',
     },
     // Camera
     openCameraOverlay: 'Open camera overlay',

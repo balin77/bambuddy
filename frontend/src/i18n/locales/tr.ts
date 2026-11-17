@@ -858,7 +858,7 @@ export default {
       show: 'Harici makarayı göster',
     },
     amsSlot: {
-      openDetails: '{{slot}} ayrıntılarını göster: {{material}}',
+      tileLabel: '{{slot}} - {{material}}',
     },
     // Kamera
     openCameraOverlay: 'Kamera bindirmesini aç',

@@ -865,7 +865,7 @@ export default {
       show: 'Pokaż szpulę zewnętrzną',
     },
     amsSlot: {
-      openDetails: 'Pokaż szczegóły dla {{slot}}: {{material}}',
+      tileLabel: '{{slot}} - {{material}}',
     },
     // Camera
     openCameraOverlay: 'Otwórz nakładkę kamery',

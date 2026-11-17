@@ -824,7 +824,7 @@ export default {
       show: "Показать внешнюю катушку",
     },
     amsSlot: {
-      openDetails: 'Показать сведения о {{slot}}: {{material}}',
+      tileLabel: '{{slot}} - {{material}}',
     },
     openCameraOverlay: "Открыть камеру поверх интерфейса",
     openCameraWindow: "Открыть камеру в новом окне",

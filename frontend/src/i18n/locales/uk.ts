@@ -862,7 +862,7 @@ export default {
       show: "Показати зовнішню котушку",
     },
     amsSlot: {
-      openDetails: 'Показати відомості про {{slot}}: {{material}}',
+      tileLabel: '{{slot}} - {{material}}',
     },
     // Camera
     openCameraOverlay: "Відкрити накладання камери",

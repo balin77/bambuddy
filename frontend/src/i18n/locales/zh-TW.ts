@@ -858,7 +858,7 @@ export default {
       show: '顯示外部料卷',
     },
     amsSlot: {
-      openDetails: '顯示 {{slot}} 的詳細資料：{{material}}',
+      tileLabel: '{{slot}}：{{material}}',
     },
     // Camera
     openCameraOverlay: '開啟攝影機疊加層',
