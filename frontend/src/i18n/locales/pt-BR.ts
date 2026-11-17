@@ -1459,6 +1459,12 @@ export default {
 
   // Queue page
   queue: {
+    waiting: {
+      filament: 'Aguardando filamento: {{what}}',
+      noMatch: 'Nenhum material/cor correspondente. Aguardando {{what}}',
+      priorityIn: 'prioridade em {{hours}} h',
+      hasPriority: 'tem prioridade',
+    },
     filamentShort: {
       rowBadge: 'Filamento insuficiente para a bobina atribuida',
       rowTooltip: 'O escalonador sinalizou este item. Clique em Play para ver o deficit por slot e decidir se quer imprimir mesmo assim.',
@@ -2531,6 +2537,13 @@ export default {
     concurrentUploadsDescription: 'Quantas impressoras a fila pode abastecer com arquivos ao mesmo tempo. As impressoras recebem os arquivos lentamente (uma impressão grande pode levar vários minutos) e cada uma espera sua vez — portanto, em um parque maior, aumentar este valor evita que a última impressora de um lote tenha de esperar todas as transferências anteriores. Reduza-o se a sua rede ou o host do Bambuddy tiver dificuldade com transferências paralelas.',
     concurrentUploadsLabel: 'Impressoras abastecidas de uma vez',
     concurrentUploadsHelp: '1 envia para uma impressora por vez (o comportamento anterior). O padrão é 4.',
+    loadedFilamentFirstTitle: 'Filamento carregado primeiro',
+    loadedFilamentFirst: 'Executar primeiro os trabalhos cujo filamento está carregado',
+    loadedFilamentFirstDescription: 'Um trabalho cujo filamento não está na impressora é ignorado em vez de retido e começa sozinho assim que o carretel é carregado; os trabalhos seguintes que cabem rodam primeiro. A ordem da fila nunca é alterada.',
+    maxWaitHours: 'Espera máxima (horas)',
+    maxWaitHoursHelp: 'Quando um trabalho fica na fila por esse tempo (contado desde que entrou na fila ou desde o início agendado), ele ganha prioridade: a próxima impressora que poderia usar fica livre para ele até que o filamento seja carregado, e você recebe uma notificação. Deixe vazio para não ter limite; você será então notificado uma vez quando um trabalho começar a esperar.',
+    maxWaitHoursInvalid: 'Digite um número inteiro de horas de 1 a 8760 ou deixe vazio para não ter limite.',
+    maxWaitHoursPlaceholder: 'Sem limite',
     staggeredStart: 'Início escalonado',
     staggeredStartDescription: 'Tamanho de grupo e intervalo padrão ao escalonar inícios de lotes multi-impressora. Pode ser sobrescrito por lote no modal de impressão.',
     preheatTitle: 'Pré-aquecimento & Heat Soak',
