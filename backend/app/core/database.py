@@ -6153,6 +6153,11 @@ async def _run_migrations(conn):
                 )
             )
 
+    # farm only: carry the per-printer values of the #3540 draft over to
+    # printers.require_plate_clear (#2860), once. Must stay after the ADD COLUMN
+    # of require_plate_clear above.
+    await _migrate_farm_plate_clear_override(conn)
+
     await _backfill_archive_run_photos(conn)
     await _migrate_h3c_queue_tray_ids(conn)
 
@@ -6204,6 +6209,61 @@ async def _backfill_print_log_plate_ids(conn) -> None:
                 " WHERE e.archive_id = print_log_entries.archive_id) = 1"
             )
         )
+        await conn.execute(text('INSERT INTO settings ("key", value) VALUES (:k, :v)'), {"k": flag, "v": "true"})
+
+
+async def _migrate_farm_plate_clear_override(conn) -> None:
+    """farm only: copy the per-printer plate-clear values of the #3540 draft to #2860's column.
+
+    Not part of upstream. The farm fork ran a draft of #2860 (PR #3540) that
+    kept the per-printer value in ``printers.plate_clear_override``
+    ('inherit' / 'on' / 'off'). Upstream shipped ``printers.require_plate_clear``
+    instead (BOOLEAN, NULL follows the app setting). Without this copy every
+    printer set to 'on' or 'off' would silently fall back to the app setting
+    on the update, e.g. a plate changer would start waiting for a confirmation
+    nobody gives, or a hand-cleared printer would start printing on a full plate.
+
+    'on' becomes TRUE, 'off' becomes FALSE; 'inherit' and anything else stays
+    NULL, which follows the app setting exactly as 'inherit' did.
+
+    - Once only, gated by a settings flag: a printer set back to "Use the
+      setting" (NULL) afterwards must not get the old column's value again at
+      the next start.
+    - A value already in require_plate_clear is never overwritten.
+    - Additive: the old column and its values stay, so the previous image
+      still finds them after a rollback. The Printer model no longer maps the
+      column; inserts keep working because the column has a database default
+      ('inherit'), both where the draft's migration added it and where
+      create_all built the table from the draft's model.
+    - A database without the old column (fresh install, upstream database) is
+      left alone, and no flag is written: there is nothing to remember.
+    """
+    from sqlalchemy import text
+
+    flag = "_migrate_farm_plate_clear_override_done"
+    async with conn.begin_nested():
+        already = (
+            await conn.execute(text('SELECT value FROM settings WHERE "key" = :k'), {"k": flag})
+        ).scalar_one_or_none()
+        if already is not None:
+            return
+        if not await _table_column_exists(conn, "printers", "plate_clear_override"):
+            return
+        copied = 0
+        for old, new in (("on", "TRUE"), ("off", "FALSE")):
+            result = await conn.execute(
+                text(
+                    f"UPDATE printers SET require_plate_clear = {new} "  # nosec B608 -- literals from the fixed pairs above
+                    "WHERE require_plate_clear IS NULL AND LOWER(TRIM(plate_clear_override)) = :old"
+                ),
+                {"old": old},
+            )
+            copied += result.rowcount or 0
+        if copied:
+            logger.info(
+                "Copied the plate-clear setting of %d printer(s) from plate_clear_override to require_plate_clear",
+                copied,
+            )
         await conn.execute(text('INSERT INTO settings ("key", value) VALUES (:k, :v)'), {"k": flag, "v": "true"})
 
 
