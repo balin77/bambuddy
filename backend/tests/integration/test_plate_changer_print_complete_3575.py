@@ -2,8 +2,8 @@
 
 ``on_print_complete`` runs against real rows (like test_print_complete_end_to_end);
 only the outside world is mocked. A plate is spent by a *completed* print whose
-plate nobody has to confirm, i.e. override "off", or "inherit" with
-require_plate_clear off.
+plate nobody has to confirm: the printer's own require_plate_clear is off, or it
+follows the app setting and that is off (#2860).
 """
 
 from contextlib import ExitStack
@@ -18,7 +18,7 @@ from backend.app.models.archive import PrintArchive
 from backend.app.models.print_queue import PrintQueueItem
 from backend.app.models.printer import Printer
 from backend.app.models.settings import Settings
-from backend.app.services import plate_changer
+from backend.app.services import plate_changer, plate_clear
 from backend.app.services.plate_changer import consume_auto_cleared_plate
 from backend.tests.integration.test_print_complete_end_to_end import (  # noqa: F401
     _clean,
@@ -34,13 +34,13 @@ PC = "backend.app.services.plate_changer"
 
 @pytest.fixture(autouse=True)
 def _clean_marks():
-    from backend.app.services import plate_changer
-
     for marks in (plate_changer._count_pending, plate_changer._count_unknown):
         marks.clear()
+    plate_clear.load_overrides({})
     yield
     for marks in (plate_changer._count_pending, plate_changer._count_unknown):
         marks.clear()
+    plate_clear.load_overrides({})
 
 
 @pytest.fixture
@@ -55,14 +55,24 @@ def changer_mocks():
         yield ws, notif
 
 
-async def _setup(db_session, printer_id, *, capacity=5, remaining=3, override="inherit", require_clear=None):
+async def _setup(db_session, printer_id, *, capacity=5, remaining=3, override=None, require_clear=None):
+    """``override`` is the printer's own require_plate_clear, ``require_clear`` the app setting."""
     printer = await db_session.get(Printer, printer_id)
     printer.plate_capacity = capacity
     printer.plates_remaining = remaining
-    printer.plate_clear_override = override
+    printer.require_plate_clear = override
+    # The printer route keeps the cache current; here the row is written directly.
+    plate_clear.set_override(printer_id, override)
     if require_clear is not None:
         db_session.add(Settings(key="require_plate_clear", value="true" if require_clear else "false"))
     await db_session.commit()
+
+
+async def _self_clearing(printer_factory, **kwargs):
+    """A printer whose own require_plate_clear is off: nobody confirms its plate."""
+    printer = await printer_factory(require_plate_clear=False, **kwargs)
+    plate_clear.set_override(printer.id, False)
+    return printer
 
 
 async def _remaining(db_session, printer_id):
@@ -71,8 +81,10 @@ async def _remaining(db_session, printer_id):
 
 
 class TestWhichFinishesCount:
-    async def test_completed_with_override_off_counts(self, test_engine, db_session, queued_print, changer_mocks):
-        await _setup(db_session, queued_print["printer"], override="off", require_clear=True)
+    async def test_completed_with_the_printers_own_setting_off_counts(
+        self, test_engine, db_session, queued_print, changer_mocks
+    ):
+        await _setup(db_session, queued_print["printer"], override=False, require_clear=True)
 
         await _complete(test_engine, queued_print["printer"], "completed")
 
@@ -80,7 +92,7 @@ class TestWhichFinishesCount:
         ws, _notif = changer_mocks
         ws.send_printer_plates_changed.assert_awaited_once_with(queued_print["printer"], 2, 5)
 
-    async def test_completed_inherit_with_setting_off_counts(
+    async def test_completed_following_the_setting_off_counts(
         self, test_engine, db_session, queued_print, changer_mocks
     ):
         await _setup(db_session, queued_print["printer"], require_clear=False)
@@ -89,7 +101,7 @@ class TestWhichFinishesCount:
 
         assert await _remaining(db_session, queued_print["printer"]) == 2
 
-    async def test_completed_inherit_with_setting_unset_does_not_count(
+    async def test_completed_following_an_unset_setting_counts(
         self, test_engine, db_session, queued_print, changer_mocks
     ):
         """No require_plate_clear row reads as the setting being off."""
@@ -99,7 +111,7 @@ class TestWhichFinishesCount:
 
         assert await _remaining(db_session, queued_print["printer"]) == 2
 
-    async def test_completed_inherit_with_setting_on_does_not_count(
+    async def test_completed_following_the_setting_on_does_not_count(
         self, test_engine, db_session, queued_print, changer_mocks
     ):
         await _setup(db_session, queued_print["printer"], require_clear=True)
@@ -109,8 +121,10 @@ class TestWhichFinishesCount:
         assert await _remaining(db_session, queued_print["printer"]) == 3
         changer_mocks[0].send_printer_plates_changed.assert_not_awaited()
 
-    async def test_override_on_does_not_count(self, test_engine, db_session, queued_print, changer_mocks):
-        await _setup(db_session, queued_print["printer"], override="on", require_clear=False)
+    async def test_the_printers_own_setting_on_does_not_count(
+        self, test_engine, db_session, queued_print, changer_mocks
+    ):
+        await _setup(db_session, queued_print["printer"], override=True, require_clear=False)
 
         await _complete(test_engine, queued_print["printer"], "completed")
 
@@ -120,7 +134,7 @@ class TestWhichFinishesCount:
     async def test_an_unsuccessful_finish_does_not_count(
         self, test_engine, db_session, queued_print, changer_mocks, status
     ):
-        await _setup(db_session, queued_print["printer"], override="off")
+        await _setup(db_session, queued_print["printer"], override=False)
 
         await _complete(test_engine, queued_print["printer"], status)
 
@@ -128,7 +142,7 @@ class TestWhichFinishesCount:
         changer_mocks[0].send_printer_plates_changed.assert_not_awaited()
 
     async def test_no_capacity_does_nothing(self, test_engine, db_session, queued_print, changer_mocks):
-        await _setup(db_session, queued_print["printer"], capacity=None, remaining=None, override="off")
+        await _setup(db_session, queued_print["printer"], capacity=None, remaining=None, override=False)
 
         await _complete(test_engine, queued_print["printer"], "completed")
 
@@ -140,7 +154,7 @@ class TestWhichFinishesCount:
         self, test_engine, db_session, queued_print, changer_mocks
     ):
         """No queue item, no archive of ours: the plate was still spent."""
-        await _setup(db_session, queued_print["printer"], override="off")
+        await _setup(db_session, queued_print["printer"], override=False)
         main_module._active_prints.clear()
 
         await _complete(test_engine, queued_print["printer"], "completed", name="from_the_screen")
@@ -152,7 +166,7 @@ class TestInternalPrinterJobs:
     """The printer's own calibration runs complete too but use no plate."""
 
     async def test_a_pressure_advance_line_does_not_count(self, test_engine, db_session, queued_print, changer_mocks):
-        await _setup(db_session, queued_print["printer"], override="off")
+        await _setup(db_session, queued_print["printer"], override=False)
 
         await _complete(
             test_engine,
@@ -165,7 +179,7 @@ class TestInternalPrinterJobs:
         assert not plate_changer.is_count_pending(queued_print["printer"])
 
     async def test_a_usr_path_does_not_count(self, test_engine, db_session, queued_print, changer_mocks):
-        await _setup(db_session, queued_print["printer"], override="off")
+        await _setup(db_session, queued_print["printer"], override=False)
 
         await _complete(
             test_engine,
@@ -179,7 +193,7 @@ class TestInternalPrinterJobs:
     async def test_a_dispatched_job_with_an_internal_looking_name_counts(
         self, test_engine, db_session, queued_print, changer_mocks
     ):
-        await _setup(db_session, queued_print["printer"], override="off")
+        await _setup(db_session, queued_print["printer"], override=False)
         archive = await db_session.get(PrintArchive, queued_print["archive"])
         archive.filename = "auto_pa_line_calib_mode.gcode.3mf"
         await db_session.commit()
@@ -194,7 +208,7 @@ class TestInternalPrinterJobs:
         assert await _remaining(db_session, queued_print["printer"]) == 2
 
     async def test_a_failing_check_counts_the_plate(self, test_engine, db_session, queued_print, changer_mocks):
-        await _setup(db_session, queued_print["printer"], override="off")
+        await _setup(db_session, queued_print["printer"], override=False)
 
         with patch.object(main_module, "_dispatched_by_bambuddy", AsyncMock(side_effect=RuntimeError("boom"))):
             await _complete(
@@ -209,7 +223,7 @@ class TestInternalPrinterJobs:
 
 class TestEmptyEdge:
     async def test_one_to_zero_notifies_once(self, test_engine, db_session, queued_print, changer_mocks):
-        await _setup(db_session, queued_print["printer"], remaining=1, override="off")
+        await _setup(db_session, queued_print["printer"], remaining=1, override=False)
 
         await _complete(test_engine, queued_print["printer"], "completed")
 
@@ -220,7 +234,7 @@ class TestEmptyEdge:
         assert args[:3] == (queued_print["printer"], "P", 5)
 
     async def test_staying_above_zero_does_not_notify(self, test_engine, db_session, queued_print, changer_mocks):
-        await _setup(db_session, queued_print["printer"], remaining=2, override="off")
+        await _setup(db_session, queued_print["printer"], remaining=2, override=False)
 
         await _complete(test_engine, queued_print["printer"], "completed")
 
@@ -230,7 +244,7 @@ class TestEmptyEdge:
     async def test_zero_stays_zero_and_is_not_announced_again(
         self, test_engine, db_session, queued_print, changer_mocks
     ):
-        await _setup(db_session, queued_print["printer"], remaining=0, override="off")
+        await _setup(db_session, queued_print["printer"], remaining=0, override=False)
 
         await _complete(test_engine, queued_print["printer"], "completed")
 
@@ -239,7 +253,7 @@ class TestEmptyEdge:
         changer_mocks[1].on_plate_changer_empty.assert_not_awaited()
 
     async def test_null_remaining_stays_null(self, test_engine, db_session, queued_print, changer_mocks):
-        await _setup(db_session, queued_print["printer"], remaining=None, override="off")
+        await _setup(db_session, queued_print["printer"], remaining=None, override=False)
 
         await _complete(test_engine, queued_print["printer"], "completed")
 
@@ -252,7 +266,7 @@ class TestOrdering:
         self, test_engine, db_session, queued_print, changer_mocks
     ):
         """A queue pass that sees the printer free must already see the new count."""
-        await _setup(db_session, queued_print["printer"], remaining=1, override="off")
+        await _setup(db_session, queued_print["printer"], remaining=1, override=False)
         maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
         seen = {}
 
@@ -290,7 +304,7 @@ class TestOrdering:
 
 class TestCountingNeverBreaksTheCompletion:
     async def test_a_database_error_in_consume(self, test_engine, db_session, queued_print, changer_mocks):
-        await _setup(db_session, queued_print["printer"], override="off")
+        await _setup(db_session, queued_print["printer"], override=False)
 
         with patch(f"{PC}.run_with_retry", AsyncMock(side_effect=RuntimeError("boom"))):
             await _complete(test_engine, queued_print["printer"], "completed")
@@ -305,7 +319,7 @@ class TestCountingNeverBreaksTheCompletion:
         ws, notif = changer_mocks
         ws.send_printer_plates_changed.side_effect = RuntimeError("ws down")
         notif.on_plate_changer_empty.side_effect = RuntimeError("provider down")
-        await _setup(db_session, queued_print["printer"], remaining=1, override="off")
+        await _setup(db_session, queued_print["printer"], remaining=1, override=False)
 
         await _complete(test_engine, queued_print["printer"], "completed")
 
@@ -326,7 +340,7 @@ class TestConsumeDirectly:
             yield changer_mocks
 
     async def test_decrements_and_clamps_at_zero(self, db_session, printer_factory, patched):
-        printer = await printer_factory(name="Swap", plate_capacity=2, plates_remaining=2, plate_clear_override="off")
+        printer = await _self_clearing(printer_factory, name="Swap", plate_capacity=2, plates_remaining=2)
         _ws, notif = patched
 
         await consume_auto_cleared_plate(printer.id)
@@ -341,7 +355,7 @@ class TestConsumeDirectly:
         assert await _remaining(db_session, printer.id) == 0
         notif.on_plate_changer_empty.assert_awaited_once()
 
-    async def test_inherit_follows_the_setting_read_now(self, db_session, printer_factory, patched):
+    async def test_no_override_follows_the_setting_read_now(self, db_session, printer_factory, patched):
         printer = await printer_factory(name="Swap", plate_capacity=5, plates_remaining=5)
 
         db_session.add(Settings(key="require_plate_clear", value="true"))
@@ -356,8 +370,8 @@ class TestConsumeDirectly:
         assert await _remaining(db_session, printer.id) == 4
 
     async def test_only_the_named_printer_is_counted(self, db_session, printer_factory, patched):
-        one = await printer_factory(name="One", plate_capacity=5, plates_remaining=5, plate_clear_override="off")
-        two = await printer_factory(name="Two", plate_capacity=5, plates_remaining=5, plate_clear_override="off")
+        one = await _self_clearing(printer_factory, name="One", plate_capacity=5, plates_remaining=5)
+        two = await _self_clearing(printer_factory, name="Two", plate_capacity=5, plates_remaining=5)
 
         one_id, two_id = one.id, two.id
 
@@ -371,9 +385,7 @@ class TestConsumeDirectly:
         patched[0].send_printer_plates_changed.assert_not_awaited()
 
     async def test_notification_carries_the_name_and_capacity(self, db_session, printer_factory, patched):
-        printer = await printer_factory(
-            name="Swap A1", plate_capacity=7, plates_remaining=1, plate_clear_override="off"
-        )
+        printer = await _self_clearing(printer_factory, name="Swap A1", plate_capacity=7, plates_remaining=1)
 
         await consume_auto_cleared_plate(printer.id)
 
@@ -395,7 +407,7 @@ class TestFailClosed:
     ):
         from backend.app.services.print_scheduler import PrintScheduler
 
-        printer = await printer_factory(name="Swap", plate_capacity=5, plates_remaining=3, plate_clear_override="off")
+        printer = await _self_clearing(printer_factory, name="Swap", plate_capacity=5, plates_remaining=3)
         real = plate_changer.run_with_retry
         calls = []
 
@@ -419,7 +431,7 @@ class TestFailClosed:
         assert scheduler._plate_changer_empty == {printer.id: "Swap"}
 
     async def test_a_failing_zeroing_still_blocks_in_memory(self, printer_factory, patched):
-        printer = await printer_factory(name="Swap", plate_capacity=5, plates_remaining=3, plate_clear_override="off")
+        printer = await _self_clearing(printer_factory, name="Swap", plate_capacity=5, plates_remaining=3)
 
         with patch(f"{PC}.run_with_retry", AsyncMock(side_effect=RuntimeError("db down"))):
             await consume_auto_cleared_plate(printer.id)
@@ -442,7 +454,7 @@ class TestFailClosed:
         patched[1].on_plate_changer_empty.assert_not_awaited()
 
     async def test_a_failing_notification_does_not_raise(self, printer_factory, patched):
-        printer = await printer_factory(name="Swap", plate_capacity=5, plates_remaining=3, plate_clear_override="off")
+        printer = await _self_clearing(printer_factory, name="Swap", plate_capacity=5, plates_remaining=3)
         patched[1].on_plate_changer_empty.side_effect = RuntimeError("provider down")
         real = plate_changer.run_with_retry
 
@@ -457,7 +469,7 @@ class TestFailClosed:
         assert plate_changer.is_count_unknown(printer.id)
 
     async def test_a_later_successful_count_does_not_clear_the_mark(self, printer_factory, patched):
-        printer = await printer_factory(name="Swap", plate_capacity=5, plates_remaining=3, plate_clear_override="off")
+        printer = await _self_clearing(printer_factory, name="Swap", plate_capacity=5, plates_remaining=3)
         plate_changer.mark_count_unknown(printer.id)
 
         await consume_auto_cleared_plate(printer.id)
@@ -471,7 +483,7 @@ class TestPendingMarker:
     ):
         from backend.app.services.usage_tracker import is_completing
 
-        await _setup(db_session, queued_print["printer"], remaining=2, override="off")
+        await _setup(db_session, queued_print["printer"], remaining=2, override=False)
         pid = queued_print["printer"]
         seen = {}
 
@@ -511,28 +523,79 @@ class TestPendingMarker:
 
 
 class TestFeatureOffCost:
-    async def test_no_policy_read_and_no_write_without_a_capacity(self, printer_factory, test_engine, changer_mocks):
+    async def test_no_setting_read_and_no_write_without_a_capacity(self, printer_factory, test_engine, changer_mocks):
         maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
-        printer = await printer_factory(name="Plain", plate_clear_override="off")
-        policy = AsyncMock()
+        printer = await _self_clearing(printer_factory, name="Plain")
+        get_setting = AsyncMock()
         plate_changer.mark_count_pending(printer.id)
         with (
             patch(f"{PC}.async_session", maker),
             patch("backend.app.core.database.async_session", maker),
-            patch("backend.app.services.print_scheduler.load_plate_clear_policy", policy),
+            patch("backend.app.api.routes.settings.get_setting", get_setting),
         ):
             await consume_auto_cleared_plate(printer.id)
             await consume_auto_cleared_plate(9999)
 
-        policy.assert_not_awaited()
+        get_setting.assert_not_awaited()
         assert not plate_changer.is_count_pending(printer.id)
 
 
-class TestPolicyReadsTheSetting:
-    async def test_goes_through_get_setting(self, db_session, printer_factory):
-        from backend.app.services.print_scheduler import load_plate_clear_policy
+class TestWhoClearsThePlate:
+    """A plate is spent exactly where the plate-clear gate of #2860 does not apply."""
 
-        printer = await printer_factory(name="P", plate_clear_override="off")
+    @pytest.fixture
+    def patched(self, test_engine, changer_mocks):
+        maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+        with (
+            patch(f"{PC}.async_session", maker),
+            patch("backend.app.core.database.async_session", maker),
+        ):
+            yield changer_mocks
+
+    @pytest.mark.parametrize(
+        ("override", "setting", "counted"),
+        [
+            (True, True, False),
+            (True, False, False),
+            (False, True, True),
+            (False, False, True),
+            (None, True, False),
+            (None, False, True),
+        ],
+    )
+    async def test_truth_table(self, db_session, printer_factory, patched, override, setting, counted):
+        printer = await printer_factory(name="Swap")
+        await _setup(db_session, printer.id, remaining=5, override=override, require_clear=setting)
+
+        await consume_auto_cleared_plate(printer.id)
+
+        assert await _remaining(db_session, printer.id) == (4 if counted else 5)
+
+    async def test_the_setting_goes_through_get_setting(self, db_session, printer_factory, patched):
+        printer = await printer_factory(name="Swap", plate_capacity=5, plates_remaining=5)
         with patch("backend.app.api.routes.settings.get_setting", AsyncMock(return_value="true")) as get:
-            assert await load_plate_clear_policy(db_session, printer.id) == ("off", True)
-        get.assert_awaited_once_with(db_session, "require_plate_clear")
+            await consume_auto_cleared_plate(printer.id)
+
+        get.assert_awaited_once()
+        assert get.await_args.args[1] == "require_plate_clear"
+        assert await _remaining(db_session, printer.id) == 5
+
+    async def test_asks_the_same_cache_as_the_queue(self, db_session, printer_factory, patched):
+        """The count and the scheduler's gate must agree, so both ask plate_clear."""
+        printer = await printer_factory(name="Swap", plate_capacity=5, plates_remaining=5)
+        db_session.add(Settings(key="require_plate_clear", value="true"))
+        await db_session.commit()
+
+        with patch(f"{PC}.plate_clear.applies", return_value=False) as applies:
+            await consume_auto_cleared_plate(printer.id)
+
+        applies.assert_called_once_with(printer.id, True)
+        assert await _remaining(db_session, printer.id) == 4
+
+    async def test_a_setting_that_cannot_be_read_fails_closed(self, db_session, printer_factory, patched):
+        printer = await _self_clearing(printer_factory, name="Swap", plate_capacity=5, plates_remaining=3)
+        with patch("backend.app.api.routes.settings.get_setting", AsyncMock(side_effect=RuntimeError("boom"))):
+            await consume_auto_cleared_plate(printer.id)
+
+        assert plate_changer.is_count_unknown(printer.id)
+        assert await _remaining(db_session, printer.id) == 0

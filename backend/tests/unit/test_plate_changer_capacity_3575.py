@@ -18,39 +18,10 @@ from backend.app.core.database import Base
 from backend.app.models.library import LibraryFile
 from backend.app.models.print_queue import PrintQueueItem
 from backend.app.models.printer import Printer
-from backend.app.services.print_scheduler import (
-    PrintScheduler,
-    _ModelCandidate,
-    finish_needs_plate_confirmation,
-)
+from backend.app.services import plate_clear
+from backend.app.services.print_scheduler import PrintScheduler, _ModelCandidate
 
 SCHED = "backend.app.services.print_scheduler"
-
-
-class TestFinishNeedsPlateConfirmation:
-    @pytest.mark.parametrize(
-        ("override", "setting", "expected"),
-        [
-            ("on", True, True),
-            ("on", False, True),
-            ("off", True, False),
-            ("off", False, False),
-            ("inherit", True, True),
-            ("inherit", False, False),
-            (None, True, True),
-            (None, False, False),
-        ],
-    )
-    def test_truth_table(self, override, setting, expected):
-        assert finish_needs_plate_confirmation(override, setting) is expected
-
-    @pytest.mark.parametrize("override", ["on", "off", "inherit", None])
-    @pytest.mark.parametrize("setting", [True, False])
-    def test_plate_gate_delegates_to_it(self, override, setting):
-        scheduler = PrintScheduler()
-        if override in ("on", "off"):
-            scheduler._plate_clear_overrides = {1: override}
-        assert scheduler._plate_gate(1, setting) is finish_needs_plate_confirmation(override, setting)
 
 
 @pytest.fixture(autouse=True)
@@ -59,9 +30,11 @@ def _clean_marks():
 
     plate_changer._count_pending.clear()
     plate_changer._count_unknown.clear()
+    plate_clear.load_overrides({})
     yield
     plate_changer._count_pending.clear()
     plate_changer._count_unknown.clear()
+    plate_clear.load_overrides({})
 
 
 @pytest.fixture

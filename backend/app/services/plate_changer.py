@@ -12,6 +12,7 @@ from sqlalchemy import select, text, update
 from backend.app.core.database import async_session, run_with_retry
 from backend.app.core.websocket import ws_manager
 from backend.app.models.printer import Printer
+from backend.app.services import plate_clear
 from backend.app.services.notification_service import notification_service
 
 logger = logging.getLogger(__name__)
@@ -94,13 +95,13 @@ async def consume_auto_cleared_plate(printer_id: int, *, job_clears_plate: bool 
 
     Does nothing for a printer without a capacity, or one that waits for the
     plate-clear confirmation after a print: someone clears that one by hand.
-    A job that clears its own plate (#3576) counts where the global setting
-    would otherwise ask for the confirmation.
+    A job that clears its own plate (#3576) counts where the app setting would
+    otherwise ask for the confirmation; a printer whose own setting is on
+    (#2860) still waits and spends nothing.
     Never raises, so a counting problem cannot break the print completion. When
     the count cannot be booked, the printer reads as empty until it is reset.
     """
-    # Local import: the scheduler pulls in a large part of the service layer.
-    from backend.app.services.print_scheduler import finish_needs_plate_confirmation, load_plate_clear_policy
+    from backend.app.api.routes.settings import get_setting, setting_is_true
 
     try:
 
@@ -108,8 +109,21 @@ async def consume_auto_cleared_plate(printer_id: int, *, job_clears_plate: bool 
             # Cheap read first: a printer without a plate changer costs no write.
             if await db.scalar(select(Printer.plate_capacity).where(Printer.id == printer_id)) is None:
                 return None
-            override, require_plate_clear = await load_plate_clear_policy(db, printer_id)
-            if finish_needs_plate_confirmation(override, require_plate_clear, job_clears_plate=job_clears_plate):
+            # Where the plate-clear gate applies, the app setting or the printer's
+            # own (#2860), someone clears the plate by hand and no plate is spent.
+            setting = setting_is_true(await get_setting(db, "require_plate_clear"))
+            needs_confirmation = plate_clear.applies(printer_id, setting)
+            if needs_confirmation and job_clears_plate:
+                # farm (#3575 + #3576): the rule that lifts the gate for this
+                # finish in _close_out_print decides the count too, so a plate
+                # is spent exactly where nobody is asked to clear it.
+                # Local import: the scheduler pulls in a large part of the service layer.
+                from backend.app.services.print_scheduler import finish_needs_plate_confirmation
+
+                needs_confirmation = finish_needs_plate_confirmation(
+                    plate_clear.override(printer_id), setting, job_clears_plate=True
+                )
+            if needs_confirmation:
                 return None
             # One atomic statement: two prints ending together cannot both read
             # the same count, and it never goes below zero.

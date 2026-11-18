@@ -4,7 +4,8 @@
 only the outside world is mocked, plus ``printer_manager.set_awaiting_plate_clear``,
 which is spied on (and still records the flag so the scheduler sees it).
 
-Only a *completed* job with the flag, on an "inherit" printer, with the global
+Only a *completed* job with the flag, on a printer that follows the app setting
+(no per-printer ``require_plate_clear``, #2860), with the app-wide
 ``require_plate_clear`` on, skips the gate. Everything else raises it as before.
 """
 
@@ -21,6 +22,7 @@ from backend.app.models.library import LibraryFile
 from backend.app.models.print_queue import PrintQueueItem
 from backend.app.models.printer import Printer
 from backend.app.models.settings import Settings
+from backend.app.services import plate_clear
 from backend.app.services.print_scheduler import PrintScheduler
 from backend.app.services.printer_manager import printer_manager
 from backend.tests.integration.test_print_complete_end_to_end import (  # noqa: F401
@@ -49,11 +51,15 @@ def gate():
     with patch.object(printer_manager, "set_awaiting_plate_clear", MagicMock(side_effect=_set)) as spy:
         yield spy
     printer_manager._awaiting_plate_clear.clear()
+    plate_clear.load_overrides({})
 
 
-async def _setup(db_session, qp, *, flag=True, override="inherit", require_clear=True):
+async def _setup(db_session, qp, *, flag=True, override=None, require_clear=True):
+    """``override`` is the printer's own require_plate_clear: None follows the app setting."""
     printer = await db_session.get(Printer, qp["printer"])
-    printer.plate_clear_override = override
+    printer.require_plate_clear = override
+    # The row and the cache move together, as the printer routes keep them (#2860).
+    plate_clear.set_override(qp["printer"], override)
     item = await db_session.get(PrintQueueItem, qp["item"])
     item.clears_plate = flag
     if require_clear is not None:
@@ -68,7 +74,7 @@ def _raised(gate, printer_id) -> bool:
 class TestMatrix:
     @pytest.mark.parametrize(
         ("status", "flag", "require_clear", "override"),
-        list(itertools.product(STATUSES, [True, False], [True, False], ["inherit", "on", "off"])),
+        list(itertools.product(STATUSES, [True, False], [True, False], [None, True, False])),
     )
     async def test_gate_and_row(
         self, test_engine, db_session, queued_print, gate, status, flag, require_clear, override
@@ -77,7 +83,7 @@ class TestMatrix:
 
         await _complete(test_engine, queued_print["printer"], status)
 
-        skipped = status == "completed" and flag and override == "inherit" and require_clear
+        skipped = status == "completed" and flag and override is None and require_clear
         assert _raised(gate, queued_print["printer"]) is (not skipped)
         assert printer_manager.is_awaiting_plate_clear(queued_print["printer"]) is (not skipped)
         # The row is closed with the finish status either way.
@@ -323,15 +329,15 @@ class TestPolicyHelper:
     @pytest.mark.parametrize(
         ("override", "require_clear", "expected"),
         [
-            ("inherit", True, True),
-            ("inherit", False, False),
-            ("on", True, False),
-            ("on", False, False),
-            ("off", True, False),
-            ("off", False, False),
+            (None, True, True),
+            (None, False, False),
+            (True, True, False),
+            (True, False, False),
+            (False, True, False),
+            (False, False, False),
         ],
     )
-    async def test_only_inherit_with_the_setting_on_is_lifted(
+    async def test_only_a_printer_following_the_setting_that_is_on_is_lifted(
         self, test_engine, db_session, queued_print, override, require_clear, expected
     ):
         await _setup(db_session, queued_print, override=override, require_clear=require_clear)
@@ -339,6 +345,76 @@ class TestPolicyHelper:
 
         with patch("backend.app.main.async_session", maker):
             assert await main_module._job_skips_plate_confirmation(queued_print["printer"]) is expected
+
+    async def test_the_printers_own_setting_is_read_where_the_gate_reads_it(
+        self, test_engine, db_session, queued_print
+    ):
+        """One source for the printer's own setting: the cache the scheduler's gate asks (#2860)."""
+        await _setup(db_session, queued_print)
+        maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+
+        with patch("backend.app.main.async_session", maker):
+            assert await main_module._job_skips_plate_confirmation(queued_print["printer"]) is True
+            plate_clear.set_override(queued_print["printer"], True)
+            assert await main_module._job_skips_plate_confirmation(queued_print["printer"]) is False
+            plate_clear.set_override(queued_print["printer"], None)
+            assert await main_module._job_skips_plate_confirmation(queued_print["printer"]) is True
+        plate_clear.load_overrides({})
+
+
+class TestPlateClearNotification:
+    """ "Plate clear required" goes out only where somebody has to clear the plate (#2860, #3576)."""
+
+    async def _notified(self, test_engine, printer_id, status) -> int:
+        """Finish a print through the real gate setter; count the notifications it raises."""
+        maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+        scheduled = []
+        required = AsyncMock()
+        with (
+            patch.object(printer_manager, "_loop", MagicMock(is_running=MagicMock(return_value=True))),
+            patch.object(printer_manager, "_persist_awaiting_plate_clear", MagicMock(return_value=None)),
+            patch.object(printer_manager, "_broadcast_status_change", MagicMock(return_value=None)),
+            patch.object(printer_manager, "_schedule_async", MagicMock(side_effect=scheduled.append)),
+            patch("backend.app.services.mqtt_relay.mqtt_relay.on_plate_clear_state", AsyncMock()),
+            patch("backend.app.services.notification_service.notification_service.on_plate_clear_required", required),
+        ):
+            try:
+                await _complete(test_engine, printer_id, status)
+                with patch("backend.app.core.database.async_session", maker):
+                    for coro in scheduled:
+                        if coro is not None:
+                            await coro
+            finally:
+                printer_manager._awaiting_plate_clear.clear()
+                plate_clear.load_overrides({})
+        return required.await_count
+
+    @pytest.mark.parametrize(
+        ("status", "flag", "require_clear", "override", "expected"),
+        [
+            # A flagged success on a printer that follows the setting: nothing to clear.
+            ("completed", True, True, None, 0),
+            # Without the flag, or when the flagged job did not succeed: as upstream.
+            ("completed", False, True, None, 1),
+            ("failed", True, True, None, 1),
+            ("aborted", True, True, None, 1),
+            ("cancelled", True, True, None, 1),
+            # The printer's own setting decides on its own, flag or not.
+            ("completed", True, True, True, 1),
+            ("completed", True, False, True, 1),
+            ("completed", True, True, False, 0),
+            ("failed", True, True, False, 0),
+            # The app setting off and no setting of its own: the gate holds nobody.
+            ("completed", True, False, None, 0),
+            ("completed", False, False, None, 0),
+        ],
+    )
+    async def test_notification(
+        self, test_engine, db_session, queued_print, status, flag, require_clear, override, expected
+    ):
+        await _setup(db_session, queued_print, flag=flag, override=override, require_clear=require_clear)
+
+        assert await self._notified(test_engine, queued_print["printer"], status) == expected
 
 
 class TestTheNextJobDispatches:
@@ -419,7 +495,7 @@ class TestTheNextJobDispatches:
     async def test_flagged_success_on_an_always_require_printer_still_waits(
         self, test_engine, db_session, queued_print, gate
     ):
-        await _setup(db_session, queued_print, override="on")
+        await _setup(db_session, queued_print, override=True)
         await self._add_pending(db_session, queued_print["printer"])
 
         await _complete(test_engine, queued_print["printer"], "completed")

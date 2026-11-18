@@ -38,7 +38,7 @@ const basePrinter: PlatePrinter = {
   auto_archive: true,
   is_active: true,
   wear_cost_per_hour: null,
-  plate_clear_override: 'inherit',
+  require_plate_clear: null,
   plate_capacity: null,
   plates_remaining: null,
   plate_changer_show_count: true,

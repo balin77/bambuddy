@@ -1390,18 +1390,17 @@ def _wear_order(printer: Printer) -> tuple[float, int]:
 
 
 def finish_needs_plate_confirmation(
-    override: str | None, require_plate_clear: bool, *, job_clears_plate: bool = False
+    override: bool | None, require_plate_clear: bool, *, job_clears_plate: bool = False
 ) -> bool:
-    """Whether a printer waits for someone to confirm its plate after a print (#2860).
+    """Whether a printer waits for someone to confirm its plate after a print.
 
-    The printer's own override wins over the require_plate_clear setting;
-    "inherit" (or no override) follows it. A job that clears its own plate
-    needs no confirmation where the setting would otherwise ask for it (#3576).
+    ``override`` is the printer's own setting (#2860): True and False decide on
+    their own, None follows the app setting. Without ``job_clears_plate`` this
+    is ``plate_clear.applies``. A job that clears its own plate needs no
+    confirmation where the app setting would otherwise ask for it (#3576).
     """
-    if override == "on":
-        return True
-    if override == "off":
-        return False
+    if override is not None:
+        return override
     return require_plate_clear and not job_clears_plate
 
 
@@ -1414,12 +1413,11 @@ def plate_changer_reads_empty(printer_id: int, plates_remaining: int | None) -> 
     return plates_remaining is None or plates_remaining <= 0 or is_count_unknown(printer_id)
 
 
-async def load_plate_clear_policy(db: AsyncSession, printer_id: int) -> tuple[str | None, bool]:
-    """The printer's plate-clear override and the require_plate_clear setting, read now."""
+async def load_plate_clear_policy(db: AsyncSession, printer_id: int) -> tuple[bool | None, bool]:
+    """The printer's own plate-clear setting and the app setting, read now."""
     from backend.app.api.routes.settings import get_setting, setting_is_true
 
-    override = await db.scalar(select(Printer.plate_clear_override).where(Printer.id == printer_id))
-    return override, setting_is_true(await get_setting(db, "require_plate_clear"))
+    return plate_clear.override(printer_id), setting_is_true(await get_setting(db, "require_plate_clear"))
 
 
 class PrintScheduler:
@@ -9503,7 +9501,7 @@ class PrintScheduler:
                 # whether a printer awaiting plate clear is idle.
                 if printer.id in self._plate_changer_empty:
                     continue
-                if not self._is_printer_idle(printer.id, self._plate_gate(printer.id, require_plate_clear)):
+                if not self._is_printer_idle(printer.id, require_plate_clear):
                     continue
                 # The printer the job lands on must have passed its last print
                 # (#3587); one that failed is passed over, as in the matcher.

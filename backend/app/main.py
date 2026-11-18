@@ -9125,7 +9125,8 @@ async def _finishing_job_clears_plate(printer_id: int, data: dict) -> bool:
 
 async def _job_skips_plate_confirmation(printer_id: int) -> bool:
     """A job that clears its own plate lifts the confirmation only where the setting would ask for it (#3576)."""
-    # True only for an "inherit" printer whose global setting asks; "always"/"never" decide on their own.
+    # True only for a printer that follows the app setting, and only when that asks;
+    # a printer with its own setting (#2860) decides on its own.
     try:
         from backend.app.services.print_scheduler import finish_needs_plate_confirmation, load_plate_clear_policy
 
@@ -9393,7 +9394,7 @@ async def _close_out_print(printer_id: int, data: dict):
         logger.exception("Notify Live Activity completion hook failed for printer %s", printer_id)
     _final_status = data.get("status", "completed")
     # A successful job whose file clears its own plate leaves nothing to confirm (#3576);
-    # a failure or cancel still raises the gate, and an "Always require" printer still waits.
+    # a failure or cancel still raises the gate, and a printer set to always require it (#2860) still waits.
     _job_clears_plate = _final_status == "completed" and await _finishing_job_clears_plate(printer_id, data)
     if _final_status in ("completed", "failed", "aborted", "cancelled"):
         if _job_clears_plate and await _job_skips_plate_confirmation(printer_id):

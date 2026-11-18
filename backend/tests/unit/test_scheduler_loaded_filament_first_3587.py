@@ -25,6 +25,7 @@ from backend.app.models.library import LibraryFile
 from backend.app.models.print_queue import PrintQueueItem, PrintQueueVariant
 from backend.app.models.printer import Printer
 from backend.app.models.settings import Settings
+from backend.app.services import plate_clear
 from backend.app.services.filament_deficit import FilamentDeficit
 from backend.app.services.print_scheduler import (
     PrintScheduler,
@@ -1441,35 +1442,40 @@ class TestFarmInteractions:
 
     @pytest.mark.asyncio
     async def test_a_printer_with_the_gate_off_is_reserved_despite_a_pending_plate(self, ctx):
-        # The per-printer override (#3540) wins over the global setting: a printer
+        # The printer's own setting (#2860) wins over the app setting: a printer
         # that never asks for the confirmation is idle for the reservation too.
         await _mode(ctx)
         await _set(ctx, "require_plate_clear", "true")
         async with ctx.session_maker() as db:
             printer = await db.get(Printer, 1)
-            printer.plate_clear_override = "off"
+            printer.require_plate_clear = False
             await db.commit()
         waiting_item = await _add_item(ctx, position=1, age_hours=49)
         second = await _add_item(ctx, position=2, age_hours=1)
         scheduler = PrintScheduler()
         idle_status = SimpleNamespace(raw_data={}, state="IDLE")
 
-        result = await _run(
-            ctx,
-            scheduler,
-            short={waiting_item: {1, 2, 3}},
-            extra_patches=[
-                patch.object(scheduler, "_is_printer_idle", scheduler._is_printer_idle),
-                patch(
-                    "backend.app.services.print_scheduler.printer_manager.get_status",
-                    MagicMock(return_value=idle_status),
-                ),
-                patch(
-                    "backend.app.services.print_scheduler.printer_manager.is_awaiting_plate_clear",
-                    MagicMock(side_effect=lambda pid: pid == 1),
-                ),
-            ],
-        )
+        # The printer routes keep the cache current; here the row is written directly.
+        plate_clear.set_override(1, False)
+        try:
+            result = await _run(
+                ctx,
+                scheduler,
+                short={waiting_item: {1, 2, 3}},
+                extra_patches=[
+                    patch.object(scheduler, "_is_printer_idle", scheduler._is_printer_idle),
+                    patch(
+                        "backend.app.services.print_scheduler.printer_manager.get_status",
+                        MagicMock(return_value=idle_status),
+                    ),
+                    patch(
+                        "backend.app.services.print_scheduler.printer_manager.is_awaiting_plate_clear",
+                        MagicMock(side_effect=lambda pid: pid == 1),
+                    ),
+                ],
+            )
+        finally:
+            plate_clear.load_overrides({})
 
         assert _dispatched(result) == [second]
         assert (await _get(ctx, second)).printer_id == 2
