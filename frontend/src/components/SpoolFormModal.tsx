@@ -1622,6 +1622,8 @@ export function SpoolFormModal({
                   availableMaterialNumbers={availableMaterialNumbers}
                   availableLocations={storageLocations}
                   showLastDried={isEditing}
+                  brand={formData.brand}
+                  catalogColors={colorCatalog}
                   onCreateLocation={async (name) => {
                     try {
                       const created = await api.createLocation({ name });
