@@ -13,6 +13,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
 KIND_PLATE_CLEAR = "plate_clear"
+KIND_PLATE_CHANGER_EMPTY = "plate_changer_empty"
 KIND_SENSOR_INTERLOCK = "sensor_interlock"
 KIND_POWER_ON_FAILED = "power_on_failed"
 KIND_LOAD_FILAMENT = "load_filament"
@@ -21,6 +22,7 @@ KIND_START_STAGED = "start_staged"
 # Order of the entries inside one group.
 _KIND_ORDER = (
     KIND_PLATE_CLEAR,
+    KIND_PLATE_CHANGER_EMPTY,
     KIND_SENSOR_INTERLOCK,
     KIND_POWER_ON_FAILED,
     KIND_LOAD_FILAMENT,
@@ -36,6 +38,9 @@ class TodoFilament:
     color: str
     color_name: str = ""
     no_stock: bool = False
+    # What the stock check of #3590 needs; not part of the response.
+    tray_info_idx: str = field(default="", compare=False)
+    forced: bool = field(default=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -58,7 +63,21 @@ def todo_filament_from_requirement(req: Mapping) -> TodoFilament:
         type=str(req.get("type") or "").upper(),
         color=normalize_hex(req.get("color")),
         color_name=str(req.get("color_name") or ""),
+        tray_info_idx=str(req.get("tray_info_idx") or ""),
+        forced=bool(req.get("force_color_match")),
     )
+
+
+def priority_state(has_priority: bool, hours: int | None) -> tuple[str, int | None]:
+    """("has_priority", None) or ("priority_in", hours): a job's place in the filament wait (#3587)."""
+    return ("has_priority", None) if has_priority else ("priority_in", hours)
+
+
+def _more_urgent(candidate: tuple[str, int | None], current: tuple[str, int | None] | None) -> bool:
+    """Whether ``candidate`` beats ``current``: having priority, else the fewest hours."""
+    if current is None or current[0] == "priority_in" and candidate[0] == "has_priority":
+        return True
+    return current[0] == "priority_in" and candidate[0] == "priority_in" and (candidate[1] or 0) < (current[1] or 0)
 
 
 def normalize_hex(value: object) -> str:
@@ -114,12 +133,17 @@ def build_todo(
     plate_clear_ids: Iterable[int],
     interlock: Mapping[int, str],
     power_failed_ids: Iterable[int],
+    plate_changer_empty: Mapping[int, int | None] | None = None,
+    priorities: Mapping[int, tuple[str, int | None]] | None = None,
 ) -> dict:
     """The response of GET /queue/todo.
 
     ``jobs`` are the visible pending jobs in queue order; ``printers`` maps the
     visible printer ids to their names. Printer entries need a waiting job
-    that could go to that printer.
+    that could go to that printer. ``plate_changer_empty`` maps the printers
+    whose plate changer has no plate left to their capacity (#3575);
+    ``priorities`` maps a job to its place in the loaded-filament-first wait
+    (#3587).
     """
     groups: dict[tuple, _Group] = {}
     index_of = {job.id: i for i, job in enumerate(jobs)}
@@ -136,8 +160,22 @@ def build_todo(
 
     def add(group: _Group, kind: str, subkey: tuple, job: TodoJob, **extra) -> None:
         entry = group.entries.setdefault(
-            (kind, subkey), {"kind": kind, "jobs": [], "detail": None, "printers": [], **extra}
+            (kind, subkey),
+            {
+                "kind": kind,
+                "jobs": [],
+                "detail": None,
+                "printers": [],
+                "priority": None,
+                "priority_hours": None,
+                "plate_capacity": None,
+                **extra,
+            },
         )
+        if kind == KIND_LOAD_FILAMENT and priorities and job.id in priorities:
+            state = priorities[job.id]
+            if _more_urgent(state, (entry["priority"], entry["priority_hours"]) if entry["priority"] else None):
+                entry["priority"], entry["priority_hours"] = state
         if all(j["id"] != job.id for j in entry["jobs"]):
             entry["jobs"].append(
                 {"id": job.id, "name": job.name, "can_start": kind == KIND_START_STAGED and job.can_start}
@@ -146,6 +184,7 @@ def build_todo(
     # Printer-state entries, one per printer, listing the jobs that could go there.
     printer_kinds: list[tuple[str, int, str | None]] = []
     printer_kinds += [(KIND_PLATE_CLEAR, pid, None) for pid in plate_clear_ids]
+    printer_kinds += [(KIND_PLATE_CHANGER_EMPTY, pid, None) for pid in (plate_changer_empty or {})]
     printer_kinds += [(KIND_SENSOR_INTERLOCK, pid, reason) for pid, reason in interlock.items()]
     printer_kinds += [(KIND_POWER_ON_FAILED, pid, None) for pid in power_failed_ids]
     for kind, pid, detail in printer_kinds:
@@ -158,6 +197,8 @@ def build_todo(
         for job in waiting:
             add(group, kind, (), job)
         group.entries[(kind, ())]["detail"] = detail or None
+        if kind == KIND_PLATE_CHANGER_EMPTY:
+            group.entries[(kind, ())]["plate_capacity"] = (plate_changer_empty or {}).get(pid)
 
     for job in jobs:
         index = index_of[job.id]

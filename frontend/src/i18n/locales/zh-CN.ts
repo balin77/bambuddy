@@ -8779,6 +8779,7 @@ export default {
     jobCount_other: "{{count}} 个任务",
     kind: {
       plateClear: "确认打印板已清理",
+      plateChangerEmpty: "换板器已空",
       loadFilament: "装入耗材",
       startStaged: "启动已暂存的任务",
       sensorInterlock: "被传感器阻止",

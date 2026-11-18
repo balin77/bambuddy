@@ -8847,6 +8847,7 @@ export default {
     jobCount_other: "{{count}} opdrachten",
     kind: {
       plateClear: "Bevestig dat de bouwplaat leeg is",
+      plateChangerEmpty: "Plaatwisselaar leeg",
       loadFilament: "Filament laden",
       startStaged: "Gereedstaande opdracht starten",
       sensorInterlock: "Geblokkeerd door een sensor",

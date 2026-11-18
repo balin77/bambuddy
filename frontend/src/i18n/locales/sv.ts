@@ -8878,6 +8878,7 @@ errors: {
     jobCount_other: "{{count}} jobb",
     kind: {
       plateClear: "Bekräfta att byggplattan är tom",
+      plateChangerEmpty: "Plattbytaren är tom",
       loadFilament: "Ladda filament",
       startStaged: "Starta det förberedda jobbet",
       sensorInterlock: "Blockerad av en sensor",

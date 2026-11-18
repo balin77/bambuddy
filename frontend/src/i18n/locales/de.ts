@@ -8796,6 +8796,7 @@ export default {
     jobCount_other: "{{count}} Aufträge",
     kind: {
       plateClear: "Bestätigen, dass die Druckplatte frei ist",
+      plateChangerEmpty: "Plattenwechsler leer",
       loadFilament: "Filament einlegen",
       startStaged: "Bereitgestellten Auftrag starten",
       sensorInterlock: "Von einem Sensor blockiert",

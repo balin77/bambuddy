@@ -8849,6 +8849,7 @@ export default {
     jobCount_other: "Zadania: {{count}}",
     kind: {
       plateClear: "Potwierdź, że płyta jest pusta",
+      plateChangerEmpty: "Zmieniarka płyt pusta",
       loadFilament: "Załaduj filament",
       startStaged: "Uruchom przygotowane zadanie",
       sensorInterlock: "Zablokowane przez czujnik",

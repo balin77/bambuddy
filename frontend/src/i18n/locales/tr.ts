@@ -8723,6 +8723,7 @@ export default {
     jobCount_other: "{{count}} iş",
     kind: {
       plateClear: "Plakanın boş olduğunu onaylayın",
+      plateChangerEmpty: "Plaka değiştirici boş",
       loadFilament: "Filament yükleyin",
       startStaged: "Bekleyen işi başlat",
       sensorInterlock: "Bir sensör tarafından engellendi",

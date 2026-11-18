@@ -248,6 +248,100 @@ describe('QueueTodoList', () => {
   });
 });
 
+describe('QueueTodoList farm entries (#3575, #3587, #3590)', () => {
+  const entry = (over: Partial<QueueTodo['groups'][0]['entries'][0]>) => ({
+    kind: 'load_filament' as const,
+    jobs: [{ id: 30, name: 'Job', can_start: false }],
+    filaments: [],
+    printers: [],
+    detail: null,
+    priority: null,
+    priority_hours: null,
+    plate_capacity: null,
+    ...over,
+  });
+  const one = (e: ReturnType<typeof entry>): QueueTodo => ({
+    count: 1,
+    groups: [{ printer_id: 2, printer_name: 'Beta', target_model: null, entries: [e] }],
+  });
+
+  it('shows an empty plate changer with the refill action behind a confirmation', async () => {
+    const called = vi.fn();
+    server.use(
+      http.post('/api/v1/printers/2/refill-plates', () => {
+        called();
+        return HttpResponse.json({ id: 2, plate_capacity: 12, plates_remaining: 12 });
+      }),
+    );
+    render(<QueueTodoList todo={one(entry({ kind: 'plate_changer_empty', plate_capacity: 12 }))} />);
+    expect(screen.getByTestId('todo-entry-plate_changer_empty')).toHaveTextContent('Plate changer empty');
+    fireEvent.click(screen.getByRole('button', { name: 'Refilled / Emptied' }));
+    // Nothing happens on a stray tap: the printer card's confirmation comes first.
+    expect(called).not.toHaveBeenCalled();
+    expect(screen.getByText(/The count goes back to 12/)).toBeInTheDocument();
+    const confirm = screen.getAllByRole('button', { name: 'Refilled / Emptied' }).pop() as HTMLElement;
+    fireEvent.click(confirm);
+    await waitFor(() => expect(called).toHaveBeenCalled());
+  });
+
+  it('can be cancelled without refilling', () => {
+    const called = vi.fn();
+    server.use(
+      http.post('/api/v1/printers/2/refill-plates', () => {
+        called();
+        return HttpResponse.json({});
+      }),
+    );
+    render(<QueueTodoList todo={one(entry({ kind: 'plate_changer_empty', plate_capacity: 12 }))} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Refilled / Emptied' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(called).not.toHaveBeenCalled();
+  });
+
+  it('disables the refill without the plate-clear permission', () => {
+    perms.granted = new Set();
+    render(<QueueTodoList todo={one(entry({ kind: 'plate_changer_empty', plate_capacity: 12 }))} />);
+    expect(screen.getByRole('button', { name: 'Refilled / Emptied' })).toBeDisabled();
+  });
+
+  it('shows priority in N h and has priority for a filament wait', () => {
+    const { unmount } = render(
+      <QueueTodoList
+        todo={one(entry({ filaments: [{ type: 'PLA', color: '', color_name: '', no_stock: false }], priority: 'priority_in', priority_hours: 38 }))}
+      />,
+    );
+    expect(screen.getByTestId('todo-priority')).toHaveTextContent('priority in 38 h');
+    unmount();
+    render(
+      <QueueTodoList
+        todo={one(entry({ filaments: [{ type: 'PLA', color: '', color_name: '', no_stock: false }], priority: 'has_priority' }))}
+      />,
+    );
+    expect(screen.getByTestId('todo-priority')).toHaveTextContent('has priority');
+  });
+
+  it('shows no priority line without one', () => {
+    render(<QueueTodoList todo={one(entry({ filaments: [{ type: 'PLA', color: '', color_name: '', no_stock: false }] }))} />);
+    expect(screen.queryByTestId('todo-priority')).toBeNull();
+  });
+
+  it('shows none left in inventory only for a flagged filament', () => {
+    render(
+      <QueueTodoList
+        todo={one(
+          entry({
+            filaments: [
+              { type: 'PLA', color: '#FF0000', color_name: 'Red', no_stock: true },
+              { type: 'PETG', color: '#0000FF', color_name: 'Blue', no_stock: false },
+            ],
+          }),
+        )}
+      />,
+    );
+    expect(screen.getAllByText('(none left in inventory)')).toHaveLength(1);
+  });
+});
+
 describe('QueueTodoLauncher', () => {
   it('shows the entry count and opens the panel', async () => {
     server.use(http.get('/api/v1/queue/todo', () => HttpResponse.json(todo)));

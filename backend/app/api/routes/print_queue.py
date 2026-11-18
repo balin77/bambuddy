@@ -912,6 +912,7 @@ async def queue_todo(
     from backend.app.services.print_scheduler import (
         _could_take_printer,
         finish_needs_plate_confirmation,
+        plate_changer_reads_empty,
         scheduler as _scheduler,
     )
 
@@ -938,7 +939,14 @@ async def queue_todo(
 
     # Printers the caller may see, read once.
     printer_query = select(
-        Printer.id, Printer.name, Printer.model, Printer.location, Printer.is_active, Printer.plate_clear_override
+        Printer.id,
+        Printer.name,
+        Printer.model,
+        Printer.location,
+        Printer.is_active,
+        Printer.plate_clear_override,
+        Printer.plate_capacity,
+        Printer.plates_remaining,
     )
     if (clause := printer_scope.where_strict(Printer.id)) is not None:
         printer_query = printer_query.where(clause)
@@ -990,6 +998,12 @@ async def queue_todo(
         if finish_needs_plate_confirmation(row.plate_clear_override, require_plate_clear)
         and printer_manager.is_awaiting_plate_clear(row.id)
     ]
+    # Plate changers with no plate left (#3575), by capacity: a refill resets it.
+    plate_changer_empty = {
+        row.id: row.plate_capacity
+        for row in printer_rows
+        if row.plate_capacity is not None and plate_changer_reads_empty(row.id, row.plates_remaining)
+    }
     try:
         interlock = {
             pid: reason
@@ -1001,7 +1015,16 @@ async def queue_todo(
         interlock = {}
     power_failed = [pid for pid in _scheduler.power_on_failed_printers() if pid in printer_names]
 
-    return build_todo(jobs, printer_names, _scheduler.filament_holds_snapshot(), plate_ids, interlock, power_failed)
+    return build_todo(
+        jobs,
+        printer_names,
+        _scheduler.filament_holds_snapshot(),
+        plate_ids,
+        interlock,
+        power_failed,
+        plate_changer_empty,
+        _scheduler.filament_priorities_snapshot(),
+    )
 
 
 HISTORY_STATUSES = ("completed", "failed", "skipped", "cancelled")

@@ -8782,6 +8782,7 @@ export default {
     jobCount_other: "{{count}} tâches",
     kind: {
       plateClear: "Confirmer que le plateau est vide",
+      plateChangerEmpty: "Changeur de plateaux vide",
       loadFilament: "Charger du filament",
       startStaged: "Lancer la tâche en attente",
       sensorInterlock: "Bloqué par un capteur",

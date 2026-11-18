@@ -8781,6 +8781,7 @@ export default {
     jobCount_other: "{{count}} trabalhos",
     kind: {
       plateClear: "Confirme que a mesa está livre",
+      plateChangerEmpty: "Trocador de placas vazio",
       loadFilament: "Carregar filamento",
       startStaged: "Iniciar o trabalho em espera",
       sensorInterlock: "Bloqueado por um sensor",

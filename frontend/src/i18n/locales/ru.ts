@@ -8401,6 +8401,7 @@ export default {
     jobCount_other: "Задания: {{count}}",
     kind: {
       plateClear: "Подтвердите, что стол свободен",
+      plateChangerEmpty: "Устройство смены пластин пусто",
       loadFilament: "Загрузите филамент",
       startStaged: "Запустить подготовленное задание",
       sensorInterlock: "Заблокировано датчиком",

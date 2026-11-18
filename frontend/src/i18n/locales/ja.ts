@@ -8795,6 +8795,7 @@ export default {
     jobCount_other: "{{count}} 件のジョブ",
     kind: {
       plateClear: "プレートが空であることを確認",
+      plateChangerEmpty: "プレートチェンジャーが空です",
       loadFilament: "フィラメントをセット",
       startStaged: "待機中のジョブを開始",
       sensorInterlock: "センサーによりブロック中",

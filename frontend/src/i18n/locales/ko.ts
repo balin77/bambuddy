@@ -8419,6 +8419,7 @@ export default {
     jobCount_other: "작업 {{count}}개",
     kind: {
       plateClear: "플레이트가 비었는지 확인",
+      plateChangerEmpty: "플레이트 체인저 비어 있음",
       loadFilament: "필라멘트 넣기",
       startStaged: "대기 중인 작업 시작",
       sensorInterlock: "센서에 의해 차단됨",

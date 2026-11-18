@@ -1,17 +1,20 @@
+import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Palette, Play, ShieldAlert, PowerOff, Loader2 } from 'lucide-react';
+import { Palette, Play, ShieldAlert, PowerOff, Loader2, Layers } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import type { QueueTodo, QueueTodoEntry, QueueTodoGroup, QueueTodoKind } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { PlateClearedIcon } from './icons/PlateClearedIcon';
+import { ConfirmModal } from './ConfirmModal';
 import { QUEUE_TODO_KEY } from '../hooks/useQueueTodo';
 import { useStartQueueItem } from '../hooks/useStartQueueItem';
 
 const KIND_ICON: Record<QueueTodoKind, React.ComponentType<{ className?: string }>> = {
   plate_clear: PlateClearedIcon,
+  plate_changer_empty: Layers,
   load_filament: Palette,
   start_staged: Play,
   sensor_interlock: ShieldAlert,
@@ -20,18 +23,20 @@ const KIND_ICON: Record<QueueTodoKind, React.ComponentType<{ className?: string 
 
 const KIND_TEXT_KEY: Record<QueueTodoKind, string> = {
   plate_clear: 'queueTodo.kind.plateClear',
+  plate_changer_empty: 'queueTodo.kind.plateChangerEmpty',
   load_filament: 'queueTodo.kind.loadFilament',
   start_staged: 'queueTodo.kind.startStaged',
   sensor_interlock: 'queueTodo.kind.sensorInterlock',
   power_on_failed: 'queueTodo.kind.powerOnFailed',
 };
 
-function EntryRow({ group, entry, onNavigate, onStart, startPending }: {
+function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZIndex }: {
   group: QueueTodoGroup;
   entry: QueueTodoEntry;
   onNavigate?: () => void;
   onStart: (id: number) => void;
   startPending: boolean;
+  overlayZIndex?: string;
 }) {
   const { t } = useTranslation();
   const { hasPermission, hasAnyPermission } = useAuth();
@@ -50,6 +55,18 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending }: {
     },
     onError: (error: unknown) =>
       showToast(error instanceof ApiError && error.message ? error.message : t('queueTodo.actionFailed'), 'error'),
+  });
+
+  // Same call, permission and confirmation as the refill control on the printer card (#3575).
+  const [showRefillConfirm, setShowRefillConfirm] = useState(false);
+  const refillPlates = useMutation({
+    mutationFn: () => api.refillPlates(group.printer_id as number),
+    onSuccess: (updated) => {
+      showToast(t('printers.plateChanger.refilledToast', { capacity: updated.plate_capacity }));
+      queryClient.invalidateQueries({ queryKey: ['printers'] });
+      queryClient.invalidateQueries({ queryKey: QUEUE_TODO_KEY });
+    },
+    onError: (error: Error) => showToast(error.message || t('printers.plateChanger.refillFailed'), 'error'),
   });
 
   const canClearPlate = hasPermission('printers:clear_plate');
@@ -87,6 +104,29 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending }: {
       >
         <PlateClearedIcon className="w-4 h-4" />
         {t('queueTodo.plateIsClear')}
+      </button>
+    );
+  } else if (entry.kind === 'plate_changer_empty' && group.printer_id != null) {
+    action = canClearPlate ? (
+      <button
+        type="button"
+        onClick={() => setShowRefillConfirm(true)}
+        disabled={refillPlates.isPending}
+        title={t('printers.plateChanger.refillTitle', { capacity: entry.plate_capacity })}
+        className="flex items-center gap-1.5 px-3 py-1.5 min-h-[36px] text-sm rounded-md bg-bambu-green/20 text-bambu-green hover:bg-bambu-green/30 disabled:opacity-50"
+      >
+        {refillPlates.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Layers className="w-4 h-4" />}
+        {t('printers.plateChanger.refill')}
+      </button>
+    ) : (
+      <button
+        type="button"
+        disabled
+        title={t('printers.permission.noControl')}
+        className="flex items-center gap-1.5 px-3 py-1.5 min-h-[36px] text-sm rounded-md bg-bambu-dark-tertiary text-bambu-gray opacity-50 cursor-not-allowed"
+      >
+        <Layers className="w-4 h-4" />
+        {t('printers.plateChanger.refill')}
       </button>
     );
   } else if (entry.kind === 'start_staged') {
@@ -153,6 +193,13 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending }: {
         {entry.kind === 'sensor_interlock' && entry.detail && (
           <div className="text-xs text-bambu-gray-light">{entry.detail}</div>
         )}
+        {entry.kind === 'load_filament' && entry.priority && (
+          <div data-testid="todo-priority" className="text-xs text-bambu-gray-light">
+            {entry.priority === 'has_priority'
+              ? t('queue.waiting.hasPriority')
+              : t('queue.waiting.priorityIn', { hours: entry.priority_hours ?? 0 })}
+          </div>
+        )}
         {entry.kind === 'load_filament' && (
           <ul className="flex flex-wrap gap-x-3 gap-y-1">
             {entry.filaments.map((f, i) => (
@@ -180,6 +227,20 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending }: {
         </div>
         {action}
       </div>
+      {showRefillConfirm && entry.plate_capacity != null && (
+        <ConfirmModal
+          title={t('printers.plateChanger.refillConfirmTitle')}
+          message={t('printers.plateChanger.refillConfirmMessage', { capacity: entry.plate_capacity })}
+          confirmText={t('printers.plateChanger.refill')}
+          variant="warning"
+          overlayZIndex={overlayZIndex}
+          onConfirm={() => {
+            refillPlates.mutate();
+            setShowRefillConfirm(false);
+          }}
+          onCancel={() => setShowRefillConfirm(false)}
+        />
+      )}
     </li>
   );
 }
@@ -222,6 +283,7 @@ export function QueueTodoList({ todo, onNavigate, heading = false, overlayZIndex
                 onNavigate={onNavigate}
                 onStart={(id) => startMutation.mutate({ id })}
                 startPending={startMutation.isPending}
+                overlayZIndex={overlayZIndex}
               />
             ))}
           </ul>

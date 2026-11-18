@@ -8781,6 +8781,7 @@ export default {
     jobCount_other: "{{count}} lavori",
     kind: {
       plateClear: "Conferma che il piatto è libero",
+      plateChangerEmpty: "Cambio piatto vuoto",
       loadFilament: "Carica il filamento",
       startStaged: "Avvia il lavoro in attesa",
       sensorInterlock: "Bloccato da un sensore",

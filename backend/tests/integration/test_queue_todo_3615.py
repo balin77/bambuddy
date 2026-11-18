@@ -31,6 +31,7 @@ BLUE = TodoFilament("PETG", "#0000FF", "Blue")
 def _quiet_scheduler_state():
     """No holds, no failed power-ons, no sensors, no plate waits unless a test says so."""
     scheduler._filament_holds = {}
+    scheduler._filament_priorities = {}
     scheduler._wake_failures = {}
     with (
         patch("backend.app.api.routes.print_queue.ha_sensor_manager.blocked_printers", AsyncMock(return_value={})),
@@ -40,6 +41,7 @@ def _quiet_scheduler_state():
     ):
         yield
     scheduler._filament_holds = {}
+    scheduler._filament_priorities = {}
 
 
 @pytest.fixture
@@ -93,6 +95,9 @@ class TestTodoEntries:
                 "printers": [],
                 "filaments": [],
                 "detail": None,
+                "priority": None,
+                "priority_hours": None,
+                "plate_capacity": None,
             }
         ]
 
@@ -493,3 +498,106 @@ class TestApiKeyCaller:
         assert response.status_code == 200, response.text
         jobs = [j for e in _only_entries(response.json()) for j in e["jobs"]]
         assert [(j["name"], j["can_start"]) for j in jobs] == [("a21", True)]
+
+
+class TestFarmEntries:
+    """The farm's plate changers (#3575), filament priority (#3587) and stock (#3590) in the list."""
+
+    async def test_empty_plate_changer_is_listed_with_a_waiting_job(self, async_client, printer_factory, make_item):
+        a = await printer_factory(name="A", plate_capacity=12, plates_remaining=0)
+        item = await make_item(a.id, name="Benchy")
+        body = (await async_client.get(URL)).json()
+        (entry,) = _only_entries(body)
+        assert entry["kind"] == "plate_changer_empty"
+        assert entry["plate_capacity"] == 12
+        assert [j["id"] for j in entry["jobs"]] == [item.id]
+        assert body["groups"][0]["printer_id"] == a.id
+
+    async def test_plate_changer_with_plates_left_or_without_capacity_is_not_listed(
+        self, async_client, printer_factory, make_item
+    ):
+        a = await printer_factory(name="A", plate_capacity=12, plates_remaining=3)
+        b = await printer_factory(name="B")
+        await make_item(a.id)
+        await make_item(b.id)
+        assert (await async_client.get(URL)).json()["count"] == 0
+
+    async def test_empty_plate_changer_needs_a_job_that_could_go_there(self, async_client, printer_factory, make_item):
+        await printer_factory(name="A", model="X1C", plate_capacity=12, plates_remaining=0)
+        b = await printer_factory(name="B", model="P1S")
+        await make_item(b.id)
+        assert (await async_client.get(URL)).json()["count"] == 0
+
+    async def test_model_job_makes_an_empty_plate_changer_of_its_model_a_candidate(
+        self, async_client, printer_factory, make_item
+    ):
+        await printer_factory(name="A", model="X1C", plate_capacity=12, plates_remaining=None)
+        await make_item(None, target_model="X1C")
+        (entry,) = _only_entries((await async_client.get(URL)).json())
+        assert entry["kind"] == "plate_changer_empty"
+
+    async def test_unbooked_count_reads_as_empty(self, async_client, printer_factory, make_item):
+        from backend.app.services import plate_changer
+
+        a = await printer_factory(name="A", plate_capacity=12, plates_remaining=5)
+        await make_item(a.id)
+        plate_changer.mark_count_unknown(a.id)
+        try:
+            (entry,) = _only_entries((await async_client.get(URL)).json())
+        finally:
+            plate_changer.clear_count_unknown(a.id)
+        assert entry["kind"] == "plate_changer_empty"
+
+    async def test_plate_changer_entry_sits_right_after_plate_clear(self, async_client, printer_factory, make_item):
+        a = await printer_factory(name="A", plate_capacity=12, plates_remaining=0)
+        item = await make_item(a.id, manual_start=True)
+        scheduler._filament_holds = {item.id: [FilamentHold(item.id, a.id, None, (RED,))]}
+        with (
+            patch("backend.app.api.routes.print_queue.printer_manager.is_awaiting_plate_clear", lambda pid: True),
+            patch(
+                "backend.app.services.print_scheduler.finish_needs_plate_confirmation", lambda override, setting: True
+            ),
+            patch(
+                "backend.app.api.routes.print_queue.ha_sensor_manager.blocked_printers",
+                AsyncMock(return_value={a.id: "Door"}),
+            ),
+        ):
+            body = (await async_client.get(URL)).json()
+        assert [e["kind"] for e in _only_entries(body)] == [
+            "plate_clear",
+            "plate_changer_empty",
+            "sensor_interlock",
+            "load_filament",
+            "start_staged",
+        ]
+
+    async def test_priority_comes_from_the_scheduler_record(self, async_client, printer_factory, make_item):
+        a = await printer_factory(name="A")
+        one, two = await make_item(a.id), await make_item(a.id)
+        scheduler._filament_holds = {
+            one.id: [FilamentHold(one.id, a.id, None, (RED,))],
+            two.id: [FilamentHold(two.id, a.id, None, (RED,))],
+        }
+        scheduler._filament_priorities = {one.id: ("priority_in", 30), two.id: ("priority_in", 5)}
+        (entry,) = _only_entries((await async_client.get(URL)).json())
+        # Merged: the most urgent job speaks for the entry.
+        assert (entry["priority"], entry["priority_hours"]) == ("priority_in", 5)
+
+        scheduler._filament_priorities = {one.id: ("priority_in", 30), two.id: ("has_priority", None)}
+        (entry,) = _only_entries((await async_client.get(URL)).json())
+        assert (entry["priority"], entry["priority_hours"]) == ("has_priority", None)
+
+    async def test_no_priority_without_a_record(self, async_client, printer_factory, make_item):
+        a = await printer_factory(name="A")
+        item = await make_item(a.id)
+        scheduler._filament_holds = {item.id: [FilamentHold(item.id, a.id, None, (RED,))]}
+        (entry,) = _only_entries((await async_client.get(URL)).json())
+        assert (entry["priority"], entry["priority_hours"]) == (None, None)
+
+    async def test_no_stock_is_passed_through(self, async_client, printer_factory, make_item):
+        a = await printer_factory(name="A")
+        item = await make_item(a.id)
+        gone = TodoFilament("PLA", "#FF0000", "Red", no_stock=True)
+        scheduler._filament_holds = {item.id: [FilamentHold(item.id, a.id, None, (gone,))]}
+        (entry,) = _only_entries((await async_client.get(URL)).json())
+        assert entry["filaments"] == [{"type": "PLA", "color": "#FF0000", "color_name": "Red", "no_stock": True}]

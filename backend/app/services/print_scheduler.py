@@ -10,7 +10,7 @@ import uuid
 import zipfile
 from collections import deque
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import cast
@@ -75,7 +75,12 @@ from backend.app.services.printer_manager import (
     supports_drying_while_printing,
 )
 from backend.app.services.queue_item_printer import drop_printer_resolved
-from backend.app.services.queue_todo import FilamentHold, TodoFilament, todo_filament_from_requirement
+from backend.app.services.queue_todo import (
+    FilamentHold,
+    TodoFilament,
+    priority_state,
+    todo_filament_from_requirement,
+)
 from backend.app.services.slot_nozzle import reports_two_nozzles
 from backend.app.services.smart_plug_manager import publish_plug_state, smart_plug_manager
 from backend.app.services.spool_assignment_notifications import (
@@ -773,15 +778,17 @@ def _describe_deficit(deficits: list[FilamentDeficit]) -> str:
     return ", ".join(parts)
 
 
-def _filament_wait_suffix(item: PrintQueueItem, now: datetime, max_wait_hours: int | None) -> tuple[str, bool]:
-    """``(suffix, has_priority)`` for a job skipped for filament (#3587).
+def _filament_wait_state(
+    item: PrintQueueItem, now: datetime, max_wait_hours: int | None
+) -> tuple[bool, int | None] | None:
+    """``(has_priority, hours_left)`` for a job skipped for filament, None without a limit (#3587).
 
     The wait runs from the later of when the job was queued and when it was
     scheduled to start: a job scheduled for next week has not been waiting
     since today. Naive datetimes are UTC, as for the scheduled-time gate.
     """
     if max_wait_hours is None:
-        return "", False
+        return None
 
     def _aware(moment: datetime) -> datetime:
         return moment.replace(tzinfo=timezone.utc) if moment.tzinfo is None else moment
@@ -791,9 +798,17 @@ def _filament_wait_suffix(item: PrintQueueItem, now: datetime, max_wait_hours: i
         ready_since = max(ready_since, _aware(item.scheduled_time))
     deadline = ready_since + timedelta(hours=max_wait_hours)
     if now >= deadline:
-        return _HAS_PRIORITY, True
-    hours_left = max(1, math.ceil((deadline - now).total_seconds() / 3600))
-    return _PRIORITY_IN.format(hours=hours_left), False
+        return True, None
+    return False, max(1, math.ceil((deadline - now).total_seconds() / 3600))
+
+
+def _filament_wait_suffix(item: PrintQueueItem, now: datetime, max_wait_hours: int | None) -> tuple[str, bool]:
+    """``(suffix, has_priority)`` for a job skipped for filament (#3587)."""
+    state = _filament_wait_state(item, now, max_wait_hours)
+    if state is None:
+        return "", False
+    has_priority, hours_left = state
+    return (_HAS_PRIORITY, True) if has_priority else (_PRIORITY_IN.format(hours=hours_left), False)
 
 
 def _forced_override_requirements(item: PrintQueueItem) -> list[dict]:
@@ -815,6 +830,8 @@ def _forced_override_requirements(item: PrintQueueItem) -> list[dict]:
             "color": o.get("color", ""),
             "tray_info_idx": o.get("tray_info_idx", ""),
             "force_color_match": True,
+            # For the structured "To do" entry only (#3615).
+            **({"color_name": o["color_name"]} if o.get("color_name") else {}),
         }
         for o in overrides
         if isinstance(o, dict) and o.get("force_color_match") and isinstance(o.get("slot_id"), int)
@@ -1378,6 +1395,15 @@ def finish_needs_plate_confirmation(
     return require_plate_clear and not job_clears_plate
 
 
+def plate_changer_reads_empty(printer_id: int, plates_remaining: int | None) -> bool:
+    """Whether a plate changer counts as having no plate left (#3575).
+
+    No remaining count, or one whose count could not be booked, reads as empty:
+    the safe side. Shared by the queue pass and the "To do" list (#3615).
+    """
+    return plates_remaining is None or plates_remaining <= 0 or is_count_unknown(printer_id)
+
+
 async def load_plate_clear_policy(db: AsyncSession, printer_id: int) -> tuple[str | None, bool]:
     """The printer's plate-clear override and the require_plate_clear setting, read now."""
     from backend.app.api.routes.settings import get_setting, setting_is_true
@@ -1439,6 +1465,9 @@ class PrintScheduler:
         # swapped in when the pass ends; None outside a pass.
         self._filament_holds: dict[int, list[FilamentHold]] = {}
         self._pass_holds: dict[int, list[FilamentHold]] | None = None
+        # Where each job in the loaded-filament-first wait stands, swapped the same way (#3587, #3615).
+        self._filament_priorities: dict[int, tuple[str, int | None]] = {}
+        self._pass_priorities: dict[int, tuple[str, int | None]] | None = None
         # Printers a pinned job could not switch on this pass, swapped the same way.
         self._power_failed_pinned: set[int] = set()
         self._pass_power_failed: set[int] | None = None
@@ -1840,6 +1869,15 @@ class PrintScheduler:
         """Copy of the filament holds recorded by the last queue pass (#3615)."""
         return {item_id: list(holds) for item_id, holds in self._filament_holds.items()}
 
+    def filament_priorities_snapshot(self) -> dict[int, tuple[str, int | None]]:
+        """Copy of the priority states recorded by the last queue pass (#3587, #3615)."""
+        return dict(self._filament_priorities)
+
+    def _record_priority(self, item_id: int, has_priority: bool, hours: int | None) -> None:
+        """Note a filament-waiting job's priority next to the suffix it is written as (#3587, #3615)."""
+        if self._pass_priorities is not None:
+            self._pass_priorities[item_id] = priority_state(has_priority, hours)
+
     def power_on_failed_printers(self) -> set[int]:
         """Printers a power-on failed on: pinned jobs this pass, model wakes while cooling off (#2786, #3615)."""
         return self._power_failed_pinned | {pid for pid in list(self._wake_failures) if self._wake_recently_failed(pid)}
@@ -1922,27 +1960,59 @@ class PrintScheduler:
         """Run one queue pass and keep the "To do" records of it (#3615)."""
         holds: dict[int, list[FilamentHold]] = {}
         power_failed: set[int] = set()
+        priorities: dict[int, tuple[str, int | None]] = {}
         self._pass_holds = holds
+        self._pass_priorities = priorities
         self._pass_power_failed = power_failed
         self._rebuild_seen = set()
         failed = False
         try:
-            return await self._check_queue_pass()
+            dispatched = await self._check_queue_pass()
+            await self._flag_holds_without_stock(holds)
+            return dispatched
         except BaseException:
             failed = True
             raise
         finally:
             self._pass_holds = None
+            self._pass_priorities = None
             self._pass_power_failed = None
             if failed:
                 # A pass that stopped early did not look at every job: keep what
                 # was known about the rest.
                 holds = {**self._filament_holds, **holds}
+                priorities = {**self._filament_priorities, **priorities}
                 power_failed |= self._power_failed_pinned
             self._filament_holds = holds
+            self._filament_priorities = priorities
             self._power_failed_pinned = power_failed
             if not failed:
                 self._rebuild_tried &= self._rebuild_seen
+
+    async def _flag_holds_without_stock(self, holds: dict[int, list[FilamentHold]]) -> None:
+        """Mark the forced filaments of this pass's holds the inventory has none left of (#3590, #3615).
+
+        The same decision as the " - none left in inventory" waiting text
+        (``_no_stock_left``): only with the setting on, only for forced
+        colours and only when the built-in inventory knows the filament.
+        Recording only, so a failure here leaves the holds as they were.
+        """
+        if not self._inventory_hints or not any(f.forced for hs in holds.values() for h in hs for f in h.filaments):
+            return
+        try:
+            async with async_session() as db:
+                for item_id, item_holds in list(holds.items()):
+                    flagged: list[FilamentHold] = []
+                    for hold in item_holds:
+                        filaments: list[TodoFilament] = []
+                        for f in hold.filaments:
+                            if f.forced and await self._no_stock_left(db, f.type, f.color, f.tray_info_idx):
+                                f = replace(f, no_stock=True)
+                            filaments.append(f)
+                        flagged.append(replace(hold, filaments=tuple(filaments)))
+                    holds[item_id] = flagged
+        except Exception as e:
+            logger.debug("Queue: stock flags for the To do list not read: %s", e)
 
     async def _check_queue_pass(self) -> bool:
         """Check for prints ready to start.
@@ -2227,7 +2297,11 @@ class PrintScheduler:
 
             def filament_wait_suffix(item: PrintQueueItem) -> tuple[str, bool]:
                 """``(suffix, has_priority)`` of a job skipped for filament (#3587)."""
-                return _filament_wait_suffix(item, datetime.now(timezone.utc), max_wait_hours)
+                now = datetime.now(timezone.utc)
+                # The same computation, kept structured for the "To do" list (#3615).
+                if (state := _filament_wait_state(item, now, max_wait_hours)) is not None:
+                    self._record_priority(item.id, *state)
+                return _filament_wait_suffix(item, now, max_wait_hours)
 
             # Printers kept free for a prioritised job waiting for filament
             # (#3587). Apart from busy_printers so keep-warm can leave them out:
@@ -2871,6 +2945,12 @@ class PrintScheduler:
                             self._resolve_variant(item, candidate)
                             return await self._unmatched_on(db, item, pid)
 
+                        async def short_filaments(
+                            pid: int, item: PrintQueueItem = item, candidate: _ModelCandidate = candidate
+                        ) -> list[TodoFilament]:
+                            self._resolve_variant(item, candidate)
+                            return await self._short_filaments_on(db, item, pid)
+
                         while True:
                             call_holds: dict[int, list[TodoFilament]] = {}
                             match_id, match_reason = await self._find_idle_printer_for_model(
@@ -2892,6 +2972,7 @@ class PrintScheduler:
                                 refused_uploads={pid: self._upload_refusal_kind.get(pid) for pid in backoff_printers},
                                 short_is_missing=filament_first,
                                 out_of_stock=out_of_stock,
+                                short_filaments=short_filaments,
                                 holds_out=call_holds,
                                 unmatched_todo=lambda pid, item=item: self._unmatched_todo_memo.get(
                                     self._unmatched_key(item, pid), []
@@ -3982,6 +4063,7 @@ class PrintScheduler:
         out_of_stock: list[str] | None = None,
         holds_out: dict[int, list[TodoFilament]] | None = None,
         unmatched_todo: Callable[[int], list[TodoFilament]] | None = None,
+        short_filaments: Callable[[int], Awaitable[list[TodoFilament]]] | None = None,
     ) -> tuple[int | None, str | None]:
         """Find an idle, connected printer matching the model with compatible filaments.
 
@@ -4023,6 +4105,8 @@ class PrintScheduler:
             holds_out: Filled with the filaments each printer lacks, by printer id, when
                        the answer is a filament wait (#3615). Nothing else changes.
             unmatched_todo: The structured form of what ``unmatched_on`` names (#3615).
+            short_filaments: The structured form of what ``is_short`` finds short on a
+                             printer, read only for a printer that is (#3587, #3615).
 
         Returns:
             Tuple of (printer_id, waiting_reason):
@@ -4052,6 +4136,8 @@ class PrintScheduler:
         printers_plate_empty: list[str] = []
         # The same entries as filaments, by printer id (#3615).
         missing_todo: dict[int, list[TodoFilament]] = {}
+        # Printers that are only short on filament (#3587): in the list as well.
+        short_ids: set[int] = set()
         candidates: list[tuple[int, int]] = []  # (printer_id, color_match_count)
         names_by_id = {p.id: p.name for p in printers}
         # The first eligible printer that is short on filament, kept in case
@@ -4212,6 +4298,8 @@ class PrintScheduler:
                 if is_short is not None and await is_short(printer.id):
                     if short_is_missing:
                         printers_missing_filament.append((printer.name, [_SHORT_FILAMENT_NEED]))
+                        short_ids.add(printer.id)
+                        missing_todo[printer.id] = await short_filaments(printer.id) if short_filaments else []
                     elif short_fallback is None:
                         short_fallback = printer.id
                     logger.info(
@@ -4232,6 +4320,8 @@ class PrintScheduler:
                         return candidate_id, None
                     if short_is_missing:
                         printers_missing_filament.append((names_by_id[candidate_id], [_SHORT_FILAMENT_NEED]))
+                        short_ids.add(candidate_id)
+                        missing_todo[candidate_id] = await short_filaments(candidate_id) if short_filaments else []
                     logger.info(
                         "Model-based assignment: passing over printer %s, not enough filament",
                         candidate_id,
@@ -4288,6 +4378,10 @@ class PrintScheduler:
                 reasons.append(_waiting_clause(printers_missing_filament))
                 if holds_out is not None:
                     holds_out.update(missing_todo)
+        if holds_out is not None and short_ids:
+            # A printer that is only short is a filament wait too, whichever
+            # clause words it above (#3587, #3615).
+            holds_out.update({pid: todo for pid, todo in missing_todo.items() if pid in short_ids})
         reasons.extend(printers_refused)
         if printers_plate_empty:
             # Needs a person to refill the plate changer, so it never reads as "Busy".
@@ -6057,9 +6151,7 @@ class PrintScheduler:
         rows = result.all()
         self._plate_changer_ids = {pid for pid, _name, _remaining in rows}
         self._plate_changer_empty = {
-            pid: name or f"printer {pid}"
-            for pid, name, remaining in rows
-            if remaining is None or remaining <= 0 or is_count_unknown(pid)
+            pid: name or f"printer {pid}" for pid, name, remaining in rows if plate_changer_reads_empty(pid, remaining)
         }
 
     async def _plate_changer_blocks_dispatch(self, db: AsyncSession, printer_id: int) -> bool:
@@ -9319,6 +9411,24 @@ class PrintScheduler:
             return require_known
         return bool(deficit)
 
+    async def _short_filaments_on(self, db: AsyncSession, item: PrintQueueItem, printer_id: int) -> list[TodoFilament]:
+        """The filaments whose spools on ``printer_id`` cannot finish ``item``, structured (#3587, #3615).
+
+        The question of ``_filament_short_on`` answered with the slots instead
+        of a yes; [] when it is not short or cannot be told. Recording only.
+        """
+        if item.skip_filament_check:
+            return []
+        try:
+            mapping = await self._compute_ams_mapping_for_printer(db, printer_id, item)
+            if not mapping:
+                return []
+            deficit = await compute_deficit_for_queue_item(db, item, printer_id=printer_id, ams_mapping=mapping)
+            return await self._deficit_todo_filaments(db, item, deficit) if deficit else []
+        except Exception as e:
+            logger.debug("Queue item %s: short filaments on printer %s not read: %s", item.id, printer_id, e)
+            return []
+
     async def _notify_filament_wait_once(
         self,
         db: AsyncSession,
@@ -9577,19 +9687,33 @@ class PrintScheduler:
             return None
         required_types, overrides = _filament_constraints(candidates[0])
         shortfall = self._cached_filament_shortfall(item.printer_id, required_types, overrides)
-        return ", ".join(shortfall) if shortfall else None
+        if not shortfall:
+            return None
+        # Structured next to the text it backs, from the same inputs (#3615).
+        entries = self._cached_filament_shortfall_entries(item.printer_id, required_types, overrides)
+        self._record_hold(item.id, item.printer_id, item.target_model, [todo for _, todo in entries])
+        return ", ".join(shortfall)
 
     async def _filament_wait_wanted(self, db: AsyncSession, item: PrintQueueItem) -> str | None:
         """What ``item`` waits for on its printer, worded for the queue row (#3587).
 
         The short spools if there are any, else the requirements without a
-        tray; None when it lacks nothing.
+        tray; None when it lacks nothing. The same finding is recorded
+        structured for the "To do" list (#3615).
         """
         deficit = await self._filament_deficit(db, item)
         if deficit:
+            self._record_hold(
+                item.id, item.printer_id, item.target_model, await self._deficit_todo_filaments(db, item, deficit)
+            )
             return _describe_deficit(deficit)
         unmatched = await self._unmatched_filament(db, item)
-        return _describe_unmatched(unmatched) if unmatched else None
+        if not unmatched:
+            return None
+        self._record_hold(
+            item.id, item.printer_id, item.target_model, [todo_filament_from_requirement(r) for r in unmatched]
+        )
+        return _describe_unmatched(unmatched)
 
     async def _block_on_filament_deficit(
         self,

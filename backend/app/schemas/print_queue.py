@@ -599,12 +599,24 @@ class QueueTodoPrinter(BaseModel):
 
 
 class QueueTodoEntry(BaseModel):
-    kind: Literal["plate_clear", "load_filament", "start_staged", "sensor_interlock", "power_on_failed"]
+    kind: Literal[
+        "plate_clear",
+        "plate_changer_empty",
+        "load_filament",
+        "start_staged",
+        "sensor_interlock",
+        "power_on_failed",
+    ]
     jobs: list[QueueTodoJob]
     filaments: list[QueueTodoFilament] = []
     # Printers where loading ``filaments`` lets a model job start; empty for other kinds.
     printers: list[QueueTodoPrinter] = []
     detail: str | None = None
+    # load_filament held by "loaded filament first" (#3587): who has priority, or when it will.
+    priority: Literal["has_priority", "priority_in"] | None = None
+    priority_hours: int | None = None
+    # plate_changer_empty: the count a refill resets to (#3575).
+    plate_capacity: int | None = None
 
 
 class QueueTodoGroup(BaseModel):

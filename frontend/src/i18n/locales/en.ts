@@ -8849,6 +8849,7 @@ export default {
     jobCount_other: "{{count}} jobs",
     kind: {
       plateClear: "Confirm the plate is clear",
+      plateChangerEmpty: "Plate changer empty",
       loadFilament: "Load filament",
       startStaged: "Start the staged job",
       sensorInterlock: "Blocked by a sensor",

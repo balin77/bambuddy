@@ -8804,6 +8804,7 @@ export default {
     jobCount_other: "{{count}} trabajos",
     kind: {
       plateClear: "Confirmar que la cama está libre",
+      plateChangerEmpty: "Cambiador de placas vacío",
       loadFilament: "Cargar filamento",
       startStaged: "Iniciar el trabajo en espera",
       sensorInterlock: "Bloqueado por un sensor",

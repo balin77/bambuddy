@@ -2889,7 +2889,7 @@ export interface DiscoveredTasmotaDevice {
 
 // Print Queue types
 // "To do" list of everything the queue waits on (#3615).
-export type QueueTodoKind = 'plate_clear' | 'load_filament' | 'start_staged' | 'sensor_interlock' | 'power_on_failed';
+export type QueueTodoKind = 'plate_clear' | 'plate_changer_empty' | 'load_filament' | 'start_staged' | 'sensor_interlock' | 'power_on_failed';
 export interface QueueTodoFilament { type: string; color: string; color_name: string; no_stock: boolean }
 export interface QueueTodoEntry {
   kind: QueueTodoKind;
@@ -2898,6 +2898,11 @@ export interface QueueTodoEntry {
   // Model-group load_filament: printers where loading lets the job start.
   printers: { id: number; name: string }[];
   detail: string | null;
+  // load_filament held by "loaded filament first": who has priority, or in how many hours (#3587).
+  priority: 'has_priority' | 'priority_in' | null;
+  priority_hours: number | null;
+  // plate_changer_empty: the count a refill resets to (#3575).
+  plate_capacity: number | null;
 }
 export interface QueueTodoGroup {
   printer_id: number | null;
