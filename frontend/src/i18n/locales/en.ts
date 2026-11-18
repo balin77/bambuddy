@@ -1681,7 +1681,7 @@ export default {
       confirmOutcome: 'Outcome prompt',
       confirmOutcomeTitle: 'Asks how the print came out after it completes',
       clearsPlate: 'Clears plate',
-      clearsPlateTitle: 'Clears its own plate: no plate confirmation after a successful print, unless the printer is set to "Always require"',
+      clearsPlateTitle: 'Clears its own plate: no plate confirmation after a successful print, unless plate-clear confirmation is switched on for that printer',
       clearsPlatePartial: 'Clears plate (some printers)',
       clearsPlatePartialTitle: 'Only these alternatives clear their own plate: {{models}}',
     },
@@ -4539,7 +4539,7 @@ export default {
     },
     details: {
       clearsPlate: 'Clears the plate automatically',
-      clearsPlateHelp: 'The file ends with a plate change or push-off. After a successful print the queue starts the next job without waiting for a plate confirmation, unless the printer is set to "Always require". New print jobs from this file start with this setting.',
+      clearsPlateHelp: 'The file ends with a plate change or push-off. After a successful print the queue starts the next job without waiting for a plate confirmation, unless plate-clear confirmation is switched on for that printer. New print jobs from this file start with this setting.',
       title: 'File details',
       size: 'Size',
       type: 'Type',
@@ -5854,7 +5854,7 @@ export default {
       clearsPlateFor: 'Clears plate: {{filename}}',
       clearsPlateLegend: 'Checked: this printer\'s file clears the plate itself',
       clearsPlate: 'Clears plate',
-      clearsPlateTitle: 'This printer\'s file clears the plate itself. After a successful print on this printer the queue starts the next job without a plate confirmation, unless the printer is set to "Always require".',
+      clearsPlateTitle: 'This printer\'s file clears the plate itself. After a successful print on this printer the queue starts the next job without a plate confirmation, unless plate-clear confirmation is switched on for that printer.',
       moveUp: 'Move up',
       moveDown: 'Move down',
       queued: 'Queued with {{count}} alternatives',
@@ -5956,7 +5956,7 @@ export default {
     askForOutcome: 'Ask for Outcome',
     askForOutcomeTitle: 'Ask how the print came out after it completes',
     clearsPlate: 'Clears plate automatically',
-    clearsPlateTitle: 'The file clears the plate itself (plate changer or push-off). After a successful print the queue starts the next job without waiting for a plate confirmation, unless the printer is set to "Always require".',
+    clearsPlateTitle: 'The file clears the plate itself (plate changer or push-off). After a successful print the queue starts the next job without waiting for a plate confirmation, unless plate-clear confirmation is switched on for that printer.',
   },
 
   // Backup
