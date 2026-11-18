@@ -5544,6 +5544,11 @@ export default {
     allMaterials: "Усі матеріали",
     filterByBrand: "Фільтрувати за брендом...",
     showArchived: "Показати архівні",
+    lastUsed: {
+      hint: 'Значення з останньої котушки ({{name}})',
+      hintPlain: 'Значення з останньої котушки',
+      clear: 'Очистити',
+    },
     quickAdd: "Швидке додавання (запас)",
     quantity: "Кількість",
     stock: "Запас",
