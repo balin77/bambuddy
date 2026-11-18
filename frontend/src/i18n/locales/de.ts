@@ -5589,6 +5589,11 @@ export default {
     showLess: 'Weniger',
     showAll: 'Alle',
     noColorsFound: 'Keine Farben gefunden',
+    catalogColors: {
+      showAll: 'Alle Farben anzeigen',
+      showMatching: 'Nur passende anzeigen',
+      allBrand: 'Alle {{brand}}-Farben',
+    },
     noResults: 'Keine Ergebnisse',
     // Multi-Color-Verlauf + visueller Effekt (#1154)
     extraColorsLabel: 'Zusätzliche Farben',
