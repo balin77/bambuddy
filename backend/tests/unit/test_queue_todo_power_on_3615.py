@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from backend.app.services.print_scheduler import PrintScheduler
-from backend.tests.unit.test_monitor_only_plugs_3583 import _add_typed_plug
 from backend.tests.unit.test_scheduler_class_target_smart_plug_2786 import (  # noqa: F401 - fixture
     _add_item,
+    _add_plug,
     _get_item,
     _run,
     queue_db,
@@ -17,7 +17,7 @@ from backend.tests.unit.test_scheduler_class_target_smart_plug_2786 import (  # 
 @pytest.mark.asyncio
 async def test_pinned_power_on_failure_is_recorded_per_pass(queue_db):
     scheduler = PrintScheduler()
-    await _add_typed_plug(queue_db, 1, "rest")
+    await _add_plug(queue_db, 1)
     item_id = await _add_item(queue_db, printer_id=1)
 
     await _run(queue_db, scheduler, power_on=AsyncMock(return_value=False))
