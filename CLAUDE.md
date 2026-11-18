@@ -64,9 +64,9 @@ Massgeblich ist Linux bzw. die CI.
 
 | Thema | Upstream | Im Fork |
 |-------|----------|---------|
-| Plattenbestätigung **pro Drucker** | Issue #2860 **geschlossen**: maziggy hat es selbst in `dev` gebaut (`6009a4a37`, Spalte `printers.require_plate_clear` BOOLEAN NULL, Modul `services/plate_clear.py`). PR #3540 (Draft, Keybored02) ist damit überholt. | Auf `farm` läuft **noch** der Entwurf von Keybored02 (`595d81fbc`, Spalte `plate_clear_override`). **Offen:** `farm` auf maziggys Version umstellen; dabei die Werte einmalig kopieren (`on` → TRUE, `off` → FALSE), sonst gehen die Einstellungen pro Drucker verloren. |
-| Plattenzähler / Kapazität pro Drucker | Issue **#3575** (von uns, **balin77 zugewiesen**), Draft-PR #3588, Wiki-PR #148 | Feature B: `feature/plate-changer-capacity` (seit 18.11. auf `dev` mit #2860 umgestellt, ohne den Entwurf #3540; `farm` hat noch den alten Stand), auf `farm` (`c764a159`, `6b84c76a`). PR-/Wiki-Entwurf in `farm/drafts/` |
-| Auto-Räumung **pro Datei/Auftrag** | Issue **#3576** (von uns, **balin77 zugewiesen**), Draft-PR #3589, Wiki-PR #149 | Feature A: `feature/clears-plate-per-job` (seit 18.11. auf `dev` mit #2860 umgestellt, neuer Lesezugriff `plate_clear.override()`; die UI-Texte nennen noch „Always require“; `farm` hat noch den alten Stand), auf `farm` (`ed0196ab`, `60aa5b43`) + Integration A+B (`57cf7da6`, `7d67ad29`, nur `farm`). Entwürfe in `farm/drafts/` |
+| Plattenbestätigung **pro Drucker** | Issue #2860 **geschlossen**: maziggy hat es selbst in `dev` gebaut (`6009a4a37`, Spalte `printers.require_plate_clear` BOOLEAN NULL, Modul `services/plate_clear.py`). PR #3540 (Draft, Keybored02) ist damit überholt. | Auf `farm` seit 18.11. maziggys Version (`9099c8c2a`, Cherry-Pick von `6009a4a37`); der Entwurf von Keybored02 (`595d81fbc`) ist zurückgenommen (`f5150aa25`). Die alte Spalte `printers.plate_clear_override` bleibt in bestehenden Datenbanken liegen (Rollback); eine Farm-Migration kopiert ihre Werte **einmalig** nach `require_plate_clear` (`on` → TRUE, `off` → FALSE, sonst NULL; Marker `_migrate_farm_plate_clear_override_done` in `settings`, `22ddb2f5d`). Diese Migration bleibt auf `farm`, bis kein Server mehr die alte Spalte hat. |
+| Plattenzähler / Kapazität pro Drucker | Issue **#3575** (von uns, **balin77 zugewiesen**), Draft-PR #3588, Wiki-PR #148 | Feature B: `feature/plate-changer-capacity` (seit 18.11. auf `dev` mit #2860 umgestellt, ohne den Entwurf #3540), auf `farm` (`c764a159`, `6b84c76a`, Umstellung auf #2860 `d3e6c3c3b`). PR-/Wiki-Entwurf in `farm/drafts/` |
+| Auto-Räumung **pro Datei/Auftrag** | Issue **#3576** (von uns, **balin77 zugewiesen**), Draft-PR #3589, Wiki-PR #149 | Feature A: `feature/clears-plate-per-job` (seit 18.11. auf `dev` mit #2860 umgestellt, neuer Lesezugriff `plate_clear.override()`), auf `farm` (`ed0196ab`, `60aa5b43`, Umstellung auf #2860 `d3e6c3c3b`, UI-Texte `ccbbf0e17`) + Integration A+B (`57cf7da6`, `7d67ad29`, `d3e6c3c3b`, nur `farm`). Entwürfe in `farm/drafts/` |
 | Button-Texte auf Touch markierbar, AMS-Slot-Kacheln per Tipp | Issue **#3577** (von uns, wartet auf Zuweisung; am 18.11. kommentiert, dass es fertig ist) | Feature C: `fix/button-text-selection` (auf `upstream/dev` rebased), auf `farm` (`e1782a8b`, `41eeb035`, Kacheln `89b56c76`, `ddd0c857`). Entwurf `farm/drafts/PR-3577-button-text-selection.md`, Screenshots `pr-assets/3577/` |
 | Geladenes Filament zuerst (Queue-Modus mit Höchstwartezeit) | Issue **#3587** (von uns, wartet auf Zuweisung; am 18.11. kommentiert, dass es fertig ist) | `feature/queue-loaded-filament-first` (von `upstream/dev`), auf `farm` (`851b46ab`; dort ohne `model_dispatch_order`/#3536, Reservierung beachtet Plattengates und leere Plattenwechsler). Entwürfe `farm/drafts/PR-3587.md`, `WIKI-3587.md` |
 | Filament-Override aus dem Lager mit Bestandshinweis | Issue **#3590** (von uns, balin77 zugewiesen); **PR #3618** gestellt am 18.11., Wiki-PR bambuddy-wiki#155 | `feature/override-from-inventory` (von `upstream/dev`), auf `farm` (`91c8cf45`, Anpassung `45f690a7`: ohne Support-Suffix #3559; Einstellung `5731dd90`). Auf Wunsch des Maintainers schaltet die installationsweite Einstellung `filament_override_inventory` (Standard **aus**, Checkbox „Show inventory colours“ im Druckdialog und Karte unter Queue & Dispatch) alles von #3590. **Auf der Farm nach dem Update einmal einschalten.** Neues Ereignis „Filament Out of Stock“ (aus per Default). Entwürfe `farm/drafts/PR-3590.md`, `WIKI-3590.md`, Screenshots `pr-assets/3590/` |
@@ -125,13 +125,14 @@ zugewiesen ist. Bis dahin entsteht der Code auf `feature/*` und läuft über
 
 ## 3. Features
 
-Alle Features bauen auf der Override-Einstellung pro Drucker aus #3540 auf
-(`printers.plate_clear_override`, `_plate_gate()` im Scheduler). Diese
+Alle Features bauen auf der Einstellung pro Drucker aus #2860 auf
+(`printers.require_plate_clear`: TRUE/FALSE, NULL folgt der App-Einstellung;
+Modul `services/plate_clear.py` mit `applies()` und `override()`). Diese
 Einstellung erweitern, keine parallele Logik bauen.
 
 ### Feature A – Automatische Plattenräumung pro Datei, Issue #3576 (`feature/clears-plate-per-job`)
 
-Vorrang: Steht ein Drucker auf *Immer verlangen*, wartet er immer. Das Flag
+Vorrang: Steht die Einstellung eines Druckers auf *An*, wartet er immer. Das Flag
 wirkt nur dort, wo sonst die globale Einstellung greifen würde.
 
 **Problem:** Die globale Einstellung `require_plate_clear` lässt die
@@ -162,8 +163,8 @@ die ganze Farm.
 ### Feature B – Kapazität des Plattenwechslers pro Drucker, Issue #3575 (`feature/plate-changer-capacity`)
 
 Zählt bei jedem erfolgreich beendeten Auftrag herunter, dessen Platte
-automatisch geräumt wurde: entweder weil der Drucker auf *Nie verlangen*
-steht (#3540) oder weil der Auftrag das Flag aus Feature A hat.
+automatisch geräumt wurde: entweder weil die Einstellung des Druckers auf
+*Aus* steht (#2860) oder weil der Auftrag das Flag aus Feature A hat.
 Datenfelder laut Issue: `printers.plate_capacity`, `printers.plates_remaining`.
 
 **Problem:** Bambuddy weiss nicht, wie viele Platten im Wechsler liegen bzw.
