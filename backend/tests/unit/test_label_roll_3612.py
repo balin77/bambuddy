@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import io
+
 import pytest
 from reportlab.lib.units import mm
+from reportlab.pdfgen import canvas as rl_canvas
 
 from backend.app.services.label_printers.brother_ql_media import TAPES
 from backend.app.services.label_renderer import (
+    DEFAULT_LABEL_FIELDS,
     ROLL_MAX_LENGTH_MM,
     ROLL_MIN_LENGTH_MM,
     LabelData,
     RollLayout,
+    _draw_label,
     get_sheet_capacity,
     iter_pdf_images,
     label_size_mm,
@@ -86,3 +91,37 @@ def test_limits():
 def test_starting_position_refused():
     with pytest.raises(ValueError):
         render_labels(RollLayout("50", 40), [data()], starting_position=2)
+
+
+def _drawn(layout: RollLayout, label: LabelData) -> bytes:
+    """The text drawn on one label, from the uncompressed content stream."""
+    w_mm, h_mm = label_size_mm(layout)
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=(w_mm * mm, h_mm * mm), pageCompression=0)
+    _draw_label(c, 0, 0, w_mm * mm, h_mm * mm, label, True, DEFAULT_LABEL_FIELDS)
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def test_short_label_keeps_the_name_over_the_hex_code():
+    """A 20 mm label has no room for both lines; the colour name stays."""
+    label = data()
+    label.name = "Lava Red"
+    drawn = _drawn(RollLayout("50", 20), label)
+    assert b"Lava Red" in drawn
+    assert b"#FF0000" not in drawn
+
+
+def test_label_with_room_shows_hex_code_and_name():
+    label = data()
+    label.name = "Lava Red"
+    drawn = _drawn(RollLayout("50", 40), label)
+    assert b"Lava Red" in drawn
+    assert b"#FF0000" in drawn
+
+
+def test_short_label_without_a_name_keeps_the_hex_code():
+    label = data()
+    label.name = ""
+    assert b"#FF0000" in _drawn(RollLayout("50", 20), label)

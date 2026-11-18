@@ -477,10 +477,28 @@ def _draw_label_roomy(
         ("added", data.added.isoformat() if data.added else "", "Helvetica", 6.5, 1.2),
     ]
 
-    cursor_y = y + h - pad
-    for field, text, font, size, gap in rows:
-        if field not in fields or not text:
-            continue
+    rows = [row for row in rows if row[0] in fields and row[1]]
+    top_y = y + h - pad
+
+    def name_fits(candidates: list[tuple[LabelField, str, str, float, float]]) -> bool:
+        cursor = top_y
+        for field, _text, _font, size, gap in candidates:
+            if cursor - size < floor_y:
+                return False
+            if field == "name":
+                return True
+            cursor -= size + gap
+        return False
+
+    # On a short label the lines run out before the name. The name tells the
+    # user more than the hex code above it, so the code gives way (#3612).
+    if any(row[0] == "name" for row in rows) and not name_fits(rows):
+        without_hex = [row for row in rows if row[0] != "hex"]
+        if name_fits(without_hex):
+            rows = without_hex
+
+    cursor_y = top_y
+    for _field, text, font, size, gap in rows:
         if cursor_y - size < floor_y:
             break
         c.setFont(font, size)
