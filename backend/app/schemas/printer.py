@@ -181,6 +181,8 @@ class PrinterUpdate(IgnoresNullForRequiredColumns):
     print_hours_offset: float | None = None
     # Wear cost per printing hour (#694); null or 0 turns it off.
     wear_cost_per_hour: float | None = Field(default=None, ge=0, le=100000)
+    # Overrides the app setting require_plate_clear (#2860); null follows it.
+    require_plate_clear: bool | None = None
     external_camera_url: str | None = None
     external_camera_type: str | None = None
     external_camera_enabled: bool | None = None
@@ -220,6 +222,7 @@ class PrinterResponse(PrinterBase):
     supports_nozzle_flow_type: bool = True
     print_hours_offset: float = 0.0
     wear_cost_per_hour: float | None = None  # #694
+    require_plate_clear: bool | None = None  # #2860, null follows the app setting
     external_camera_url: str | None = None
     external_camera_type: str | None = None
     external_camera_enabled: bool = False

@@ -6018,6 +6018,10 @@ async def _run_migrations(conn):
     await _safe_execute(conn, f"ALTER TABLE print_log_entries ADD COLUMN wear_cost {float_type}")
     await _safe_execute(conn, f"ALTER TABLE print_archives ADD COLUMN wear_cost {float_type}")
 
+    # Migration: a printer's own "Require plate-clear confirmation" (#2860).
+    # Nullable: null follows the app setting, which every printer did before.
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN require_plate_clear BOOLEAN")
+
     # Migration: when each spool was last dried, at what temperature and for
     # how long (#2863). Nullable: no spool has a drying record until one ends.
     datetime_type = "DATETIME" if is_sqlite() else "TIMESTAMP"

@@ -8800,6 +8800,8 @@ function EditPrinterModal({
     auto_archive: printer.auto_archive,
     is_active: printer.is_active,
     wear_cost_per_hour: printer.wear_cost_per_hour ? String(printer.wear_cost_per_hour) : '',
+    // '' follows the app setting (#2860)
+    require_plate_clear: printer.require_plate_clear == null ? '' : printer.require_plate_clear ? 'on' : 'off',
     plate_capacity: printer.plate_capacity != null ? String(printer.plate_capacity) : '',
     plate_changer_show_count: printer.plate_changer_show_count ?? true,
   });
@@ -8860,6 +8862,8 @@ function EditPrinterModal({
       is_active: form.is_active,
       // Empty or 0 turns wear cost off for this printer (#694)
       wear_cost_per_hour: Number(form.wear_cost_per_hour) > 0 ? Number(form.wear_cost_per_hour) : null,
+      // null follows the app setting (#2860)
+      require_plate_clear: form.require_plate_clear === '' ? null : form.require_plate_clear === 'on',
     };
     // Empty, 0 or negative turns plate changer counting off (#3575); only sent when changed,
     // and the count itself is never sent
@@ -9037,6 +9041,26 @@ function EditPrinterModal({
                 placeholder="0.00"
               />
               <p className="text-xs text-bambu-gray mt-1">{t('printers.modal.wearCostHelp')}</p>
+            </div>
+            <div>
+              <label htmlFor="edit_require_plate_clear" className="block text-sm text-bambu-gray mb-1">
+                {t('printers.modal.requirePlateClearLabel')}
+              </label>
+              <select
+                id="edit_require_plate_clear"
+                className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none"
+                value={form.require_plate_clear}
+                onChange={(e) => setForm({ ...form, require_plate_clear: e.target.value })}
+              >
+                <option value="">
+                  {t('printers.modal.requirePlateClearDefault', {
+                    value: settings?.require_plate_clear ? t('common.on') : t('common.off'),
+                  })}
+                </option>
+                <option value="on">{t('common.on')}</option>
+                <option value="off">{t('common.off')}</option>
+              </select>
+              <p className="text-xs text-bambu-gray mt-1">{t('printers.modal.requirePlateClearHelp')}</p>
             </div>
             <div>
               <label htmlFor="edit_plate_capacity" className="block text-sm text-bambu-gray mb-1">
@@ -10456,7 +10480,7 @@ export function PrintersPage() {
                       bedTempPresets={effectiveBedTempPresets}
                       chamberTempPresets={effectiveChamberTempPresets}
                       fanSpeedPresets={effectiveFanSpeedPresets}
-                      requirePlateClear={settings?.require_plate_clear === true}
+                      requirePlateClear={printer.require_plate_clear ?? settings?.require_plate_clear === true}
                       selectionMode={selectionMode}
                       isSelected={selectedPrinterIds.has(printer.id)}
                       onToggleSelect={toggleSelect}
@@ -10509,7 +10533,7 @@ export function PrintersPage() {
               bedTempPresets={effectiveBedTempPresets}
               chamberTempPresets={effectiveChamberTempPresets}
               fanSpeedPresets={effectiveFanSpeedPresets}
-              requirePlateClear={settings?.require_plate_clear === true}
+              requirePlateClear={printer.require_plate_clear ?? settings?.require_plate_clear === true}
               selectionMode={selectionMode}
               isSelected={selectedPrinterIds.has(printer.id)}
               onToggleSelect={toggleSelect}

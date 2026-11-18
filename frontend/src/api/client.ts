@@ -517,6 +517,7 @@ export interface Printer {
   plate_detection_enabled: boolean;  // Check plate before print
   plate_detection_roi?: PlateDetectionROI;  // ROI for plate detection
   wear_cost_per_hour: number | null;  // Wear cost per printing hour (#694)
+  require_plate_clear: boolean | null;  // Own "Require plate-clear confirmation", null follows the app setting (#2860)
   wled_config: WLEDConfig | null;
   created_at: string;
   updated_at: string;
@@ -853,6 +854,7 @@ export interface PrinterCreate {
   plate_detection_enabled?: boolean;
   plate_detection_roi?: PlateDetectionROI;
   wear_cost_per_hour?: number | null;
+  require_plate_clear?: boolean | null;
   wled_config?: WLEDConfig | null;
 }
 

@@ -1408,6 +1408,7 @@ async def forget_printer(printer_id: int) -> None:
         kprofile_drift,
         layer_timelapse,
         plate_changer,
+        plate_clear,
         plate_detection,
         print_dispatch_context,
         usage_tracker,
@@ -1487,6 +1488,7 @@ async def forget_printer(printer_id: int) -> None:
     print_scheduler.forget_printer(printer_id)
     notify_live_activities.forget_printer(printer_id)
     plate_detection.remove_printer_references(printer_id)
+    plate_clear.set_override(printer_id, None)
 
 
 def register_expected_print(
