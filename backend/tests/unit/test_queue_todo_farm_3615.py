@@ -454,7 +454,7 @@ class TestColourNames:
         item = MagicMock(id=1, filament_overrides=json.dumps(override))
         reqs = [{"slot_id": 1, "type": "PETG", "color": "#000000"}]
         scheduler._apply_filament_overrides(item, reqs)
-        assert "color_name" not in reqs[0]
+        assert not reqs[0].get("color_name")  # #3590 writes "" when the override has no name
 
 
 _ = _BROWN

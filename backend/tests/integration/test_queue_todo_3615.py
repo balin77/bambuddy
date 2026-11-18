@@ -503,6 +503,18 @@ class TestApiKeyCaller:
 class TestFarmEntries:
     """The farm's plate changers (#3575), filament priority (#3587) and stock (#3590) in the list."""
 
+    @pytest.fixture(autouse=True)
+    def _fresh_plate_changer_state(self):
+        # Printer ids are reused between tests; another test's "count unknown"
+        # or "count pending" mark must not make a full changer read as empty.
+        from backend.app.services import plate_changer
+
+        plate_changer._count_unknown.clear()
+        plate_changer._count_pending.clear()
+        yield
+        plate_changer._count_unknown.clear()
+        plate_changer._count_pending.clear()
+
     async def test_empty_plate_changer_is_listed_with_a_waiting_job(self, async_client, printer_factory, make_item):
         a = await printer_factory(name="A", plate_capacity=12, plates_remaining=0)
         item = await make_item(a.id, name="Benchy")
