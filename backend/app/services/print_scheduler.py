@@ -78,6 +78,7 @@ from backend.app.services.queue_item_printer import drop_printer_resolved
 from backend.app.services.queue_todo import (
     FilamentHold,
     TodoFilament,
+    merge_todo_filaments,
     priority_state,
     todo_filament_from_requirement,
 )
@@ -1473,6 +1474,8 @@ class PrintScheduler:
         self._pass_power_failed: set[int] | None = None
         # The unmatched filaments ``_unmatched_on`` found, by (item, printer), for the matcher (#3615).
         self._unmatched_todo_memo: dict[tuple, list[TodoFilament]] = {}
+        # What ``_filament_short_on`` and ``_short_filaments_on`` found short, by (item, printer), per pass (#3615).
+        self._deficit_memo: dict[tuple, list | None] = {}
         # Rebuilds of a staged job's hold already tried, so one that found
         # nothing is not repeated every pass (#3615). Keyed by what the answer
         # depends on; keys of jobs the pass did not ask about are dropped.
@@ -1903,7 +1906,7 @@ class PrintScheduler:
             return False
         filaments: list[TodoFilament] = []
         for hold in previous:
-            filaments.extend(f for f in hold.filaments if f not in filaments)
+            merge_todo_filaments(filaments, hold.filaments)
         self._pass_holds[item.id] = [FilamentHold(item.id, item.printer_id, item.target_model, tuple(filaments))]
         return True
 
@@ -1968,7 +1971,6 @@ class PrintScheduler:
         failed = False
         try:
             dispatched = await self._check_queue_pass()
-            await self._flag_holds_without_stock(holds)
             return dispatched
         except BaseException:
             failed = True
@@ -1989,31 +1991,6 @@ class PrintScheduler:
             if not failed:
                 self._rebuild_tried &= self._rebuild_seen
 
-    async def _flag_holds_without_stock(self, holds: dict[int, list[FilamentHold]]) -> None:
-        """Mark the forced filaments of this pass's holds the inventory has none left of (#3590, #3615).
-
-        The same decision as the " - none left in inventory" waiting text
-        (``_no_stock_left``): only with the setting on, only for forced
-        colours and only when the built-in inventory knows the filament.
-        Recording only, so a failure here leaves the holds as they were.
-        """
-        if not self._inventory_hints or not any(f.forced for hs in holds.values() for h in hs for f in h.filaments):
-            return
-        try:
-            async with async_session() as db:
-                for item_id, item_holds in list(holds.items()):
-                    flagged: list[FilamentHold] = []
-                    for hold in item_holds:
-                        filaments: list[TodoFilament] = []
-                        for f in hold.filaments:
-                            if f.forced and await self._no_stock_left(db, f.type, f.color, f.tray_info_idx):
-                                f = replace(f, no_stock=True)
-                            filaments.append(f)
-                        flagged.append(replace(hold, filaments=tuple(filaments)))
-                    holds[item_id] = flagged
-        except Exception as e:
-            logger.debug("Queue: stock flags for the To do list not read: %s", e)
-
     async def _check_queue_pass(self) -> bool:
         """Check for prints ready to start.
 
@@ -2025,6 +2002,7 @@ class PrintScheduler:
         self._unmatched_memo.clear()
         self._stock_memo = None
         self._unmatched_todo_memo.clear()
+        self._deficit_memo.clear()
         async with async_session() as db:
             # Check if shortest-job-first scheduling is enabled
             sjf_enabled = await self._get_bool_setting(db, "queue_shortest_first")
@@ -2996,7 +2974,7 @@ class PrintScheduler:
                         per_model_reasons.append((candidate.target_model, match_reason or ""))
                         for held_pid, held_fils in call_holds.items():
                             known = model_holds.setdefault(held_pid, (candidate.target_model, []))[1]
-                            known.extend(f for f in held_fils if f not in known)
+                            merge_todo_filaments(known, held_fils)
 
                     # Nothing is available and nothing has been woken this pass:
                     # switch one matching printer on. Assignment is left to the
@@ -4160,6 +4138,14 @@ class PrintScheduler:
             # The structured form comes from the overrides behind the texts, not from parsing them (#3615).
             return [text for text, _ in pairs], [todo_filament_from_requirement(o) for _, o in pairs]
 
+        def flag_no_stock(names: set[str], marked: set[TodoFilament]) -> None:
+            # The filaments of the entries the text marks "none left", on the printers it lists them for (#3615).
+            if not marked:
+                return
+            for pid, pname in names_by_id.items():
+                if pname in names and pid in missing_todo:
+                    missing_todo[pid] = [replace(f, no_stock=True) if f in marked else f for f in missing_todo[pid]]
+
         for printer in printers:
             if printer.id in self._plate_changer_empty:
                 printers_plate_empty.append(printer.name)
@@ -4358,7 +4344,11 @@ class PrintScheduler:
                 if not printers_busy and not printers_offline and not printers_refused and not printers_plate_empty:
                     if colour_missing:
                         all_missing = sorted({c for _, cols in colour_missing for c in cols})
-                        all_missing = await self._mark_out_of_stock(db, all_missing, entry_overrides, out_of_stock)
+                        marked_todo: set[TodoFilament] = set()
+                        all_missing = await self._mark_out_of_stock(
+                            db, all_missing, entry_overrides, out_of_stock, marked_todo
+                        )
+                        flag_no_stock({n for n, _ in colour_missing}, marked_todo)
                         if holds_out is not None:
                             holds_out.update(missing_todo)
                         no_match = f"No matching material/color. Waiting on {', '.join(all_missing)}"
@@ -4371,10 +4361,17 @@ class PrintScheduler:
                 # else: fall through — the self-resolving entries are appended below
             else:
                 if force_overrides:
-                    printers_missing_filament = [
-                        (name, await self._mark_out_of_stock(db, missing, entry_overrides, out_of_stock))
-                        for name, missing in printers_missing_filament
-                    ]
+                    marked_list: list[tuple[str, list[str]]] = []
+                    for name, missing in printers_missing_filament:
+                        marked_todo = set()
+                        marked_list.append(
+                            (
+                                name,
+                                await self._mark_out_of_stock(db, missing, entry_overrides, out_of_stock, marked_todo),
+                            )
+                        )
+                        flag_no_stock({name}, marked_todo)
+                    printers_missing_filament = marked_list
                 reasons.append(_waiting_clause(printers_missing_filament))
                 if holds_out is not None:
                     holds_out.update(missing_todo)
@@ -4404,13 +4401,15 @@ class PrintScheduler:
         entries: list[str],
         entry_overrides: Mapping[str, list[dict]],
         out_of_stock: list[str] | None = None,
+        marked_out: set[TodoFilament] | None = None,
     ) -> list[str]:
         """Add ``_NO_STOCK_SUFFIX`` to the entries naming a forced filament the inventory has none of (#3590).
 
         ``entry_overrides`` maps an entry's text to the forced override(s) that
         wrote it, so the suffix goes to the exact entry and the matcher is not
         repeated. An entry several overrides share (same label) is marked only
-        when none of them has stock. Entries without an override, unknown stock
+        when none of them has stock. ``marked_out`` receives the filaments of the
+        entries it marked, for the "To do" list (#3615). Entries without an override, unknown stock
         (Spoolman, never stocked, an error) and any stock left stay as they were.
         """
         if not self._inventory_hints or not entries or not entry_overrides:
@@ -4429,6 +4428,8 @@ class PrintScheduler:
             ):
                 if out_of_stock is not None and entry not in out_of_stock:
                     out_of_stock.append(entry)
+                if marked_out is not None:
+                    marked_out.update(todo_filament_from_requirement(o) for o in overrides)
                 marked.append(f"{entry}{_NO_STOCK_SUFFIX}")
                 continue
             marked.append(entry)
@@ -9400,16 +9401,35 @@ class PrintScheduler:
         if item.skip_filament_check:
             return False
         try:
-            mapping = await self._compute_ams_mapping_for_printer(db, printer_id, item)
-            if not mapping:
-                return require_known
-            deficit = await compute_deficit_for_queue_item(
-                db, item, printer_id=printer_id, ams_mapping=mapping, require_known=require_known
-            )
+            if require_known:
+                mapping = await self._compute_ams_mapping_for_printer(db, printer_id, item)
+                if not mapping:
+                    return True
+                deficit = await compute_deficit_for_queue_item(
+                    db, item, printer_id=printer_id, ams_mapping=mapping, require_known=True
+                )
+            else:
+                deficit = await self._deficit_on(db, item, printer_id)
         except Exception as e:
             logger.warning("Filament deficit check failed for item %s on printer %s: %s", item.id, printer_id, e)
             return require_known
         return bool(deficit)
+
+    async def _deficit_on(self, db: AsyncSession, item: PrintQueueItem, printer_id: int) -> list | None:
+        """The deficit of ``item`` on ``printer_id``, computed once per pass (#3615).
+
+        None when there is no mapping. Shared by ``_filament_short_on`` and
+        ``_short_filaments_on``; a failure is raised and not remembered.
+        """
+        key = self._unmatched_key(item, printer_id)
+        if key not in self._deficit_memo:
+            mapping = await self._compute_ams_mapping_for_printer(db, printer_id, item)
+            self._deficit_memo[key] = (
+                await compute_deficit_for_queue_item(db, item, printer_id=printer_id, ams_mapping=mapping)
+                if mapping
+                else None
+            )
+        return self._deficit_memo[key]
 
     async def _short_filaments_on(self, db: AsyncSession, item: PrintQueueItem, printer_id: int) -> list[TodoFilament]:
         """The filaments whose spools on ``printer_id`` cannot finish ``item``, structured (#3587, #3615).
@@ -9420,10 +9440,7 @@ class PrintScheduler:
         if item.skip_filament_check:
             return []
         try:
-            mapping = await self._compute_ams_mapping_for_printer(db, printer_id, item)
-            if not mapping:
-                return []
-            deficit = await compute_deficit_for_queue_item(db, item, printer_id=printer_id, ams_mapping=mapping)
+            deficit = await self._deficit_on(db, item, printer_id)
             return await self._deficit_todo_filaments(db, item, deficit) if deficit else []
         except Exception as e:
             logger.debug("Queue item %s: short filaments on printer %s not read: %s", item.id, printer_id, e)
@@ -9973,14 +9990,19 @@ class PrintScheduler:
         # A forced colour the inventory has none left of says so (#3590).
         out_of_stock: list[str] = []
         parts: list[str] = []
+        todo: list[TodoFilament] = []
         for r in unmatched:
             text = _describe_filament(r, "nozzle_id")
+            todo_filament = todo_filament_from_requirement(r)
             if r.get("force_color_match") and await self._no_stock_left(
                 db, r.get("type") or "", r.get("color") or "", r.get("tray_info_idx") or ""
             ):
                 out_of_stock.append(text)
                 text = f"{text}{_NO_STOCK_SUFFIX}"
+                # Exactly the entries the text marks (#3615).
+                todo_filament = replace(todo_filament, no_stock=True)
             parts.append(text)
+            todo.append(todo_filament)
         wanted = ", ".join(parts)
         held_by = item.printer_id  # set: _unmatched_filament returns [] without one
         # Structured next to the text; a released model job is no printer's (#3615).
@@ -9988,7 +10010,7 @@ class PrintScheduler:
             item.id,
             None if release_assignment else held_by,
             item.target_model,
-            [todo_filament_from_requirement(r) for r in unmatched],
+            todo,
         )
         if previous_reason is None:
             previous_reason = item.waiting_reason

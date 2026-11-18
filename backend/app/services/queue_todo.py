@@ -10,7 +10,7 @@ records and the pure part of the list; the route gathers the inputs.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 KIND_PLATE_CLEAR = "plate_clear"
 KIND_PLATE_CHANGER_EMPTY = "plate_changer_empty"
@@ -66,6 +66,23 @@ def todo_filament_from_requirement(req: Mapping) -> TodoFilament:
         tray_info_idx=str(req.get("tray_info_idx") or ""),
         forced=bool(req.get("force_color_match")),
     )
+
+
+def merge_todo_filaments(into: list[TodoFilament], more: Iterable[TodoFilament]) -> None:
+    """Add the filaments of ``more`` that ``into`` lacks, in place.
+
+    ``forced`` and ``tray_info_idx`` are not compared, so a filament already
+    there stands for its twin; the forced twin wins (the flag is OR-ed), or the
+    stock flag of the forced one would be lost (#3615).
+    """
+    for f in more:
+        for i, known in enumerate(into):
+            if known == f:
+                if f.forced and not known.forced:
+                    into[i] = replace(known, forced=True, tray_info_idx=f.tray_info_idx or known.tray_info_idx)
+                break
+        else:
+            into.append(f)
 
 
 def priority_state(has_priority: bool, hours: int | None) -> tuple[str, int | None]:
