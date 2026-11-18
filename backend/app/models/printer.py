@@ -54,10 +54,6 @@ class Printer(Base):
     # Queue: True after a print finishes/fails, until user acknowledges the plate is cleared.
     # Persisted so the gate survives crashes and power cycles (issue #961).
     awaiting_plate_clear: Mapped[bool] = mapped_column(Boolean, default=False)
-    # Whether this printer waits for the plate-clear confirmation (#2860):
-    # "inherit" follows the require_plate_clear setting, "on" always waits,
-    # "off" never does (a plate changer clears it itself).
-    plate_clear_override: Mapped[str] = mapped_column(String(10), default="inherit", server_default="inherit")
     # Plate changer capacity (#3575): NULL capacity = no plate changer counting.
     # plates_remaining counts down per print the printer clears itself and is
     # reset to plate_capacity when the changer is refilled and its bin emptied.

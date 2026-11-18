@@ -511,7 +511,6 @@ export interface Printer {
   external_camera_snapshot_url: string | null;  // optional single-frame override (#1177)
   camera_rotation: number;  // 0, 90, 180, 270 degrees
   camera_light_auto: boolean;  // picked for the chamber light when camera_light_mode is 'selected' (#1655)
-  plate_clear_override: PlateClearOverride;  // overrides the require_plate_clear setting for this printer (#2860)
   plate_capacity: number | null;  // plates the plate changer holds; null = no counting (#3575)
   plate_changer_show_count: boolean;  // show the plate count on the printer card (#3575)
   plates_remaining: number | null;  // plates left before a refill / bin emptying is due (#3575)
@@ -830,9 +829,6 @@ export interface PrinterStatus {
   supports_chamber_heater?: boolean;
 }
 
-// 'inherit' follows the require_plate_clear setting; 'on' / 'off' decide for one printer (#2860)
-export type PlateClearOverride = 'inherit' | 'on' | 'off';
-
 export interface PrinterCreate {
   name: string;
   serial_number: string;
@@ -851,7 +847,6 @@ export interface PrinterCreate {
   external_camera_snapshot_url?: string | null;
   camera_rotation?: number;
   camera_light_auto?: boolean;
-  plate_clear_override?: PlateClearOverride;
   plate_capacity?: number | null;
   plates_remaining?: number | null;
   plate_changer_show_count?: boolean;

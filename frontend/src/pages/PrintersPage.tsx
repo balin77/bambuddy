@@ -56,14 +56,6 @@ const WAITING_REASON_KEYS: Record<string, string> = {
   interrupted: 'printers.drying.waitingInterrupted',
 };
 
-// Whether a printer waits for the plate-clear confirmation: its own override
-// wins over the global setting (#2860).
-function needsPlateClearGate(printer: Printer, globalSetting: boolean): boolean {
-  if (printer.plate_clear_override === 'on') return true;
-  if (printer.plate_clear_override === 'off') return false;
-  return globalSetting;
-}
-
 function waitingReasonKey(reason: string | null | undefined): string | undefined {
   return reason ? WAITING_REASON_KEYS[reason] : undefined;
 }
@@ -176,7 +168,7 @@ import { ConfirmOutcomeDialog } from '../components/ConfirmOutcomeDialog';
 import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import { api, discoveryApi, firmwareApi, withMediaToken, ApiError } from '../api/client';
 import { formatDateOnly, formatDateTime, formatETA, formatDuration, formatDurationFromHours, parseUTCDate } from '../utils/date';
-import type { Printer, PrinterCreate, PlateClearOverride, PrinterStatus, AMSUnit, AMSTray, DiscoveredPrinter, FirmwareUpdateInfo, FirmwareUploadStatus, LinkedSpoolInfo, SpoolAssignment, HMSError, InventorySpool, SmartPlug, PrinterDiagnosticResult } from '../api/client';
+import type { Printer, PrinterCreate, PrinterStatus, AMSUnit, AMSTray, DiscoveredPrinter, FirmwareUpdateInfo, FirmwareUploadStatus, LinkedSpoolInfo, SpoolAssignment, HMSError, InventorySpool, SmartPlug, PrinterDiagnosticResult } from '../api/client';
 import { Card, CardContent } from '../components/Card';
 import { Button } from '../components/Button';
 import { ConfirmModal } from '../components/ConfirmModal';
@@ -8808,7 +8800,6 @@ function EditPrinterModal({
     auto_archive: printer.auto_archive,
     is_active: printer.is_active,
     wear_cost_per_hour: printer.wear_cost_per_hour ? String(printer.wear_cost_per_hour) : '',
-    plate_clear_override: printer.plate_clear_override ?? 'inherit',
     plate_capacity: printer.plate_capacity != null ? String(printer.plate_capacity) : '',
     plate_changer_show_count: printer.plate_changer_show_count ?? true,
   });
@@ -8869,7 +8860,6 @@ function EditPrinterModal({
       is_active: form.is_active,
       // Empty or 0 turns wear cost off for this printer (#694)
       wear_cost_per_hour: Number(form.wear_cost_per_hour) > 0 ? Number(form.wear_cost_per_hour) : null,
-      plate_clear_override: form.plate_clear_override,
     };
     // Empty, 0 or negative turns plate changer counting off (#3575); only sent when changed,
     // and the count itself is never sent
@@ -9047,22 +9037,6 @@ function EditPrinterModal({
                 placeholder="0.00"
               />
               <p className="text-xs text-bambu-gray mt-1">{t('printers.modal.wearCostHelp')}</p>
-            </div>
-            <div>
-              <label htmlFor="edit_plate_clear" className="block text-sm text-bambu-gray mb-1">
-                {t('printers.modal.plateClearLabel')}
-              </label>
-              <select
-                id="edit_plate_clear"
-                className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none"
-                value={form.plate_clear_override}
-                onChange={(e) => setForm({ ...form, plate_clear_override: e.target.value as PlateClearOverride })}
-              >
-                <option value="inherit">{t('printers.modal.plateClearInherit')}</option>
-                <option value="on">{t('printers.modal.plateClearOn')}</option>
-                <option value="off">{t('printers.modal.plateClearOff')}</option>
-              </select>
-              <p className="text-xs text-bambu-gray mt-1">{t('printers.modal.plateClearHelp')}</p>
             </div>
             <div>
               <label htmlFor="edit_plate_capacity" className="block text-sm text-bambu-gray mb-1">
@@ -10482,7 +10456,7 @@ export function PrintersPage() {
                       bedTempPresets={effectiveBedTempPresets}
                       chamberTempPresets={effectiveChamberTempPresets}
                       fanSpeedPresets={effectiveFanSpeedPresets}
-                      requirePlateClear={needsPlateClearGate(printer, settings?.require_plate_clear === true)}
+                      requirePlateClear={settings?.require_plate_clear === true}
                       selectionMode={selectionMode}
                       isSelected={selectedPrinterIds.has(printer.id)}
                       onToggleSelect={toggleSelect}
@@ -10535,7 +10509,7 @@ export function PrintersPage() {
               bedTempPresets={effectiveBedTempPresets}
               chamberTempPresets={effectiveChamberTempPresets}
               fanSpeedPresets={effectiveFanSpeedPresets}
-              requirePlateClear={needsPlateClearGate(printer, settings?.require_plate_clear === true)}
+              requirePlateClear={settings?.require_plate_clear === true}
               selectionMode={selectionMode}
               isSelected={selectedPrinterIds.has(printer.id)}
               onToggleSelect={toggleSelect}

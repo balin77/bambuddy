@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Literal
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
@@ -140,8 +139,6 @@ class PrinterBase(BaseModel):
     external_camera_snapshot_url: str | None = None  # Optional single-frame override; #1177
     camera_rotation: int = 0  # 0, 90, 180, 270 degrees
     camera_light_auto: bool = False  # #1655, used when camera_light_mode is "selected"
-    # #2860: "inherit" follows the require_plate_clear setting, "on" / "off" decide for this printer.
-    plate_clear_override: Literal["inherit", "on", "off"] = "inherit"
 
 
 class PrinterCreate(PrinterBase):
@@ -190,7 +187,6 @@ class PrinterUpdate(IgnoresNullForRequiredColumns):
     external_camera_snapshot_url: str | None = None  # #1177
     camera_rotation: int | None = None  # 0, 90, 180, 270 degrees
     camera_light_auto: bool | None = None  # #1655
-    plate_clear_override: Literal["inherit", "on", "off"] | None = None  # #2860
     # Plate changer capacity (#3575); null capacity turns counting off. The count
     # is normally reset through POST /printers/{id}/refill-plates.
     plate_capacity: int | None = Field(default=None, ge=1, le=999)
