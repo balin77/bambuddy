@@ -842,7 +842,7 @@ class TestModeOff:
 
         item = await _get(ctx, item_id)
         assert item.manual_start is True
-        assert item.waiting_reason == f"Needs {_BROWN_TEXT}"
+        assert item.waiting_reason == f"X1C-1 needs {_BROWN_TEXT}"  # names its printer (#3590)
         assert item.printer_id == 1
         assert result.waiting.await_count == 1
         assert result.waiting.await_args.kwargs["waiting_reason"] == f"needs {_BROWN_TEXT}"
