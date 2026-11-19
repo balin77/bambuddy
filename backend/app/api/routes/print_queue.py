@@ -1004,6 +1004,7 @@ async def queue_todo(
         interlock,
         power_failed,
         visible_slot_hints(_scheduler.slot_hints_snapshot(), printer_names),
+        _scheduler.prepare_snapshot(),
     )
 
 

@@ -15,7 +15,14 @@ from sqlalchemy import select
 from backend.app.models.group import Group
 from backend.app.models.print_queue import PrintQueueItem
 from backend.app.services.print_scheduler import scheduler
-from backend.app.services.queue_todo import FilamentHold, HintSlot, NozzleHint, SlotHint, TodoFilament
+from backend.app.services.queue_todo import (
+    FilamentHold,
+    HintSlot,
+    NozzleHint,
+    PrepareEntry,
+    SlotHint,
+    TodoFilament,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -34,6 +41,7 @@ def _quiet_scheduler_state():
     """No holds, no failed power-ons, no sensors, no plate waits unless a test says so."""
     scheduler._filament_holds = {}
     scheduler._slot_hints = {}
+    scheduler._prepare = {}
     scheduler._wake_failures = {}
     with (
         patch("backend.app.api.routes.print_queue.ha_sensor_manager.blocked_printers", AsyncMock(return_value={})),
@@ -44,6 +52,7 @@ def _quiet_scheduler_state():
         yield
     scheduler._filament_holds = {}
     scheduler._slot_hints = {}
+    scheduler._prepare = {}
 
 
 @pytest.fixture
@@ -838,3 +847,147 @@ class TestSlotHint:
         (entry,) = _only_entries((await async_client.get(URL, headers=_auth(member))).json())
 
         assert entry["slot_hint"]["unknown_jobs"] == 2
+
+
+class TestPrepare:
+    """What to prepare for a printer's next jobs: the scheduler's lines, as the list serves them (#3640)."""
+
+    async def test_a_line_is_served_under_its_printer_and_is_not_counted(
+        self, async_client, printer_factory, make_item
+    ):
+        a = await printer_factory(name="A")
+        item = await make_item(a.id, name="Bracket")
+        scheduler._prepare = {
+            a.id: (
+                PrepareEntry(
+                    a.id,
+                    item.id,
+                    1,
+                    (BLUE, RED),
+                    SlotHint(a.id, "replaceable", (_slot(3, "PLA", "#00FF00"),), unknown_job_ids=(item.id, 9999)),
+                ),
+            )
+        }
+        body = (await async_client.get(URL)).json()
+        assert body["count"] == 0
+        (group,) = body["groups"]
+        assert (group["printer_id"], group["printer_name"], group["entries"]) == (a.id, "A", [])
+        (line,) = group["prepare"]
+        assert line["job"] == {"id": item.id, "name": "Bracket"}
+        assert line["position"] == 1
+        # Sorted as the entries are: by type.
+        assert [f["type"] for f in line["filaments"]] == ["PETG", "PLA"]
+        # The same fields as an entry's filaments, at their defaults.
+        assert all((f["short"], f["short_trays"], f["required_grams"]) == (False, [], None) for f in line["filaments"])
+        assert line["slot_hint"]["state"] == "replaceable"
+        assert [s["tray_id"] for s in line["slot_hint"]["slots"]] == [3]
+        # Job 9999 is not one the caller sees: not counted.
+        assert line["slot_hint"]["unknown_jobs"] == 1
+
+    async def test_a_line_joins_the_group_of_a_printer_that_has_an_entry(
+        self, async_client, printer_factory, make_item
+    ):
+        a = await printer_factory(name="A")
+        held = await make_item(a.id, name="Held")
+        nxt = await make_item(a.id, name="Next")
+        scheduler._filament_holds = {held.id: [FilamentHold(held.id, a.id, None, (RED,))]}
+        scheduler._prepare = {a.id: (PrepareEntry(a.id, nxt.id, 1, (BLUE,), None),)}
+        body = (await async_client.get(URL)).json()
+        assert body["count"] == 1
+        (group,) = body["groups"]
+        assert [e["kind"] for e in group["entries"]] == ["load_filament"]
+        (line,) = group["prepare"]
+        assert (line["job"]["name"], line["slot_hint"]) == ("Next", None)
+
+    async def test_lines_come_in_position_order(self, async_client, printer_factory, make_item):
+        a = await printer_factory(name="A")
+        one = await make_item(a.id, name="One")
+        two = await make_item(a.id, name="Two")
+        scheduler._prepare = {
+            a.id: (PrepareEntry(a.id, two.id, 2, (BLUE,), None), PrepareEntry(a.id, one.id, 1, (RED,), None))
+        }
+        (group,) = (await async_client.get(URL)).json()["groups"]
+        assert [(p["position"], p["job"]["name"]) for p in group["prepare"]] == [(1, "One"), (2, "Two")]
+
+    async def test_a_group_without_lines_has_an_empty_list(self, async_client, printer_factory, make_item):
+        a = await printer_factory(name="A")
+        await make_item(a.id, manual_start=True)
+        (group,) = (await async_client.get(URL)).json()["groups"]
+        assert group["prepare"] == []
+
+    async def test_a_line_for_a_job_that_is_gone_is_left_out(self, async_client, printer_factory, make_item):
+        a = await printer_factory(name="A")
+        scheduler._prepare = {a.id: (PrepareEntry(a.id, 9999, 1, (RED,), None),)}
+        assert (await async_client.get(URL)).json() == {"count": 0, "groups": []}
+
+    async def test_a_reader_of_own_jobs_sees_no_line_for_another_user_s_job(
+        self, async_client, printer_factory, make_item
+    ):
+        a = await printer_factory(name="A")
+        helper = TestTodoAccess()
+        admin, member = await helper._setup(async_client, ["queue:read_own"])
+        other_id = await helper._add_user(async_client, admin, "other")
+        mine = await make_item(a.id, name="Mine", created_by_id=helper.member_id)
+        theirs = await make_item(a.id, name="SecretCaseName", created_by_id=other_id)
+        scheduler._prepare = {
+            a.id: (PrepareEntry(a.id, theirs.id, 1, (RED,), None), PrepareEntry(a.id, mine.id, 2, (BLUE,), None))
+        }
+        response = await async_client.get(URL, headers=_auth(member))
+        (group,) = response.json()["groups"]
+        assert [p["job"]["name"] for p in group["prepare"]] == ["Mine"]
+        assert "SecretCaseName" not in response.text
+
+    async def test_a_printer_the_caller_may_not_see_has_no_line(self, async_client, printer_factory, make_item):
+        a = await printer_factory(name="A")
+        item = await make_item(a.id)
+        scheduler._prepare = {a.id + 1000: (PrepareEntry(a.id + 1000, item.id, 1, (RED,), None),)}
+        # The pinned job's printer has nothing to show either: no empty group.
+        assert (await async_client.get(URL)).json() == {"count": 0, "groups": []}
+
+    async def test_a_group_has_entries_or_lines_or_it_is_not_served(self, async_client, printer_factory, make_item):
+        a = await printer_factory(name="A")
+        b = await printer_factory(name="B")
+        c = await printer_factory(name="C")
+        await make_item(a.id, name="Staged", manual_start=True)
+        await make_item(b.id, name="Quiet")
+        ahead = await make_item(c.id, name="Ahead")
+        scheduler._prepare = {c.id: (PrepareEntry(c.id, ahead.id, 1, (RED,), None),)}
+        body = (await async_client.get(URL)).json()
+        assert [(g["printer_name"], len(g["entries"]), len(g["prepare"])) for g in body["groups"]] == [
+            ("A", 1, 0),
+            ("C", 0, 1),
+        ]
+
+    async def test_the_first_line_the_caller_sees_is_numbered_one(self, async_client, printer_factory, make_item):
+        a = await printer_factory(name="A")
+        helper = TestTodoAccess()
+        admin, member = await helper._setup(async_client, ["queue:read_own"])
+        other_id = await helper._add_user(async_client, admin, "other")
+        theirs = await make_item(a.id, name="Theirs", created_by_id=other_id)
+        mine = await make_item(a.id, name="Mine", created_by_id=helper.member_id)
+        scheduler._prepare = {
+            a.id: (PrepareEntry(a.id, theirs.id, 1, (RED,), None), PrepareEntry(a.id, mine.id, 2, (BLUE,), None))
+        }
+        (group,) = (await async_client.get(URL, headers=_auth(member))).json()["groups"]
+        assert [(p["position"], p["job"]["name"]) for p in group["prepare"]] == [(1, "Mine")]
+        # The admin sees both and keeps their numbers.
+        (group,) = (await async_client.get(URL, headers=_auth(admin))).json()["groups"]
+        assert [p["position"] for p in group["prepare"]] == [1, 2]
+
+    async def test_the_hint_of_a_line_is_cut_to_its_nozzles(self, async_client, printer_factory, make_item):
+        a = await printer_factory(name="A")
+        item = await make_item(a.id)
+        left = TodoFilament("PLA", "#FF0000", "Red", nozzle=1)
+        hint = SlotHint(
+            a.id,
+            "free",
+            (_slot(1, nozzle="right"), _slot(1, nozzle="left", ams_id=1)),
+            by_nozzle=(
+                NozzleHint("right", "free", (_slot(1, nozzle="right"),)),
+                NozzleHint("left", "free", (_slot(1, nozzle="left", ams_id=1),)),
+            ),
+        )
+        scheduler._prepare = {a.id: (PrepareEntry(a.id, item.id, 1, (left,), hint),)}
+        (group,) = (await async_client.get(URL)).json()["groups"]
+        (line,) = group["prepare"]
+        assert [s["nozzle"] for s in line["slot_hint"]["slots"]] == ["left"]
