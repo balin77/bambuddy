@@ -99,10 +99,19 @@ export function GroupEditPage() {
     if (isEditing) {
       // System groups refuse any permissions payload, so only send it when it
       // changed -- otherwise their description couldn't be saved at all.
+      // Compared with umbrella implications expanded (#3248): "Select all" drops the
+      // rows Control Printers implies, which is not a change to a stored list that has them.
+      const expand = (perms: Permission[]) => {
+        const held = new Set<string>(perms);
+        for (const fine of Object.keys(PERMISSION_UMBRELLAS) as Permission[]) {
+          if (permissionGrantedBy(held, fine)) held.add(fine);
+        }
+        return held;
+      };
+      const current = expand(permissions);
+      const stored = groupData ? expand(groupData.permissions) : null;
       const permissionsChanged =
-        !groupData ||
-        permissions.length !== groupData.permissions.length ||
-        permissions.some((p) => !groupData.permissions.includes(p));
+        !stored || current.size !== stored.size || [...current].some((p) => !stored.has(p));
       updateMutation.mutate({
         name: name !== groupData?.name ? name : undefined,
         description,

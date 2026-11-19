@@ -453,4 +453,39 @@ describe('GroupEditPage printer access (#1727)', () => {
     expect(screen.getByText('Administrators always see every printer.')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Manage printer access' })).not.toBeInTheDocument();
   });
+
+  it('Select All on a system group whose stored list has fine permissions is not a change (#3248)', async () => {
+    const withFine = {
+      categories: [
+        {
+          name: 'Printers',
+          permissions: [
+            { value: 'printers:read', label: 'Read Printers' },
+            { value: 'printers:control', label: 'Control Printers' },
+            { value: 'printers:stop', label: 'Stop print' },
+          ],
+        },
+      ],
+      all_permissions: ['printers:read', 'printers:control', 'printers:stop'],
+    };
+    setup({
+      ...mockGroup,
+      id: 1,
+      name: 'Administrators',
+      permissions: ['printers:read', 'printers:control', 'printers:stop'],
+      restrict_printers: false,
+      printer_ids: [],
+      locations: [],
+    });
+    server.use(http.get('/api/v1/groups/permissions', () => HttpResponse.json(withFine)));
+    const user = userEvent.setup();
+    await renderEdit();
+
+    await waitFor(() => expect(screen.getByDisplayValue('Administrators')).toBeInTheDocument());
+    await user.click(screen.getByText('Select All'));
+    await user.click(screen.getByText('Save'));
+
+    await waitFor(() => expect(patched).not.toBeNull());
+    expect(patched).not.toHaveProperty('permissions');
+  });
 });

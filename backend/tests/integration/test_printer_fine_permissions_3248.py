@@ -105,6 +105,19 @@ async def _member(
     return login.json()["access_token"], created.json()["id"]
 
 
+_PERMISSION_CODE = ("app/core/auth.py", "app/core/permissions.py")
+
+
+def _raised_in_permission_code(exc: BaseException) -> bool:
+    """True when the exception passed through a frame of the auth / permission modules."""
+    tb = exc.__traceback__
+    while tb is not None:
+        if tb.tb_frame.f_code.co_filename.replace("\\", "/").endswith(_PERMISSION_CODE):
+            return True
+        tb = tb.tb_next
+    return False
+
+
 async def _call(async_client: AsyncClient, headers: dict[str, str], method: str, path: str, printer_id: int) -> int:
     # The printer manager is mocked so a permitted call never reaches hardware;
     # only the gate in front of the route is under test.
@@ -116,11 +129,31 @@ async def _call(async_client: AsyncClient, headers: dict[str, str], method: str,
             response = await async_client.request(
                 method, f"/api/v1{path.format(p=printer_id)}", headers=headers, json=body
             )
-        except Exception:
+        except Exception as exc:
+            # A crash inside the permission check itself must fail the test, not look like
+            # "the gate let it through".
+            if _raised_in_permission_code(exc):
+                raise
             # The route body ran and tripped over the mock: the gate let it through, but it is
             # not a success, so report it as a server error (never 401/403/404).
             return 500
     return response.status_code
+
+
+class TestPermissionListing:
+    async def test_fine_permissions_follow_control_before_files_and_label_says_so(self, async_client):
+        admin = await _admin_token(async_client)
+        response = await async_client.get("/api/v1/groups/permissions", headers=_auth(admin))
+        assert response.status_code == 200, response.text
+        printers = next(c for c in response.json()["categories"] if c["name"] == "Printers")
+        values = [p["value"] for p in printers["permissions"]]
+        labels = {p["value"]: p["label"] for p in printers["permissions"]}
+        assert labels["printers:control"] == "Control Printers (includes the indented options)"
+        control = values.index("printers:control")
+        fine = values[control + 1 : control + 1 + len(PERMISSION_UMBRELLAS)]
+        assert set(fine) == set(PERMISSION_UMBRELLAS)
+        for later in ("printers:files", "printers:ams_rfid", "printers:clear_plate"):
+            assert values.index(later) > control + len(PERMISSION_UMBRELLAS)
 
 
 class TestUmbrellaMapping:
@@ -207,3 +240,44 @@ class TestApiKeys:
         headers = {"X-API-Key": created.json()["key"]}
         assert await _call(async_client, headers, "POST", "/printers/{p}/print/pause", printer.id) not in (401, 403)
         assert await _call(async_client, headers, "POST", "/printers/{p}/print/stop", printer.id) == 403
+
+
+class TestWebhookStop:
+    """Webhook stop/cancel need printers:stop; printers:control still passes via the umbrella."""
+
+    async def _key_for(self, async_client, name: str, permissions: list[str]) -> dict[str, str]:
+        admin = await _admin_token(async_client)
+        jwt, _ = await _member(async_client, admin, name, [*permissions, "api_keys:create"])
+        created = await async_client.post(
+            "/api/v1/api-keys/", headers=_auth(jwt), json={"name": "k", "can_control_printer": True}
+        )
+        assert created.status_code == 200, created.text
+        return {"X-API-Key": created.json()["key"]}
+
+    async def _post(self, async_client, headers, path: str) -> int:
+        status = MagicMock(connected=True, state="RUNNING")
+        with (
+            patch("backend.app.api.routes.webhook.printer_manager") as manager,
+            patch("backend.app.api.routes.webhook._stop_current_print") as stop,
+        ):
+            manager.get_status.return_value = status
+            response = await async_client.post(f"/api/v1/webhook/printer/{self.printer_id}/{path}", headers=headers)
+            self.stopped = stop.called
+        return response.status_code
+
+    @pytest.mark.parametrize("path", ["stop", "cancel"])
+    @pytest.mark.parametrize(
+        ("perms", "expected"),
+        [
+            (["printers:read", "printers:stop"], 200),
+            (["printers:read", "printers:control"], 200),
+            (["printers:read"], 403),
+            (["printers:read", "printers:pause_resume"], 403),
+        ],
+    )
+    async def test_stop_and_cancel(self, async_client, printer_factory, path, perms, expected):
+        printer = await printer_factory(name="P")
+        self.printer_id = printer.id
+        headers = await self._key_for(async_client, "webhookowner", perms)
+        assert await self._post(async_client, headers, path) == expected
+        assert self.stopped is (expected == 200)

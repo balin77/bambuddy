@@ -2122,7 +2122,7 @@ def check_permission(api_key: APIKey, permission: str) -> None:
 
     Args:
         api_key: The API key object
-        permission: One of 'queue', 'control_printer', 'read_status'
+        permission: One of 'queue', 'control_printer', 'stop_printer', 'read_status'
 
     Raises:
         HTTPException: If permission is not granted
@@ -2130,6 +2130,7 @@ def check_permission(api_key: APIKey, permission: str) -> None:
     permission_map = {
         "queue": "can_queue",
         "control_printer": "can_control_printer",
+        "stop_printer": "can_control_printer",
         "read_status": "can_read_status",
     }
 
@@ -2153,6 +2154,8 @@ def check_permission(api_key: APIKey, permission: str) -> None:
 _WEBHOOK_PERMISSION_EQUIVALENT: dict[str, Permission] = {
     "queue": Permission.QUEUE_CREATE,
     "control_printer": Permission.PRINTERS_CONTROL,
+    # Stop/cancel need printers:stop (printers:control holders still pass via the umbrella, #3248)
+    "stop_printer": Permission.PRINTERS_STOP,
     "read_status": Permission.PRINTERS_READ,
 }
 

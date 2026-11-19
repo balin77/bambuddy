@@ -249,12 +249,19 @@ describe('PrintersPage bulk actions wiring', () => {
     await waitFor(() => expect(calls).toEqual([{ action: 'clearPlate', id: '12' }]));
   });
 
-  it('bulk selection is unavailable without printers:control', async () => {
-    permissions.granted = ['printers:clear_plate'];
+  it('bulk selection is unavailable without any printer action permission', async () => {
+    permissions.granted = ['printers:read'];
     renderPage();
     await waitForCards();
     for (const b of screen.getAllByTitle('Select')) expect(b).toBeDisabled();
     expect(screen.queryByText(/^\d+ selected$/)).toBeNull();
+  });
+
+  it('bulk selection is available with only printers:clear_plate (#3248)', async () => {
+    permissions.granted = ['printers:clear_plate'];
+    renderPage();
+    await waitForCards();
+    for (const b of screen.getAllByTitle('Select')) expect(b).toBeEnabled();
   });
 
   it('Clear Bed is disabled without printers:clear_plate', async () => {

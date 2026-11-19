@@ -213,13 +213,17 @@ describe('PrintersPage with a single fine printer permission (#3248)', () => {
     it('admin only: Reconnect is enabled', async () => {
       perms.held = new Set(['printers:admin']);
       setup('X1C', statusFor('IDLE'));
-      expect((await openMenu()).disabled).toBe(false);
+      const item = await openMenu();
+      expect(item.disabled).toBe(false);
+      expect(item).toHaveClass('hover:bg-bambu-dark-tertiary');
     });
 
-    it('pause_resume only: Reconnect is disabled', async () => {
+    it('pause_resume only: Reconnect is disabled and has no hover highlight', async () => {
       perms.held = new Set(['printers:pause_resume']);
       setup('X1C', statusFor('IDLE'));
-      expect((await openMenu()).disabled).toBe(true);
+      const item = await openMenu();
+      expect(item.disabled).toBe(true);
+      expect(item).not.toHaveClass('hover:bg-bambu-dark-tertiary');
     });
   });
 });
