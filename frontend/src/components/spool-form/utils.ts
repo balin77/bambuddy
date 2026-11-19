@@ -2,8 +2,9 @@ import { api } from '../../api/client';
 import type { SlicerSetting, LocalPreset, BuiltinFilament, SpoolKProfileInput } from '../../api/client';
 import { installedNozzleDiameters } from '../../utils/amsHelpers';
 import { filamentIdToSettingId, settingIdToFilamentId } from '../../utils/filamentIds';
+import type { CatalogColorOrder } from './catalogColors';
 import type { CalibrationProfile, ColorPreset, FilamentOption } from './types';
-import { KNOWN_VARIANTS, DEFAULT_BRANDS, RECENT_COLORS_KEY, LAST_SPOOL_KEY, LAST_SPOOL_SPOOLMAN_KEY, MAX_RECENT_COLORS, STANDARD_NOZZLE_DIAMETERS } from './constants';
+import { KNOWN_VARIANTS, DEFAULT_BRANDS, RECENT_COLORS_KEY, LAST_SPOOL_KEY, LAST_SPOOL_SPOOLMAN_KEY, CATALOG_COLOR_ORDER_KEY, MAX_RECENT_COLORS, STANDARD_NOZZLE_DIAMETERS } from './constants';
 
 /**
  * Fetch a printer's K-profiles across every nozzle it actually has installed
@@ -724,4 +725,21 @@ export function brandSuggestedNames(names: string[], brand: string, aliases: str
     const l = n.trim().toLowerCase();
     return prefixes.some(b => l.startsWith(b) && (l.length === b.length || !/[a-z0-9]/.test(l[b.length])));
   });
+}
+
+// Catalog colour order (#3633): anything but 'color' means 'name'.
+export function loadCatalogColorOrder(): CatalogColorOrder {
+  try {
+    return localStorage.getItem(CATALOG_COLOR_ORDER_KEY) === 'color' ? 'color' : 'name';
+  } catch {
+    return 'name';
+  }
+}
+
+export function saveCatalogColorOrder(order: CatalogColorOrder): void {
+  try {
+    localStorage.setItem(CATALOG_COLOR_ORDER_KEY, order);
+  } catch {
+    // Ignore errors
+  }
 }
