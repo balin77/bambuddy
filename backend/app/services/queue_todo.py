@@ -18,6 +18,11 @@ KIND_POWER_ON_FAILED = "power_on_failed"
 KIND_LOAD_FILAMENT = "load_filament"
 KIND_START_STAGED = "start_staged"
 
+# Where a missing filament can go (#3634).
+HINT_FREE = "free"
+HINT_REPLACEABLE = "replaceable"
+HINT_ALL_NEEDED = "all_needed"
+
 # Order of the entries inside one group.
 _KIND_ORDER = (
     KIND_PLATE_CLEAR,
@@ -55,6 +60,60 @@ class FilamentHold:
     printer_id: int | None
     target_model: str | None
     filaments: tuple[TodoFilament, ...]
+
+
+@dataclass(frozen=True)
+class HintSlot:
+    """One slot a filament can go into: empty, or loaded with a filament no waiting job needs.
+
+    ``nozzle`` is "left" or "right" on a dual-nozzle printer without a
+    Filament Track Switch, else None. ``type`` and ``color`` are empty for a
+    free slot.
+    """
+
+    ams_id: int
+    tray_id: int
+    is_ht: bool
+    is_external: bool
+    ams_type: int | None
+    nozzle: str | None
+    type: str = ""
+    color: str = ""
+    tray_info_idx: str = ""
+    tray_sub_brands: str = ""
+
+
+@dataclass(frozen=True)
+class NozzleHint:
+    """The hint for the filaments that go on one nozzle."""
+
+    nozzle: str
+    state: str
+    slots: tuple[HintSlot, ...]
+
+
+@dataclass(frozen=True)
+class SlotHint:
+    """Where the missing filaments of one printer can go, noted by the scheduler's pass.
+
+    ``state`` is ``free`` (an empty slot is reported), ``replaceable`` (every
+    slot is loaded, ``slots`` holds the ones no waiting job needs) or
+    ``all_needed``, over every slot of the printer. ``by_nozzle`` is filled on
+    a dual-nozzle printer without a Filament Track Switch: one part per nozzle
+    that has a slot. ``unknown_job_ids`` are the waiting jobs whose filaments
+    could not be read; the route counts the ones its caller may see. No job is
+    named in the response.
+    """
+
+    printer_id: int
+    state: str
+    slots: tuple[HintSlot, ...] = ()
+    unknown_job_ids: tuple[int, ...] = ()
+    by_nozzle: tuple[NozzleHint, ...] = ()
+
+    @property
+    def unknown_jobs(self) -> int:
+        return len(self.unknown_job_ids)
 
 
 def todo_filament_from_requirement(req: Mapping) -> TodoFilament:
