@@ -19,7 +19,18 @@ class Permission(StrEnum):
     PRINTERS_CREATE = "printers:create"
     PRINTERS_UPDATE = "printers:update"
     PRINTERS_DELETE = "printers:delete"
-    PRINTERS_CONTROL = "printers:control"  # Printer controls: stop/pause/resume, lights, motors, drying, etc.
+    PRINTERS_CONTROL = (
+        "printers:control"  # Printer controls: umbrella that also grants every finer printer permission (#3248)
+    )
+    # Finer printer permissions (#3248): each action accepts its own permission OR printers:control.
+    PRINTERS_PAUSE_RESUME = "printers:pause_resume"  # Pause and resume a print
+    PRINTERS_STOP = "printers:stop"  # Stop a print, skip objects
+    PRINTERS_FILAMENT = "printers:filament"  # AMS load/unload, slot configure, tray reset
+    PRINTERS_TUNE = "printers:tune"  # Temperatures, fans, print speed, airduct mode, lights
+    PRINTERS_MOTION = "printers:motion"  # Jog axes, home axes, select extruder
+    PRINTERS_DRYING = "printers:drying"  # Start/stop drying, scheduled dryings
+    PRINTERS_MAINTENANCE = "printers:maintenance"  # Calibration, print options, HMS, AMS backup
+    PRINTERS_ADMIN = "printers:admin"  # Connect, disconnect, MQTT logging
     PRINTERS_FILES = "printers:files"  # Send files to printer
     PRINTERS_AMS_RFID = "printers:ams_rfid"  # Re-read AMS RFID tags
     PRINTERS_CLEAR_PLATE = "printers:clear_plate"  # Confirm plate cleared for next print
@@ -214,6 +225,14 @@ PERMISSION_CATEGORIES = {
         Permission.PRINTERS_UPDATE,
         Permission.PRINTERS_DELETE,
         Permission.PRINTERS_CONTROL,
+        Permission.PRINTERS_PAUSE_RESUME,
+        Permission.PRINTERS_STOP,
+        Permission.PRINTERS_FILAMENT,
+        Permission.PRINTERS_TUNE,
+        Permission.PRINTERS_MOTION,
+        Permission.PRINTERS_DRYING,
+        Permission.PRINTERS_MAINTENANCE,
+        Permission.PRINTERS_ADMIN,
         Permission.PRINTERS_FILES,
         Permission.PRINTERS_AMS_RFID,
         Permission.PRINTERS_CLEAR_PLATE,
@@ -382,6 +401,29 @@ PERMISSION_CATEGORIES = {
         Permission.WEBSOCKET_CONNECT,
     ],
 }
+
+
+# Umbrella rule (#3248): a permission listed here is also granted by the umbrella
+# permission. Existing groups and API keys holding printers:control keep every
+# finer printer action without a migration. Mirrored in frontend AuthContext.
+PERMISSION_UMBRELLAS: dict[str, str] = {
+    Permission.PRINTERS_PAUSE_RESUME.value: Permission.PRINTERS_CONTROL.value,
+    Permission.PRINTERS_STOP.value: Permission.PRINTERS_CONTROL.value,
+    Permission.PRINTERS_FILAMENT.value: Permission.PRINTERS_CONTROL.value,
+    Permission.PRINTERS_TUNE.value: Permission.PRINTERS_CONTROL.value,
+    Permission.PRINTERS_MOTION.value: Permission.PRINTERS_CONTROL.value,
+    Permission.PRINTERS_DRYING.value: Permission.PRINTERS_CONTROL.value,
+    Permission.PRINTERS_MAINTENANCE.value: Permission.PRINTERS_CONTROL.value,
+    Permission.PRINTERS_ADMIN.value: Permission.PRINTERS_CONTROL.value,
+}
+
+
+def permission_granted_by(held: "set[str] | frozenset[str]", permission: str) -> bool:
+    """True if ``permission`` is in ``held`` or granted through its umbrella (#3248)."""
+    if permission in held:
+        return True
+    umbrella = PERMISSION_UMBRELLAS.get(permission)
+    return umbrella is not None and umbrella in held
 
 
 # All permissions as a list

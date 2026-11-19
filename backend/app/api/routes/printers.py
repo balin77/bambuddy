@@ -1119,7 +1119,7 @@ async def refresh_printer_status(
 @router.post("/{printer_id}/connect")
 async def connect_printer(
     printer_id: int,
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_ADMIN),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Manually connect to a printer."""
@@ -1135,7 +1135,7 @@ async def connect_printer(
 @router.post("/{printer_id}/disconnect")
 async def disconnect_printer(
     printer_id: int,
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_ADMIN),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Manually disconnect from a printer."""
@@ -2313,7 +2313,7 @@ async def get_printer_storage(
 @router.post("/{printer_id}/logging/enable")
 async def enable_mqtt_logging(
     printer_id: int,
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_ADMIN),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Enable MQTT message logging for a printer."""
@@ -2332,7 +2332,7 @@ async def enable_mqtt_logging(
 @router.post("/{printer_id}/logging/disable")
 async def disable_mqtt_logging(
     printer_id: int,
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_ADMIN),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Disable MQTT message logging for a printer."""
@@ -2378,7 +2378,7 @@ async def get_mqtt_logs(
 @router.delete("/{printer_id}/logging")
 async def clear_mqtt_logs(
     printer_id: int,
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_ADMIN),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Clear MQTT message logs for a printer."""
@@ -2409,7 +2409,7 @@ async def start_drying(
     duration: int = 4,
     filament: str = "",
     rotate_tray: bool = False,
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_DRYING),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Send AMS drying start command. temp=45-85, duration=hours."""
@@ -2457,7 +2457,7 @@ async def start_drying(
 async def stop_drying(
     printer_id: int,
     ams_id: int,
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_DRYING),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Send AMS drying stop command."""
@@ -2498,7 +2498,7 @@ async def set_print_option(
     enabled: bool,
     print_halt: bool = True,
     sensitivity: str = "medium",
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_MAINTENANCE),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Set an AI detection / print option on the printer.
@@ -2562,7 +2562,7 @@ async def set_print_option(
 async def set_ams_backup(
     printer_id: int,
     enabled: bool,
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_MAINTENANCE),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Toggle AMS Filament Backup (auto-switch to a backup spool when one runs out)."""
@@ -2635,7 +2635,7 @@ async def start_calibration(
     motor_noise: bool = False,
     nozzle_offset: bool = False,
     high_temp_heatbed: bool = False,
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_MAINTENANCE),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Start printer calibration with selected options.
@@ -2981,7 +2981,7 @@ async def configure_ams_slot(
     k_value: float = Query(0.0),
     orca_profile_id: str = Query(""),
     db: AsyncSession = Depends(get_db, scope="function"),
-    current_user: User | None = RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    current_user: User | None = RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_FILAMENT),
 ):
     """Configure an AMS slot with a specific filament setting and K profile.
 
@@ -3521,7 +3521,7 @@ async def reset_ams_slot(
     ams_id: int,
     tray_id: int,
     db: AsyncSession = Depends(get_db, scope="function"),
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_FILAMENT),
 ):
     """Reset an AMS slot to empty/unconfigured state.
 
@@ -3691,7 +3691,7 @@ async def delete_ams_label(
 @router.post("/{printer_id}/print/stop")
 async def stop_print(
     printer_id: int,
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_STOP),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Stop/cancel the current print job."""
@@ -3772,7 +3772,7 @@ async def clear_plate(
 @router.post("/{printer_id}/print/pause")
 async def pause_print(
     printer_id: int,
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_PAUSE_RESUME),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Pause the current print job."""
@@ -3795,7 +3795,7 @@ async def pause_print(
 @router.post("/{printer_id}/print/resume")
 async def resume_print(
     printer_id: int,
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_PAUSE_RESUME),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Resume a paused print job."""
@@ -3819,7 +3819,7 @@ async def resume_print(
 async def set_print_speed(
     printer_id: int,
     mode: int = Query(..., ge=1, le=4, description="Speed mode (1=silent, 2=standard, 3=sport, 4=ludicrous)"),
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_TUNE),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Set the print speed mode."""
@@ -3845,7 +3845,7 @@ async def set_nozzle_temperature(
     printer_id: int,
     target: int = Query(..., ge=0, le=320, description="Target nozzle temperature in Celsius; 0 turns heating off"),
     nozzle: int = Query(0, ge=0, le=1, description="Nozzle/extruder index (0=right/default, 1=left)"),
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_TUNE),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Set a nozzle target temperature."""
@@ -3869,7 +3869,7 @@ async def set_nozzle_temperature(
 async def set_bed_temperature(
     printer_id: int,
     target: int = Query(..., ge=0, le=140, description="Target bed temperature in Celsius; 0 turns heating off"),
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_TUNE),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Set the bed target temperature."""
@@ -3898,7 +3898,7 @@ async def set_chamber_temperature(
         le=MAX_CHAMBER_TEMP_C,
         description="Target chamber temperature in Celsius; 0 turns heating off",
     ),
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_TUNE),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Set the chamber target temperature.
@@ -3931,7 +3931,7 @@ async def set_chamber_temperature(
 async def send_panda_breath_command(
     printer_id: int,
     body: PandaBreathCommand,
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_TUNE),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Change one setting of the Panda Breath bound to this printer (#1466).
@@ -3969,7 +3969,7 @@ async def set_fan_speed(
         description="Fan to control: part, aux, aux2 (the second aux fan: left on the P2S, right on the X2D), or chamber",
     ),
     speed: int = Query(..., ge=0, le=100, description="Fan speed percentage"),
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_TUNE),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Set a fan speed by percentage.
@@ -4035,7 +4035,7 @@ async def set_fan_speed(
 async def select_extruder(
     printer_id: int,
     extruder: int = Query(..., ge=0, le=1, description="Extruder index (0=right, 1=left)"),
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_MOTION),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Select the active extruder/nozzle on dual-nozzle printers."""
@@ -4059,7 +4059,7 @@ async def select_extruder(
 async def set_airduct_mode(
     printer_id: int,
     mode: str = Query(..., description="Airduct mode: 'cooling' or 'heating'"),
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_TUNE),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Set the airduct mode (cooling/heating) on supported printers (P2S/H2*)."""
@@ -4086,7 +4086,7 @@ async def set_airduct_mode(
 async def set_chamber_light(
     printer_id: int,
     on: bool = Query(..., description="True to turn on, False to turn off"),
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_TUNE),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Turn the chamber light on or off."""
@@ -4122,7 +4122,7 @@ async def bed_jog(
             "or is needed."
         ),
     ),
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_MOTION),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Adjust the nozzle-bed gap by a relative distance.
@@ -4201,7 +4201,7 @@ async def xy_jog(
     printer_id: int,
     x: float = Query(0, description="Signed relative X movement in mm"),
     y: float = Query(0, description="Signed relative Y movement in mm"),
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_MOTION),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Move the toolhead by a relative X/Y distance."""
@@ -4238,7 +4238,7 @@ async def extruder_jog(
     distance: float = Query(
         ..., description="Signed relative extrusion distance in mm. Positive extrudes, negative retracts."
     ),
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_MOTION),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Extrude or retract filament by a relative distance.
@@ -4272,7 +4272,7 @@ async def home_axes(
         "all",
         description="Legacy; accepted values are 'z' | 'xy' | 'all'. Always runs the printer's full auto-home sequence — see below.",
     ),
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_MOTION),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Run the printer's full auto-home sequence via bare `G28`.
@@ -4312,7 +4312,7 @@ async def home_axes(
 @router.post("/{printer_id}/hms/clear")
 async def clear_hms_errors(
     printer_id: int,
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_MAINTENANCE),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Clear HMS/print errors on the printer."""
@@ -4488,7 +4488,7 @@ async def get_printable_objects(
 async def skip_objects(
     printer_id: int,
     object_ids: list[int],
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_STOP),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Skip specific objects during the current print.
@@ -4840,7 +4840,7 @@ async def ams_load(
             "— the field is absent from BambuStudio's own command there too."
         ),
     ),
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_FILAMENT),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Load filament from a specific AMS slot or external spool.
@@ -4907,7 +4907,7 @@ async def ams_unload(
             "names, which is the only option a single-nozzle printer has."
         ),
     ),
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_FILAMENT),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Unload the filament in a given slot, or the currently loaded one."""
@@ -4940,7 +4940,7 @@ async def ams_unload(
 async def execute_hms_action(
     printer_id: int,
     body: HmsActionBody,
-    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _=RequirePrinterPermissionIfAuthEnabled(Permission.PRINTERS_MAINTENANCE),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Execute an HMS action on the printer."""

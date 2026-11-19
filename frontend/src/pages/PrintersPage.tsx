@@ -2136,6 +2136,7 @@ function ScheduledDryingBanner({ printerId, dryingActive, timeFormat }: { printe
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const { hasPermission } = useAuth();
   // One fleet-wide query shared by every card, not one per card: the list is
   // nearly always empty and a 20-printer fleet would otherwise make 20
   // requests every 30s. React Query dedupes on the key.
@@ -2191,8 +2192,8 @@ function ScheduledDryingBanner({ printerId, dryingActive, timeFormat }: { printe
             </span>
             <button
               onClick={() => cancelMutation.mutate(s.id)}
-              disabled={cancelMutation.isPending}
-              title={failed ? t('printers.drying.dismissFailed') : t('printers.drying.cancelScheduled')}
+              disabled={cancelMutation.isPending || !hasPermission('printers:drying')}
+              title={!hasPermission('printers:drying') ? t('printers.permission.noControl') : failed ? t('printers.drying.dismissFailed') : t('printers.drying.cancelScheduled')}
               className="text-bambu-gray hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <X className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
@@ -3863,34 +3864,34 @@ function PrinterCard({
         )}
         <button
           className={`w-full px-2 py-1.5 text-left text-xs flex items-center gap-2 rounded transition-colors ${
-            hasPermission('printers:control')
+            hasPermission('printers:filament')
               ? 'text-white hover:bg-bambu-dark-tertiary'
               : 'text-bambu-gray/50 cursor-not-allowed'
           }`}
           onClick={(e) => {
             e.stopPropagation();
-            if (printerBusy || !hasPermission('printers:control')) return;
+            if (printerBusy || !hasPermission('printers:filament')) return;
             startAmsLoad(amsId, slotId, loadTrayId);
           }}
-          disabled={printerBusy || !hasPermission('printers:control')}
-          title={printerBusy ? t('printers.bedJog.disabledWhilePrinting') : !hasPermission('printers:control') ? t('printers.permission.noControl') : undefined}
+          disabled={printerBusy || !hasPermission('printers:filament')}
+          title={printerBusy ? t('printers.bedJog.disabledWhilePrinting') : !hasPermission('printers:filament') ? t('printers.permission.noControl') : undefined}
         >
           <LogIn className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
           {t('printers.ams.load')}
         </button>
         <button
           className={`w-full px-2 py-1.5 text-left text-xs flex items-center gap-2 rounded transition-colors ${
-            hasPermission('printers:control')
+            hasPermission('printers:filament')
               ? 'text-white hover:bg-bambu-dark-tertiary'
               : 'text-bambu-gray/50 cursor-not-allowed'
           }`}
           onClick={(e) => {
             e.stopPropagation();
-            if (printerBusy || !hasPermission('printers:control')) return;
+            if (printerBusy || !hasPermission('printers:filament')) return;
             unloadAmsMutation.mutate({ trayId: loadTrayId });
           }}
-          disabled={printerBusy || !hasPermission('printers:control')}
-          title={printerBusy ? t('printers.bedJog.disabledWhilePrinting') : !hasPermission('printers:control') ? t('printers.permission.noControl') : undefined}
+          disabled={printerBusy || !hasPermission('printers:filament')}
+          title={printerBusy ? t('printers.bedJog.disabledWhilePrinting') : !hasPermission('printers:filament') ? t('printers.permission.noControl') : undefined}
         >
           <LogOut className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
           {t('printers.ams.unload')}
@@ -3975,8 +3976,11 @@ function PrinterCard({
               : t('printers.maintenance.menuExit')}
           </button>
           <button
-            className="w-full px-4 py-2 text-left text-sm hover:bg-bambu-dark-tertiary flex items-center gap-2"
+            className="w-full px-4 py-2 text-left text-sm hover:bg-bambu-dark-tertiary flex items-center gap-2 disabled:opacity-50"
+            disabled={!hasPermission('printers:admin')}
+            title={!hasPermission('printers:admin') ? t('printers.permission.noControl') : undefined}
             onClick={() => {
+              if (!hasPermission('printers:admin')) return;
               connectMutation.mutate();
               setShowMenu(false);
             }}
@@ -4609,7 +4613,7 @@ function PrinterCard({
                   // what rebuilds the list, so the print could never get it back.
                   // Exactly one object is the real nothing-to-skip case.
                   const objectCount = status.printable_objects_count ?? 0;
-                  const canSkipObjects = isActivePrint && objectCount !== 1 && hasPermission('printers:control');
+                  const canSkipObjects = isActivePrint && objectCount !== 1 && hasPermission('printers:stop');
 
                   return (
                     <div className="p-2 bg-bambu-dark rounded-[10px] relative overflow-hidden">
@@ -4622,7 +4626,7 @@ function PrinterCard({
                             : 'text-bambu-gray/30 cursor-not-allowed'
                         }`}
                         title={
-                          !hasPermission('printers:control')
+                          !hasPermission('printers:stop')
                             ? t('printers.permission.noControl')
                             : !isActivePrint
                               ? t('printers.skipObjects.onlyWhilePrinting')
@@ -4763,8 +4767,11 @@ function PrinterCard({
               const mountedHotend = trayLayout.rack && singleNozzleSlot?.id === 0 && typeof singleNozzleSlot.addr_id === 'number'
                 ? singleNozzleSlot.addr_id + 1
                 : null;
-              const canUseStatusControls = status.connected && hasPermission('printers:control');
+              const canUseStatusControls = status.connected && hasPermission('printers:tune');
+              // Nozzle/extruder selection calls /select-extruder: printers:motion, not tune (#3248)
+              const canSelectNozzle = status.connected && hasPermission('printers:motion');
               const statusControlTitle = canUseStatusControls ? undefined : t('printers.permission.noControl');
+              const nozzleSelectTitle = canSelectNozzle ? undefined : t('printers.permission.noControl');
               const statusControlClass = `relative text-center px-2 py-1.5 bg-bambu-dark rounded-lg flex-1 flex flex-col justify-center items-center transition-colors ${
                 canUseStatusControls ? 'cursor-pointer hover:bg-bambu-dark-tertiary' : 'cursor-default opacity-80'
               }`;
@@ -5020,7 +5027,7 @@ function PrinterCard({
                     {status.panda_breath && (
                       <PandaBreathTile
                         panda={status.panda_breath}
-                        canControl={hasPermission('printers:control')}
+                        canControl={hasPermission('printers:tune')}
                         open={statusControlMenu === 'panda-breath'}
                         onOpenChange={(open) => setStatusControlMenu(open ? 'panda-breath' : null)}
                         isPending={pandaBreathMutation.isPending}
@@ -5037,10 +5044,10 @@ function PrinterCard({
                       >
                         <div
                           className={`relative text-center px-3 py-1.5 bg-bambu-dark rounded-lg h-full flex flex-col justify-center items-center transition-colors ${
-                            canUseStatusControls ? 'cursor-pointer hover:bg-bambu-dark-tertiary' : 'cursor-default opacity-80'
+                            canSelectNozzle ? 'cursor-pointer hover:bg-bambu-dark-tertiary' : 'cursor-default opacity-80'
                           }`}
-                          title={canUseStatusControls ? t('printers.activeNozzle', { nozzle: activeNozzle === 'L' ? t('common.left') : t('common.right') }) : statusControlTitle}
-                          onClick={() => canUseStatusControls && setStatusControlMenu(statusControlMenu === 'nozzle-select' ? null : 'nozzle-select')}
+                          title={canSelectNozzle ? t('printers.activeNozzle', { nozzle: activeNozzle === 'L' ? t('common.left') : t('common.right') }) : nozzleSelectTitle}
+                          onClick={() => canSelectNozzle && setStatusControlMenu(statusControlMenu === 'nozzle-select' ? null : 'nozzle-select')}
                         >
                           <NozzleIcon className="w-[var(--pc-i35,0.875rem)] h-[var(--pc-i35,0.875rem)] mb-0.5 text-amber-600 dark:text-amber-400" />
                           <div className="flex items-center gap-2">
@@ -5144,13 +5151,13 @@ function PrinterCard({
                     <div className="flex flex-wrap items-center gap-2 min-w-0">
                       <button
                         onClick={() => chamberLightMutation.mutate(!status.chamber_light)}
-                        disabled={!status.connected || chamberLightMutation.isPending || !hasPermission('printers:control')}
+                        disabled={!status.connected || chamberLightMutation.isPending || !hasPermission('printers:tune')}
                         className={`${iconControlClass} ${
                           status.chamber_light
                             ? 'bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 hover:bg-yellow-500/20'
                             : 'bg-bambu-dark text-bambu-gray/50 hover:bg-bambu-dark-tertiary hover:text-white'
                         }`}
-                        title={!hasPermission('printers:control') ? t('printers.permission.noControl') : (status.chamber_light ? t('printers.chamberLightOff') : t('printers.chamberLightOn'))}
+                        title={!hasPermission('printers:tune') ? t('printers.permission.noControl') : (status.chamber_light ? t('printers.chamberLightOff') : t('printers.chamberLightOn'))}
                       >
                         <ChamberLight on={status.chamber_light ?? false} className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
                       </button>
@@ -5165,7 +5172,7 @@ function PrinterCard({
                           <div className="relative">
                             <button
                               onClick={() => setShowAirductMenu(showAirductMenu === printer.id ? null : printer.id)}
-                              disabled={!hasPermission('printers:control')}
+                              disabled={!hasPermission('printers:tune')}
                               className={`${iconControlClass} ${bg}`}
                               title={`${t('printers.airduct.title')}: ${isHeating ? t('printers.airduct.heating') : t('printers.airduct.cooling')}`}
                             >
@@ -5204,7 +5211,7 @@ function PrinterCard({
 
                       {/* Movement — compact badge, popover holds XY, Z, and home controls */}
                       {(() => {
-                        const canControl = hasPermission('printers:control');
+                        const canControl = hasPermission('printers:motion');
                         const disabled = isPrinting || !canControl;
                         const jogButtonClass = 'flex h-8 w-8 items-center justify-center rounded bg-indigo-100 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 transition-colors hover:bg-indigo-200 dark:hover:bg-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-50';
                         // Which part the Z axis moves (#1334). The endpoint takes a signed
@@ -5422,7 +5429,7 @@ function PrinterCard({
                           <button
                             data-testid="speed-control"
                             onClick={() => setShowSpeedMenu(showSpeedMenu === printer.id ? null : printer.id)}
-                            disabled={!isPrinting || !hasPermission('printers:control')}
+                            disabled={!isPrinting || !hasPermission('printers:tune')}
                             className={`${iconControlClass} ${
                               isPrinting
                                 ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20'
@@ -5469,7 +5476,7 @@ function PrinterCard({
                     <div className="ml-auto flex items-center justify-end gap-2 flex-shrink-0">
                       {/* Pause/Resume button */}
                       {(() => {
-                        const pauseUnavailable = !isPrinting || isControlBusy || !hasPermission('printers:control');
+                        const pauseUnavailable = !isPrinting || isControlBusy || !hasPermission('printers:pause_resume');
                         return (
                       <button
                         onClick={() => isPaused ? setShowResumeConfirm(true) : setShowPauseConfirm(true)}
@@ -5483,7 +5490,7 @@ function PrinterCard({
                               : 'bg-yellow-100 dark:bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 hover:bg-yellow-500/30'
                           }
                         `}
-                        title={!hasPermission('printers:control') ? t('printers.permission.noControl') : (isPaused ? t('printers.resume') : t('printers.pause'))}
+                        title={!hasPermission('printers:pause_resume') ? t('printers.permission.noControl') : (isPaused ? t('printers.resume') : t('printers.pause'))}
                       >
                         {isPaused ? <Play className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" /> : <Pause className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />}
                         {isPaused ? t('printers.resume') : t('printers.pause')}
@@ -5493,7 +5500,7 @@ function PrinterCard({
 
                       {/* Stop button */}
                       {(() => {
-                        const stopUnavailable = !isPrinting || isControlBusy || !hasPermission('printers:control');
+                        const stopUnavailable = !isPrinting || isControlBusy || !hasPermission('printers:stop');
                         return (
                       <button
                         onClick={() => setShowStopConfirm(true)}
@@ -5505,7 +5512,7 @@ function PrinterCard({
                             : 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400 hover:bg-red-500/30'
                           }
                         `}
-                        title={!hasPermission('printers:control') ? t('printers.permission.noControl') : t('printers.stop')}
+                        title={!hasPermission('printers:stop') ? t('printers.permission.noControl') : t('printers.stop')}
                       >
                         <Square className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
                         {t('printers.stop')}
@@ -5688,7 +5695,7 @@ function PrinterCard({
                                   {/* Drying button — only for AMS 2 Pro (n3f) and AMS-HT (n3s).
                                       Screen-only models (P1 series) keep the control but can't
                                       be commanded: it stays disabled and says why (#2533). */}
-                                  {(status.supports_drying || status.drying_screen_only) && (ams.module_type === 'n3f' || ams.module_type === 'n3s' || isAms3hUnit(ams)) && hasPermission('printers:control') && (
+                                  {(status.supports_drying || status.drying_screen_only) && (ams.module_type === 'n3f' || ams.module_type === 'n3s' || isAms3hUnit(ams)) && hasPermission('printers:drying') && (
                                     <button
                                       disabled={status.drying_screen_only || !!(ams.dry_sf_reason?.length && ams.dry_time === 0)}
                                       onClick={(e) => {
@@ -5739,9 +5746,9 @@ function PrinterCard({
                                 {!status.drying_screen_only && (
                                   <button
                                     onClick={() => stopDryingMutation.mutate(ams.id)}
-                                    disabled={stopDryingMutation.isPending}
+                                    disabled={stopDryingMutation.isPending || !hasPermission('printers:drying')}
                                     className="ml-auto text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors disabled:opacity-50"
-                                    title={t('printers.drying.stop')}
+                                    title={!hasPermission('printers:drying') ? t('printers.permission.noControl') : t('printers.drying.stop')}
                                   >
                                     <X className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
                                   </button>
@@ -5775,9 +5782,9 @@ function PrinterCard({
                                 {!status.drying_screen_only && (
                                   <button
                                     onClick={() => stopDryingMutation.mutate(ams.id)}
-                                    disabled={stopDryingMutation.isPending}
+                                    disabled={stopDryingMutation.isPending || !hasPermission('printers:drying')}
                                     className="ml-auto text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-300 transition-colors disabled:opacity-50"
-                                    title={t('printers.drying.stop')}
+                                    title={!hasPermission('printers:drying') ? t('printers.permission.noControl') : t('printers.drying.stop')}
                                   >
                                     <X className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
                                   </button>
@@ -6063,7 +6070,7 @@ function PrinterCard({
                                           };
                                         })()}
                                         configureSlot={{
-                                          enabled: hasPermission('printers:control'),
+                                          enabled: hasPermission('printers:filament'),
                                           onConfigure: () => setConfigureSlotModal({
                                             amsId: ams.id,
                                             trayId: slotIdx,
@@ -6090,7 +6097,7 @@ function PrinterCard({
                                           isRefreshing,
                                         })}
                                         configureSlot={{
-                                          enabled: hasPermission('printers:control'),
+                                          enabled: hasPermission('printers:filament'),
                                           onConfigure: () => setConfigureSlotModal({
                                             amsId: ams.id,
                                             trayId: slotIdx,
@@ -6315,7 +6322,7 @@ function PrinterCard({
                                 ) : null}
                               </div>
                               {/* Drying button for HT AMS */}
-                              {(status.supports_drying || status.drying_screen_only) && (ams.module_type === 'n3f' || ams.module_type === 'n3s') && hasPermission('printers:control') && (
+                              {(status.supports_drying || status.drying_screen_only) && (ams.module_type === 'n3f' || ams.module_type === 'n3s') && hasPermission('printers:drying') && (
                                 <div className="relative ml-auto">
                                   <button
                                     disabled={status.drying_screen_only}
@@ -6370,9 +6377,9 @@ function PrinterCard({
                                 {!status.drying_screen_only && (
                                   <button
                                     onClick={() => stopDryingMutation.mutate(ams.id)}
-                                    disabled={stopDryingMutation.isPending}
+                                    disabled={stopDryingMutation.isPending || !hasPermission('printers:drying')}
                                     className="ml-auto text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-300 transition-colors disabled:opacity-50 shrink-0"
-                                    title={t('printers.drying.stop')}
+                                    title={!hasPermission('printers:drying') ? t('printers.permission.noControl') : t('printers.drying.stop')}
                                   >
                                     <X className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
                                   </button>
@@ -6480,7 +6487,7 @@ function PrinterCard({
                                       };
                                     })()}
                                     configureSlot={{
-                                      enabled: hasPermission('printers:control'),
+                                      enabled: hasPermission('printers:filament'),
                                       onConfigure: () => setConfigureSlotModal({
                                         amsId: ams.id,
                                         trayId: htSlotId,
@@ -6508,7 +6515,7 @@ function PrinterCard({
                                       isRefreshing: isHtRefreshing,
                                     })}
                                     configureSlot={{
-                                      enabled: hasPermission('printers:control'),
+                                      enabled: hasPermission('printers:filament'),
                                       onConfigure: () => setConfigureSlotModal({
                                         amsId: ams.id,
                                         trayId: htSlotId,
@@ -6796,7 +6803,7 @@ function PrinterCard({
                                         };
                                       })()}
                                       configureSlot={{
-                                        enabled: hasPermission('printers:control'),
+                                        enabled: hasPermission('printers:filament'),
                                         onConfigure: () => setConfigureSlotModal({
                                           amsId: 255,
                                           trayId: slotTrayId,
@@ -6819,7 +6826,7 @@ function PrinterCard({
                                       assigned={pending ?? undefined}
                                       actions={extActions}
                                       configureSlot={{
-                                        enabled: hasPermission('printers:control'),
+                                        enabled: hasPermission('printers:filament'),
                                         onConfigure: () => setConfigureSlotModal({
                                           amsId: 255,
                                           trayId: slotTrayId,
@@ -6872,7 +6879,7 @@ function PrinterCard({
           <div className="flex items-stretch gap-1.5 mt-3">
             <PandaBreathTile
               panda={status.panda_breath}
-              canControl={hasPermission('printers:control')}
+              canControl={hasPermission('printers:tune')}
               open={statusControlMenu === 'panda-breath'}
               onOpenChange={(open) => setStatusControlMenu(open ? 'panda-breath' : null)}
               isPending={pandaBreathMutation.isPending}
@@ -7599,7 +7606,7 @@ function PrinterCard({
           amsUnits={status.ams ?? undefined}
           amsExtruderMap={status.ams_extruder_map}
           isDualNozzle={printer.nozzle_count === 2 || status?.temperatures?.nozzle_2 !== undefined}
-          canToggle={hasPermission('printers:control')}
+          canToggle={hasPermission('printers:maintenance')}
           pending={setAmsBackupMutation.isPending}
           onToggle={(next) => setAmsBackupMutation.mutate(next)}
           onClose={() => setAmsBackupModalOpen(false)}
@@ -9333,7 +9340,7 @@ export function PrintersPage() {
   });
   const queryClient = useQueryClient();
   const { showToast } = useToast();
-  const { hasPermission } = useAuth();
+  const { hasPermission, hasAnyPermission } = useAuth();
   // Which way the camera buttons open a stream. Chosen per click from the
   // button's own menu; null until this browser has made a choice, so the
   // stored setting below can act as the default a fresh browser starts from.
@@ -10163,7 +10170,7 @@ export function PrintersPage() {
             : 'bg-bambu-dark border-bambu-dark-tertiary text-white hover:bg-bambu-dark-tertiary'
         }`}
         title={t('printers.bulk.select')}
-        disabled={!hasPermission('printers:control')}
+        disabled={!hasAnyPermission('printers:pause_resume', 'printers:stop', 'printers:maintenance')}
       >
         <CheckSquare className="w-4 h-4" />
         {inMenu && <span>{t('printers.bulk.select')}</span>}

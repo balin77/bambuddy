@@ -278,7 +278,7 @@ export function HMSErrorModal({ printerName, errors, onClose, printerId, hasPerm
                                   // the action buttons read as inert badges.
                                   // White-on-tint reads as a clear affordance
                                   // against any severity-coloured container.
-                                  disabled={!hasPermission('printers:control') || activateActionMutation.isPending}
+                                  disabled={!hasPermission('printers:maintenance') || activateActionMutation.isPending}
                                   className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-white/10 hover:bg-white/20 active:bg-white/30 text-white border border-white/20 hover:border-white/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
                                 >
                                   {isThisPending && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -333,7 +333,7 @@ export function HMSErrorModal({ printerName, errors, onClose, printerId, hasPerm
           {errors.length > 0 && (
             <button
               onClick={() => clearMutation.mutate()}
-              disabled={!hasPermission('printers:control') || clearMutation.isPending}
+              disabled={!hasPermission('printers:maintenance') || clearMutation.isPending}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
             >
               {clearMutation.isPending ? (

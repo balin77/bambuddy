@@ -23,8 +23,11 @@ const mockUseAuth = {
   loginWithToken: vi.fn(),
   logout: vi.fn(),
   refreshAuth: vi.fn(),
-  hasPermission: vi.fn((permission: string) => permissions.granted.includes(permission)),
-  hasAnyPermission: vi.fn(() => true),
+  // The umbrella rule (#3248) lives in the real AuthContext; mirror it here.
+  hasPermission: vi.fn((permission: string) => permissionGrantedBy(new Set(permissions.granted), permission as Permission)),
+  hasAnyPermission: vi.fn((...ps: string[]) =>
+    ps.some((permission) => permissionGrantedBy(new Set(permissions.granted), permission as Permission)),
+  ),
   canModify: vi.fn(() => true),
 };
 
@@ -35,6 +38,8 @@ vi.mock('../../contexts/AuthContext', async (importOriginal) => {
 
 import { render } from '../utils';
 import { PrintersPage } from '../../pages/PrintersPage';
+import { permissionGrantedBy } from '../../api/client';
+import type { Permission } from '../../api/client';
 
 const basePrinter = {
   ip_address: '192.0.2.100',

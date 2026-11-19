@@ -22,7 +22,11 @@ const mockUseAuth = {
   loginWithToken: vi.fn(),
   logout: vi.fn(),
   refreshAuth: vi.fn(),
-  hasPermission: vi.fn((permission: string) => !permissions.denied.has(permission)),
+  // Denying printers:control also denies what it grants (#3248 umbrella).
+  hasPermission: vi.fn((permission: string) => {
+    const umbrella = PERMISSION_UMBRELLAS[permission as Permission];
+    return !permissions.denied.has(permission) && !(umbrella && permissions.denied.has(umbrella));
+  }),
   hasAnyPermission: vi.fn(() => true),
   canModify: vi.fn(() => true),
 };
@@ -34,6 +38,8 @@ vi.mock('../../contexts/AuthContext', async (importOriginal) => {
 
 import { render } from '../utils';
 import { PrintersPage } from '../../pages/PrintersPage';
+import { PERMISSION_UMBRELLAS } from '../../api/client';
+import type { Permission } from '../../api/client';
 
 const PRINTER_ID = 7;
 
@@ -184,5 +190,28 @@ describe('PrintersPage print control wiring', () => {
     expect(screen.queryByRole('button', { name: 'Stop Print' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Pause Print' })).toBeNull();
     expect(sent).toEqual([]);
+  });
+
+  it('Pause and Stop follow their own permissions (#3248)', async () => {
+    permissions.denied = new Set(['printers:stop']);
+    const user = userEvent.setup();
+    const sent = setup('RUNNING');
+
+    const stop = await controlButton('Stop');
+    const pause = await controlButton('Pause');
+    expect(stop).toBeDisabled();
+    expect(pause).toBeEnabled();
+
+    await user.click(pause);
+    expect(await screen.findByRole('button', { name: 'Pause Print' })).toBeInTheDocument();
+    expect(sent).toEqual([]);
+  });
+
+  it('a user without printers:pause_resume can still stop (#3248)', async () => {
+    permissions.denied = new Set(['printers:pause_resume']);
+    setup('RUNNING');
+
+    expect(await controlButton('Pause')).toBeDisabled();
+    expect(await controlButton('Stop')).toBeEnabled();
   });
 });

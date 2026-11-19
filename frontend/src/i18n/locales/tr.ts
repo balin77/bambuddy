@@ -3789,6 +3789,7 @@ export default {
       selectAll: 'Tümünü Seç',
       clearAll: 'Tümünü Temizle',
       permissionsSelected: '{{count}} seçildi',
+      includedInControl: '"Yazıcıları Kontrol Et" içinde yer alır',
       noResults: 'Aramanızla eşleşen izin yok',
       websocketHint: 'Canlı güncellemeler için gereklidir. Bu izin olmadan arayüz düzenli yoklamaya geri döner.',
       printerAccess: 'Yazıcı erişimi',

@@ -3818,6 +3818,7 @@ export default {
       selectAll: 'Zaznacz wszystkie',
       clearAll: 'Wyczyść wszystkie',
       permissionsSelected: 'Zaznaczone: {{count}}',
+      includedInControl: 'Zawarte w „Sterowanie drukarkami”',
       noResults: 'Żadne uprawnienia nie pasują do wyszukiwania',
       websocketHint: 'Wymagane do aktualizacji na żywo. Bez tego interfejs przechodzi na okresowe odpytywanie.',
       printerAccess: 'Dostęp do drukarek',

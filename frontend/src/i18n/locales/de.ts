@@ -3786,6 +3786,7 @@ export default {
       selectAll: 'Alle auswählen',
       clearAll: 'Alle abwählen',
       permissionsSelected: '{{count}} ausgewählt',
+      includedInControl: 'In „Drucker steuern“ enthalten',
       noResults: 'Keine Berechtigungen entsprechen Ihrer Suche',
       websocketHint: 'Erforderlich für Live-Aktualisierungen. Ohne diese Berechtigung greift die Oberfläche auf regelmäßiges Abrufen zurück.',
       printerAccess: 'Druckerzugriff',

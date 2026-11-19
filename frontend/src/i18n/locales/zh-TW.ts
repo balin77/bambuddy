@@ -3773,6 +3773,7 @@ export default {
       selectAll: '全選',
       clearAll: '清除全部',
       permissionsSelected: '已選 {{count}} 個',
+      includedInControl: '已包含在「控制印表機」中',
       noResults: '沒有權限匹配您的搜尋',
       websocketHint: '即時更新所需。缺少此權限時，介面將回退到定期輪詢。',
       printerAccess: '印表機存取',

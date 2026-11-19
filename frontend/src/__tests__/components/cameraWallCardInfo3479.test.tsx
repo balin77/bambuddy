@@ -12,6 +12,7 @@ import { api } from '../../api/client';
 import { CamWallPage } from '../../pages/CamWallPage';
 import { CameraTile } from '../../components/CameraTile';
 import { CameraWall, type CameraWallStatus } from '../../components/CameraWall';
+import { PERMISSION_UMBRELLAS } from '../../api/client';
 
 // The camera wall tiles carry what a printer card shows at a glance: the
 // heaters and the finish time in the full overlay, and pause/resume, stop and
@@ -24,7 +25,7 @@ vi.mock('../../contexts/AuthContext', async (importOriginal) => {
   return {
     ...actual,
     useAuth: () => ({
-      hasPermission: (p: string) => (p === 'printers:control' ? canControl : true),
+      hasPermission: (p: string) => (p === 'printers:control' || p in PERMISSION_UMBRELLAS ? canControl : true),
       hasAnyPermission: () => true,
       authEnabled: true,
       user: signedInUser,

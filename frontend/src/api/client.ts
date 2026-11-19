@@ -4751,7 +4751,7 @@ export interface ManualPrintRequest {
 
 // Permission type - all available permissions
 export type Permission =
-  | 'printers:read' | 'printers:create' | 'printers:update' | 'printers:delete' | 'printers:control' | 'printers:files' | 'printers:ams_rfid' | 'printers:clear_plate'
+  | 'printers:read' | 'printers:create' | 'printers:update' | 'printers:delete' | 'printers:control' | 'printers:pause_resume' | 'printers:stop' | 'printers:filament' | 'printers:tune' | 'printers:motion' | 'printers:drying' | 'printers:maintenance' | 'printers:admin' | 'printers:files' | 'printers:ams_rfid' | 'printers:clear_plate'
   | 'archives:read' | 'archives:read_own' | 'archives:read_all' | 'archives:create'
   | 'archives:update_own' | 'archives:update_all' | 'archives:delete_own' | 'archives:delete_all'
   | 'archives:reprint_own' | 'archives:reprint_all' | 'archives:purge'
@@ -4788,6 +4788,25 @@ export type Permission =
   | 'groups:read' | 'groups:create' | 'groups:update' | 'groups:delete'
   | 'pipelines:read' | 'pipelines:write' | 'pipelines:run'
   | 'websocket:connect';
+
+// Umbrella rule (#3248): a fine printer permission is also granted by
+// printers:control. Mirrors PERMISSION_UMBRELLAS in backend/app/core/permissions.py.
+export const PERMISSION_UMBRELLAS: Partial<Record<Permission, Permission>> = {
+  'printers:pause_resume': 'printers:control',
+  'printers:stop': 'printers:control',
+  'printers:filament': 'printers:control',
+  'printers:tune': 'printers:control',
+  'printers:motion': 'printers:control',
+  'printers:drying': 'printers:control',
+  'printers:maintenance': 'printers:control',
+  'printers:admin': 'printers:control',
+};
+
+export function permissionGrantedBy(held: ReadonlySet<string>, permission: Permission): boolean {
+  if (held.has(permission)) return true;
+  const umbrella = PERMISSION_UMBRELLAS[permission];
+  return umbrella !== undefined && held.has(umbrella);
+}
 
 // Group types
 export interface GroupBrief {
