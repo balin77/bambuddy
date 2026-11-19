@@ -2256,8 +2256,8 @@ export default {
     smartPlugs: 'Enchufes inteligentes',
     spoolman: 'Spoolman',
     updates: 'Actualizaciones',
-    language: 'Idioma',
-    languageDescription: 'Seleccione su idioma preferido',
+    language: 'Idioma predeterminado',
+    languageDescription: 'El idioma de las pantallas de SpoolBuddy. Cada persona puede elegir su propio idioma de la interfaz con el icono del globo en la barra lateral.',
     theme: 'Tema',
     themeLight: 'Claro',
     themeDark: 'Oscuro',
@@ -7458,6 +7458,10 @@ export default {
   },
 
   // Pending Uploads Panel
+  // Per-browser interface language in the sidebar footer (#3623).
+  languageMenu: {
+    label: 'Idioma',
+  },
   pendingUploads: {
     placeholders: {
       notes: 'Añada notas sobre esta impresión...',

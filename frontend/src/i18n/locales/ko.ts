@@ -2160,8 +2160,8 @@ export default {
     smartPlugs: '스마트 플러그',
     spoolman: 'Spoolman',
     updates: '업데이트',
-    language: '언어',
-    languageDescription: '선호하는 언어를 선택하세요',
+    language: '기본 언어',
+    languageDescription: 'SpoolBuddy 화면의 언어입니다. 인터페이스 언어는 각 사용자가 사이드바의 지구본 아이콘으로 직접 선택할 수 있습니다.',
     theme: '테마',
     themeLight: '라이트',
     themeDark: '다크',
@@ -7143,6 +7143,10 @@ export default {
     includeAccessCodesDescription: '다른 기기로 전송하는 경우',
     includeAccessCodesWarning: '액세스 코드가 평문으로 포함됩니다. 이 백업 파일을 안전하게 보관하세요!',
     categoriesSelected: '{{selectedCount}}개 카테고리 선택됨'
+  },
+  // Per-browser interface language in the sidebar footer (#3623).
+  languageMenu: {
+    label: '언어',
   },
   pendingUploads: {
     placeholders: {

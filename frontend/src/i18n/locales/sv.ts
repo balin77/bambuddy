@@ -2305,8 +2305,8 @@ export default {
     smartPlugs: 'Smarta kontakter',
     spoolman: 'Spoolman',
     updates: 'Uppdateringar',
-    language: 'Språk',
-    languageDescription: 'Välj ditt föredragna språk',
+    language: 'Standardspråk',
+    languageDescription: 'Språket i SpoolBuddy-skärmarna. Var och en kan välja sitt eget gränssnittsspråk med jordglobsikonen i sidofältet.',
     theme: 'Tema',
     themeLight: 'Ljust',
     themeDark: 'Mörkt',
@@ -7532,6 +7532,10 @@ errors: {
   },
 
   // Pending Uploads Panel
+  // Per-browser interface language in the sidebar footer (#3623).
+  languageMenu: {
+    label: 'Språk',
+  },
   pendingUploads: {
     placeholders: {
       notes: 'Lägg till anteckningar om denna utskrift...',

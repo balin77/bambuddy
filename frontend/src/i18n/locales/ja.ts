@@ -2252,8 +2252,8 @@ export default {
     smartPlugs: 'スマートプラグ',
     spoolman: 'Spoolman',
     updates: 'アップデート',
-    language: '言語',
-    languageDescription: '表示言語を選択してください',
+    language: '既定の言語',
+    languageDescription: 'SpoolBuddy の表示の言語です。インターフェースの言語は、各ユーザーがサイドバーの地球アイコンで個別に選べます。',
     theme: 'テーマ',
     themeLight: 'ライト',
     themeDark: 'ダーク',
@@ -7451,6 +7451,10 @@ export default {
   },
 
   // Pending Uploads Panel
+  // Per-browser interface language in the sidebar footer (#3623).
+  languageMenu: {
+    label: '言語',
+  },
   pendingUploads: {
     placeholders: {
       notes: 'この印刷に関するメモを追加...',

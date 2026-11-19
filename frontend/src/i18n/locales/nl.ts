@@ -2273,8 +2273,8 @@ export default {
     smartPlugs: 'Slimme stekkers',
     spoolman: 'Spoolman',
     updates: 'Updates',
-    language: 'Taal',
-    languageDescription: 'Selecteer je voorkeurstaal',
+    language: 'Standaardtaal',
+    languageDescription: 'De taal van de SpoolBuddy-schermen. Iedereen kan zijn eigen interfacetaal kiezen met het wereldbolpictogram in de zijbalk.',
     theme: 'Thema',
     themeLight: 'Licht',
     themeDark: 'Donker',
@@ -7501,6 +7501,10 @@ export default {
   },
 
   // Pending Uploads Panel
+  // Per-browser interface language in the sidebar footer (#3623).
+  languageMenu: {
+    label: 'Taal',
+  },
   pendingUploads: {
     placeholders: {
       notes: 'Voeg notities over deze afdruk toe...',

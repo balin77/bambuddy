@@ -2271,8 +2271,8 @@ export default {
     smartPlugs: "Розумні розетки",
     spoolman: "Spoolman",
     updates: "Оновлення",
-    language: "Мова",
-    languageDescription: "Виберіть бажану мову",
+    language: "Мова за замовчуванням",
+    languageDescription: "Мова екранів SpoolBuddy. Кожен користувач може обрати власну мову інтерфейсу за допомогою значка глобуса на бічній панелі.",
     theme: "Тема",
     themeLight: "Світла",
     themeDark: "Темна",
@@ -7491,6 +7491,10 @@ export default {
   },
 
   // Pending Uploads Panel
+  // Per-browser interface language in the sidebar footer (#3623).
+  languageMenu: {
+    label: "Мова",
+  },
   pendingUploads: {
     placeholders: {
       notes: "Додайте примітки щодо цього друку...",

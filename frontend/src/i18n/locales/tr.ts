@@ -2256,8 +2256,8 @@ export default {
     smartPlugs: 'Akıllı Prizler',
     spoolman: 'Spoolman',
     updates: 'Güncellemeler',
-    language: 'Dil',
-    languageDescription: 'Tercih ettiğiniz dili seçin',
+    language: 'Varsayılan dil',
+    languageDescription: 'SpoolBuddy ekranlarının dili. Herkes kendi arayüz dilini kenar çubuğundaki dünya simgesinden seçebilir.',
     theme: 'Tema',
     themeLight: 'Açık',
     themeDark: 'Koyu',
@@ -7394,6 +7394,10 @@ export default {
   },
 
   // Bekleyen Yüklemeler Paneli
+  // Per-browser interface language in the sidebar footer (#3623).
+  languageMenu: {
+    label: 'Dil',
+  },
   pendingUploads: {
     placeholders: {
       notes: 'Bu baskı hakkında notlar ekleyin...',

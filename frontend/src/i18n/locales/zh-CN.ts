@@ -2253,8 +2253,8 @@ export default {
     smartPlugs: '智能插座',
     spoolman: 'Spoolman',
     updates: '更新',
-    language: '语言',
-    languageDescription: '选择您的首选语言',
+    language: '默认语言',
+    languageDescription: 'SpoolBuddy 显示屏的语言。每个人都可以通过侧边栏的地球图标选择自己的界面语言。',
     theme: '主题',
     themeLight: '浅色',
     themeDark: '深色',
@@ -7435,6 +7435,10 @@ export default {
   },
 
   // Pending Uploads Panel
+  // Per-browser interface language in the sidebar footer (#3623).
+  languageMenu: {
+    label: '语言',
+  },
   pendingUploads: {
     placeholders: {
       notes: '添加关于此打印的备注...',

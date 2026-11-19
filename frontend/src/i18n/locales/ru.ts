@@ -2157,8 +2157,8 @@ export default {
     smartPlugs: "Умные розетки",
     spoolman: "Spoolman",
     updates: "Обновления",
-    language: "Язык",
-    languageDescription: "Выберите предпочитаемый язык",
+    language: "Язык по умолчанию",
+    languageDescription: "Язык экранов SpoolBuddy. Каждый пользователь может выбрать свой язык интерфейса с помощью значка глобуса на боковой панели.",
     theme: "Тема",
     themeLight: "Светлая",
     themeDark: "Тёмная",
@@ -7130,6 +7130,10 @@ export default {
     includeAccessCodesDescription: "Для переноса на другой компьютер",
     includeAccessCodesWarning: "Коды доступа попадут в файл открытым текстом. Храните резервную копию в безопасном месте!",
     categoriesSelected: "Выбрано категорий: {{selectedCount}}",
+  },
+  // Per-browser interface language in the sidebar footer (#3623).
+  languageMenu: {
+    label: "Язык",
   },
   pendingUploads: {
     placeholders: {
