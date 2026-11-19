@@ -7,6 +7,7 @@ from sqlalchemy import DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.app.core.database import Base
+from backend.app.core.permissions import permission_granted_by
 from backend.app.utils.local_time import utcnow_naive
 
 if TYPE_CHECKING:
@@ -121,7 +122,7 @@ class User(Base):
         """
         if self.is_admin:
             return True
-        return permission in self.get_permissions()
+        return permission_granted_by(self.get_permissions(), permission)
 
     def has_all_permissions(self, *permissions: str) -> bool:
         """Check if user has ALL specified permissions.
@@ -132,7 +133,7 @@ class User(Base):
         if self.is_admin:
             return True
         user_permissions = self.get_permissions()
-        return all(p in user_permissions for p in permissions)
+        return all(permission_granted_by(user_permissions, p) for p in permissions)
 
     def has_any_permission(self, *permissions: str) -> bool:
         """Check if user has ANY of the specified permissions.
@@ -143,7 +144,7 @@ class User(Base):
         if self.is_admin:
             return True
         user_permissions = self.get_permissions()
-        return any(p in user_permissions for p in permissions)
+        return any(permission_granted_by(user_permissions, p) for p in permissions)
 
     def __repr__(self) -> str:
         return f"<User {self.username}>"

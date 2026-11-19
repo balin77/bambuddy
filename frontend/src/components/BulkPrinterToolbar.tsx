@@ -83,7 +83,9 @@ export function BulkPrinterToolbar({
     return filterKnownHMSErrors(status.hms_errors).length > 0;
   });
 
-  const canControl = hasPermission('printers:control');
+  const canStop = hasPermission('printers:stop');
+  const canPauseResume = hasPermission('printers:pause_resume');
+  const canClearHMS = hasPermission('printers:maintenance');
   const canClearPlate = hasPermission('printers:clear_plate');
 
   // Unique locations from all printers (not just selected)
@@ -217,8 +219,8 @@ export function BulkPrinterToolbar({
         size="sm"
         className="bg-red-500 hover:bg-red-600"
         onClick={() => onAction('stop')}
-        disabled={actionPending || !canControl || !anyStoppable}
-        title={!canControl ? t('printers.permission.noControl') : !anyStoppable ? t('printers.bulk.noneApplicable') : undefined}
+        disabled={actionPending || !canStop || !anyStoppable}
+        title={!canStop ? t('printers.permission.noControl') : !anyStoppable ? t('printers.bulk.noneApplicable') : undefined}
       >
         <Square className="w-3.5 h-3.5" />
         {t('printers.bulk.actions.stop')}
@@ -228,8 +230,8 @@ export function BulkPrinterToolbar({
         variant="secondary"
         size="sm"
         onClick={() => onAction('pause')}
-        disabled={actionPending || !canControl || !anyRunning}
-        title={!canControl ? t('printers.permission.noControl') : !anyRunning ? t('printers.bulk.noneApplicable') : undefined}
+        disabled={actionPending || !canPauseResume || !anyRunning}
+        title={!canPauseResume ? t('printers.permission.noControl') : !anyRunning ? t('printers.bulk.noneApplicable') : undefined}
       >
         <Pause className="w-3.5 h-3.5" />
         {t('printers.bulk.actions.pause')}
@@ -239,8 +241,8 @@ export function BulkPrinterToolbar({
         variant="secondary"
         size="sm"
         onClick={() => onAction('resume')}
-        disabled={actionPending || !canControl || !anyPaused}
-        title={!canControl ? t('printers.permission.noControl') : !anyPaused ? t('printers.bulk.noneApplicable') : undefined}
+        disabled={actionPending || !canPauseResume || !anyPaused}
+        title={!canPauseResume ? t('printers.permission.noControl') : !anyPaused ? t('printers.bulk.noneApplicable') : undefined}
       >
         <Play className="w-3.5 h-3.5" />
         {t('printers.bulk.actions.resume')}
@@ -250,8 +252,8 @@ export function BulkPrinterToolbar({
         variant="secondary"
         size="sm"
         onClick={() => onAction('clearHMS')}
-        disabled={actionPending || !canControl || !anyWithHMS}
-        title={!canControl ? t('printers.permission.noControl') : !anyWithHMS ? t('printers.bulk.noneApplicable') : undefined}
+        disabled={actionPending || !canClearHMS || !anyWithHMS}
+        title={!canClearHMS ? t('printers.permission.noControl') : !anyWithHMS ? t('printers.bulk.noneApplicable') : undefined}
       >
         <BellOff className="w-3.5 h-3.5" />
         {t('printers.bulk.actions.clearHMS')}

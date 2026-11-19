@@ -22,8 +22,9 @@ const BUTTON =
 /**
  * Pause/resume, stop and the chamber light on a camera wall tile (#3479).
  *
- * The same actions as the printer card's, behind the same printers:control
- * permission and the same confirmations: a user without the permission gets
+ * The same actions as the printer card's, behind the same permissions
+ * (printers:pause_resume, printers:stop, printers:tune; printers:control
+ * grants all) and the same confirmations: a user without the permission gets
  * no controls at all. Rendered beside the tile, not inside it, because the
  * tile itself is a button (it opens the camera).
  */
@@ -84,51 +85,60 @@ export function CameraTileControls({
     },
   });
 
-  if (!hasPermission('printers:control') || !connected) return null;
+  const canPauseResume = hasPermission('printers:pause_resume');
+  const canStop = hasPermission('printers:stop');
+  const canLight = hasPermission('printers:tune');
+  if (!connected) return null;
 
   const isPaused = printerState === 'PAUSE';
   const isPrinting = printerState === 'RUNNING' || isPaused;
+  const showPauseResume = isPrinting && canPauseResume;
+  const showStop = isPrinting && canStop;
+  // Nothing to show (e.g. pause-only user on an idle printer): no empty wrapper either.
+  if (!showPauseResume && !showStop && !canLight) return null;
   const busy = stop.isPending || pause.isPending || resume.isPending;
   const lightOn = chamberLight ?? false;
 
   return (
     <>
       <div className="flex gap-1">
-        {isPrinting && (
-          <>
-            <button
-              type="button"
-              className={BUTTON}
-              disabled={busy}
-              onClick={() => setConfirm(isPaused ? 'resume' : 'pause')}
-              title={isPaused ? t('printers.resume') : t('printers.pause')}
-              aria-label={isPaused ? t('printers.resume') : t('printers.pause')}
-            >
-              {isPaused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
-            </button>
-            <button
-              type="button"
-              className={`${BUTTON} hover:text-red-400`}
-              disabled={busy}
-              onClick={() => setConfirm('stop')}
-              title={t('printers.stop')}
-              aria-label={t('printers.stop')}
-            >
-              <Square className="h-3.5 w-3.5" />
-            </button>
-          </>
+        {showPauseResume && (
+          <button
+            type="button"
+            className={BUTTON}
+            disabled={busy}
+            onClick={() => setConfirm(isPaused ? 'resume' : 'pause')}
+            title={isPaused ? t('printers.resume') : t('printers.pause')}
+            aria-label={isPaused ? t('printers.resume') : t('printers.pause')}
+          >
+            {isPaused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+          </button>
         )}
-        <button
-          type="button"
-          className={BUTTON}
-          disabled={light.isPending}
-          aria-pressed={lightOn}
-          onClick={() => light.mutate(!lightOn)}
-          title={lightOn ? t('printers.chamberLightOff') : t('printers.chamberLightOn')}
-          aria-label={lightOn ? t('printers.chamberLightOff') : t('printers.chamberLightOn')}
-        >
-          <ChamberLight on={lightOn} className="h-4 w-4" />
-        </button>
+        {showStop && (
+          <button
+            type="button"
+            className={`${BUTTON} hover:text-red-400`}
+            disabled={busy}
+            onClick={() => setConfirm('stop')}
+            title={t('printers.stop')}
+            aria-label={t('printers.stop')}
+          >
+            <Square className="h-3.5 w-3.5" />
+          </button>
+        )}
+        {canLight && (
+          <button
+            type="button"
+            className={BUTTON}
+            disabled={light.isPending}
+            aria-pressed={lightOn}
+            onClick={() => light.mutate(!lightOn)}
+            title={lightOn ? t('printers.chamberLightOff') : t('printers.chamberLightOn')}
+            aria-label={lightOn ? t('printers.chamberLightOff') : t('printers.chamberLightOn')}
+          >
+            <ChamberLight on={lightOn} className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       {confirm === 'stop' && (

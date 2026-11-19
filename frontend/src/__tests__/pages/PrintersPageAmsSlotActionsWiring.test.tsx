@@ -26,7 +26,11 @@ const mockUseAuth = {
   loginWithToken: vi.fn(),
   logout: vi.fn(),
   refreshAuth: vi.fn(),
-  hasPermission: vi.fn((permission: string) => !permissions.denied.has(permission)),
+  // Denying printers:control also denies what it grants (#3248 umbrella).
+  hasPermission: vi.fn((permission: string) => {
+    const umbrella = PERMISSION_UMBRELLAS[permission as Permission];
+    return !permissions.denied.has(permission) && !(umbrella && permissions.denied.has(umbrella));
+  }),
   hasAnyPermission: vi.fn(() => true),
   canModify: vi.fn(() => true),
 };
@@ -38,6 +42,8 @@ vi.mock('../../contexts/AuthContext', async (importOriginal) => {
 
 import { render } from '../utils';
 import { PrintersPage } from '../../pages/PrintersPage';
+import { PERMISSION_UMBRELLAS } from '../../api/client';
+import type { Permission } from '../../api/client';
 
 const PRINTER_ID = 5;
 

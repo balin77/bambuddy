@@ -3814,6 +3814,7 @@ export default {
       selectAll: 'Alles selecteren',
       clearAll: 'Alles wissen',
       permissionsSelected: '{{count}} geselecteerd',
+      includedInControl: 'Inbegrepen in "Printers bedienen"',
       noResults: 'Geen machtigingen komen overeen met je zoekopdracht',
       websocketHint: 'Vereist voor live-updates. Zonder dit valt de interface terug op periodieke polling.',
       printerAccess: 'Printertoegang',

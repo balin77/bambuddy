@@ -112,3 +112,53 @@ class TestInventoryViewAssignmentsPermission:
         """Administrators should have all permissions including view_assignments."""
         admins = DEFAULT_GROUPS["Administrators"]
         assert "inventory:view_assignments" in admins["permissions"]
+
+
+class TestFinePrinterPermissions:
+    """Finer printer permissions with printers:control as umbrella (#3248)."""
+
+    FINE = (
+        "printers:pause_resume",
+        "printers:stop",
+        "printers:filament",
+        "printers:tune",
+        "printers:motion",
+        "printers:drying",
+        "printers:maintenance",
+        "printers:admin",
+    )
+
+    def test_exist_in_printers_category_after_control(self):
+        printers = [p.value for p in PERMISSION_CATEGORIES["Printers"]]
+        start = printers.index("printers:control") + 1
+        assert tuple(printers[start : start + len(self.FINE)]) == self.FINE
+
+    def test_administrators_get_them_and_default_groups_are_unchanged(self):
+        assert set(self.FINE) <= set(DEFAULT_GROUPS["Administrators"]["permissions"])
+        for name in ("Operators", "Viewers"):
+            assert not set(self.FINE) & set(DEFAULT_GROUPS[name]["permissions"])
+
+    def test_umbrella_grants_every_fine_permission(self):
+        from backend.app.core.permissions import permission_granted_by
+
+        for perm in self.FINE:
+            assert permission_granted_by({"printers:control"}, perm)
+            assert permission_granted_by({perm}, perm)
+            assert not permission_granted_by({"printers:read"}, perm)
+        assert not permission_granted_by({"printers:stop"}, "printers:pause_resume")
+        assert not permission_granted_by({"printers:stop"}, "printers:control")
+
+    def test_user_has_permission_follows_the_umbrella(self):
+        from backend.app.models.group import Group
+        from backend.app.models.user import User
+
+        user = User(username="u", password_hash="x", is_active=True)
+        user.groups = [Group(name="g", permissions=["printers:control"])]
+        assert user.has_permission("printers:tune")
+        assert user.has_all_permissions("printers:tune", "printers:stop")
+        assert user.has_any_permission("printers:motion")
+        narrow = User(username="n", password_hash="x", is_active=True)
+        narrow.groups = [Group(name="h", permissions=["printers:stop"])]
+        assert narrow.has_permission("printers:stop")
+        assert not narrow.has_permission("printers:tune")
+        assert not narrow.has_permission("printers:control")

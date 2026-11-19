@@ -3771,6 +3771,7 @@ export default {
       selectAll: 'Seleziona tutto',
       clearAll: 'Deseleziona tutto',
       permissionsSelected: '{{count}} selezionati',
+      includedInControl: 'Incluso in «Controllo stampanti»',
       noResults: 'Nessun permesso corrisponde alla ricerca',
       websocketHint: "Necessario per gli aggiornamenti in tempo reale. Senza questo permesso, l'interfaccia ripiega sul polling periodico.",
       printerAccess: 'Accesso alle stampanti',

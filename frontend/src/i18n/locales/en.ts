@@ -3816,6 +3816,7 @@ export default {
       selectAll: 'Select All',
       clearAll: 'Clear All',
       permissionsSelected: '{{count}} selected',
+      includedInControl: 'Included in Control Printers',
       noResults: 'No permissions match your search',
       websocketHint: 'Required for live updates. Without it, the interface falls back to periodic polling.',
       printerAccess: 'Printer access',

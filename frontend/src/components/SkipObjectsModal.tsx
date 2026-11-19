@@ -78,7 +78,7 @@ export function SkipObjectsModal({ printerId, isOpen, onClose }: SkipObjectsModa
   const skippingAllRemaining = allSelected && selectedIds.size > 0;
   const canSubmit = selectedIds.size > 0
     && (status?.layer_num ?? 0) > 1
-    && hasPermission('printers:control');
+    && hasPermission('printers:stop');
 
   const skipObjectsMutation = useMutation({
     mutationFn: (objectIds: number[]) => api.skipObjects(printerId, objectIds),

@@ -483,11 +483,11 @@ export function Layout() {
   }, [location.pathname, isSidebarCompact]);
 
   // Listen for plate detection warnings (objects on plate, print paused)
-  // Only show to users with printers:control permission
+  // Only show to users who can pause/resume or stop the print (#3248)
   useEffect(() => {
     const handlePlateNotEmpty = (event: Event) => {
       // Only show alert to users who can control printers
-      if (!hasPermission('printers:control')) {
+      if (!hasAnyPermission('printers:pause_resume', 'printers:stop')) {
         return;
       }
       const detail = (event as CustomEvent).detail;
@@ -499,13 +499,13 @@ export function Layout() {
     };
     window.addEventListener('plate-not-empty', handlePlateNotEmpty);
     return () => window.removeEventListener('plate-not-empty', handlePlateNotEmpty);
-  }, [hasPermission]);
+  }, [hasAnyPermission]);
 
   // A plate check that could not run (no camera image, ...) does not hold the
   // print, but it is not an empty plate either: say so to those who can act.
   useEffect(() => {
     const handlePlateCheckFailed = (event: Event) => {
-      if (!hasPermission('printers:control')) {
+      if (!hasAnyPermission('printers:pause_resume', 'printers:stop')) {
         return;
       }
       const detail = (event as CustomEvent).detail ?? {};
@@ -519,7 +519,7 @@ export function Layout() {
     };
     window.addEventListener('plate-check-failed', handlePlateCheckFailed);
     return () => window.removeEventListener('plate-check-failed', handlePlateCheckFailed);
-  }, [hasPermission, showToast, t]);
+  }, [hasAnyPermission, showToast, t]);
 
   // A completed print asked for its outcome verdict (#1898). Same CustomEvent
   // relay as plate-not-empty, and gated the same way: the PATCH route decides

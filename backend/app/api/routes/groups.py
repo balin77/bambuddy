@@ -39,6 +39,16 @@ _PERMISSION_LABEL_OVERRIDES: dict[Permission, str] = {
     Permission.USERS_READ_SLIM: "List User Names (id + username only)",
     # "Start Unreviewed Queue" says nothing about what happens without it (#1620)
     Permission.QUEUE_START_UNREVIEWED: "Print Without Review (else jobs wait for someone to start them)",
+    # Finer printer permissions (#3248); printers:control stays the umbrella for all of them
+    Permission.PRINTERS_CONTROL: "Control Printers (all of the below)",
+    Permission.PRINTERS_PAUSE_RESUME: "Pause and resume",
+    Permission.PRINTERS_STOP: "Stop print",
+    Permission.PRINTERS_FILAMENT: "Filament (load, unload, slot configure)",
+    Permission.PRINTERS_TUNE: "Temperatures, fans, speed, light",
+    Permission.PRINTERS_MOTION: "Move axes",
+    Permission.PRINTERS_DRYING: "Drying",
+    Permission.PRINTERS_MAINTENANCE: "Calibration and maintenance",
+    Permission.PRINTERS_ADMIN: "Connection and debug",
 }
 
 

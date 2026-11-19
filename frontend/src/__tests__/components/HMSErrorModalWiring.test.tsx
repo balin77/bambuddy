@@ -57,7 +57,7 @@ function capture() {
 }
 
 const allow = (granted: boolean) =>
-  vi.fn().mockReturnValue(granted) as unknown as (permission: 'printers:control') => boolean;
+  vi.fn().mockReturnValue(granted) as unknown as (permission: 'printers:maintenance') => boolean;
 
 function renderModal(errors: HMSError[], granted = true) {
   const onClose = vi.fn();
@@ -135,7 +135,7 @@ describe('HMSErrorModal wiring', () => {
     const clear = screen.getByRole('button', { name: 'Clear Errors' });
     expect(ignore).toBeDisabled();
     expect(clear).toBeDisabled();
-    expect(hasPermission).toHaveBeenCalledWith('printers:control');
+    expect(hasPermission).toHaveBeenCalledWith('printers:maintenance');
 
     await user.click(ignore);
     await user.click(clear);

@@ -29,7 +29,7 @@ LISTED_STATUSES = (*ACTIVE_STATUSES, "failed")
 @router.post("", response_model=ScheduledDryingResponse)
 async def create_scheduled_drying(
     payload: ScheduledDryingCreate,
-    user: User | None = RequirePermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    user: User | None = RequirePermissionIfAuthEnabled(Permission.PRINTERS_DRYING),
     printer_scope: PrinterScope = RequestPrinterScope,
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
@@ -88,7 +88,7 @@ async def list_scheduled_dryings(
 @router.delete("/{scheduled_drying_id}")
 async def cancel_scheduled_drying(
     scheduled_drying_id: int,
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
+    _: User | None = RequirePermissionIfAuthEnabled(Permission.PRINTERS_DRYING),
     printer_scope: PrinterScope = RequestPrinterScope,
     db: AsyncSession = Depends(get_db, scope="function"),
 ):

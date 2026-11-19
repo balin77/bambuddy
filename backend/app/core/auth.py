@@ -148,6 +148,15 @@ _APIKEY_SCOPE_BY_PERMISSION: dict[Permission, str | tuple[str, ...]] = {
     Permission.ARCHIVES_REPRINT_ALL: "can_queue",
     # can_control_printer — physical-world side effects on hardware
     Permission.PRINTERS_CONTROL: "can_control_printer",
+    # Finer printer permissions (#3248) ride on the same scope as printers:control
+    Permission.PRINTERS_PAUSE_RESUME: "can_control_printer",
+    Permission.PRINTERS_STOP: "can_control_printer",
+    Permission.PRINTERS_FILAMENT: "can_control_printer",
+    Permission.PRINTERS_TUNE: "can_control_printer",
+    Permission.PRINTERS_MOTION: "can_control_printer",
+    Permission.PRINTERS_DRYING: "can_control_printer",
+    Permission.PRINTERS_MAINTENANCE: "can_control_printer",
+    Permission.PRINTERS_ADMIN: "can_control_printer",
     Permission.PRINTERS_FILES: "can_control_printer",
     Permission.PRINTERS_AMS_RFID: "can_control_printer",
     Permission.PRINTERS_CLEAR_PLATE: "can_control_printer",

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { X, Play, Square, Trash2, RefreshCw, ArrowDown, ArrowUp, Search } from 'lucide-react';
 import { api, type MQTTLogEntry } from '../api/client';
 import { Button } from './Button';
+import { useAuth } from '../contexts/AuthContext';
 import { useState, useEffect, useRef, useMemo } from 'react';
 
 interface MQTTDebugModalProps {
@@ -14,6 +15,10 @@ interface MQTTDebugModalProps {
 export function MQTTDebugModal({ printerId, printerName, onClose }: MQTTDebugModalProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const { hasPermission } = useAuth();
+  // Start/stop/clear logging are printers:admin routes (#3248); viewing stays on printers:read.
+  const canAdmin = hasPermission('printers:admin');
+  const adminTitle = canAdmin ? undefined : t('printers.permission.noControl');
   const [autoScroll, setAutoScroll] = useState(true);
   const [expandedLogs, setExpandedLogs] = useState<Set<number>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
@@ -140,7 +145,8 @@ export function MQTTDebugModal({ printerId, printerName, onClose }: MQTTDebugMod
                 size="sm"
                 variant="secondary"
                 onClick={() => disableMutation.mutate()}
-                disabled={disableMutation.isPending}
+                disabled={disableMutation.isPending || !canAdmin}
+                title={adminTitle}
               >
                 <Square className="w-4 h-4" />
                 {t('mqttDebug.stopLogging')}
@@ -149,7 +155,8 @@ export function MQTTDebugModal({ printerId, printerName, onClose }: MQTTDebugMod
               <Button
                 size="sm"
                 onClick={() => enableMutation.mutate()}
-                disabled={enableMutation.isPending}
+                disabled={enableMutation.isPending || !canAdmin}
+                title={adminTitle}
               >
                 <Play className="w-4 h-4" />
                 {t('mqttDebug.startLogging')}
@@ -159,7 +166,8 @@ export function MQTTDebugModal({ printerId, printerName, onClose }: MQTTDebugMod
               size="sm"
               variant="secondary"
               onClick={() => clearMutation.mutate()}
-              disabled={clearMutation.isPending || logs.length === 0}
+              disabled={clearMutation.isPending || logs.length === 0 || !canAdmin}
+              title={adminTitle}
             >
               <Trash2 className="w-4 h-4" />
               {t('mqttDebug.clearLog')}

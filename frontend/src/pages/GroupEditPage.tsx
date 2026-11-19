@@ -3,7 +3,7 @@ import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Save, Loader2, Search, Check, Minus, Shield, AlertTriangle, Printer as PrinterIcon } from 'lucide-react';
-import { api } from '../api/client';
+import { api, PERMISSION_UMBRELLAS, permissionGrantedBy } from '../api/client';
 import type { GroupCreate, GroupUpdate, Permission, PermissionCategory } from '../api/client';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
@@ -108,6 +108,13 @@ export function GroupEditPage() {
     }
   };
 
+  // #3248: rows already implied by a ticked umbrella are not stored separately.
+  const withoutImplied = (perms: Permission[], held: Permission[]) =>
+    perms.filter((p) => {
+      const umbrella = PERMISSION_UMBRELLAS[p];
+      return umbrella === undefined || !held.includes(umbrella);
+    });
+
   const togglePermission = (perm: Permission) => {
     setPermissions((prev) =>
       prev.includes(perm) ? prev.filter((p) => p !== perm) : [...prev, perm]
@@ -118,21 +125,29 @@ export function GroupEditPage() {
     const categoryPerms = category.permissions.map((p) => p.value);
     setPermissions((prev) => {
       const otherPerms = prev.filter((p) => !categoryPerms.includes(p));
-      return checked ? [...otherPerms, ...categoryPerms] : otherPerms;
+      return checked ? [...otherPerms, ...withoutImplied(categoryPerms, [...otherPerms, ...categoryPerms])] : otherPerms;
     });
   };
 
+  // #3248: a fine permission shows as ticked while its umbrella (Control Printers) is on.
+  const isChecked = (perm: Permission) => permissionGrantedBy(new Set<string>(permissions), perm);
+  const isUmbrellaChild = (perm: Permission) => PERMISSION_UMBRELLAS[perm] !== undefined;
+  const isImplied = (perm: Permission) => {
+    const umbrella = PERMISSION_UMBRELLAS[perm];
+    return umbrella !== undefined && permissions.includes(umbrella);
+  };
+
   const isCategoryFullySelected = (category: PermissionCategory) =>
-    category.permissions.every((p) => permissions.includes(p.value));
+    category.permissions.every((p) => isChecked(p.value));
 
   const isCategoryPartiallySelected = (category: PermissionCategory) => {
-    const count = category.permissions.filter((p) => permissions.includes(p.value)).length;
+    const count = category.permissions.filter((p) => isChecked(p.value)).length;
     return count > 0 && count < category.permissions.length;
   };
 
   const selectAll = () => {
     if (permissionsData) {
-      setPermissions(permissionsData.all_permissions);
+      setPermissions(withoutImplied(permissionsData.all_permissions, permissionsData.all_permissions));
     }
   };
 
@@ -148,14 +163,17 @@ export function GroupEditPage() {
     return permissionsData.categories
       .map((cat) => ({
         ...cat,
-        permissions: cat.permissions.filter((p) =>
-          p.label.toLowerCase().includes(searchLower)
-        ),
+        // A category-name match keeps the whole category
+        permissions: cat.name.toLowerCase().includes(searchLower)
+          ? cat.permissions
+          : cat.permissions.filter((p) => p.label.toLowerCase().includes(searchLower)),
       }))
       .filter((cat) => cat.permissions.length > 0);
   }, [permissionsData, searchLower]);
 
   const totalPermissions = permissionsData?.all_permissions.length ?? 0;
+  // Counts implied permissions too, like the category header (#3248)
+  const selectedTotal = permissionsData?.all_permissions.filter((p) => isChecked(p)).length ?? 0;
 
   if (groupLoading || permissionsLoading) {
     return (
@@ -247,7 +265,7 @@ export function GroupEditPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <span className="text-sm text-bambu-gray">
-            {t('groups.editor.permissionsSelected', { count: permissions.length })} / {totalPermissions}
+            {t('groups.editor.permissionsSelected', { count: selectedTotal })} / {totalPermissions}
           </span>
           <Button size="sm" variant="ghost" onClick={selectAll}>
             {t('groups.editor.selectAll')}
@@ -278,7 +296,7 @@ export function GroupEditPage() {
           {filteredCategories.map((category) => {
             // Use the full (unfiltered) category for selection logic
             const fullCategory = permissionsData!.categories.find((c) => c.name === category.name)!;
-            const selectedCount = fullCategory.permissions.filter((p) => permissions.includes(p.value)).length;
+            const selectedCount = fullCategory.permissions.filter((p) => isChecked(p.value)).length;
             const totalCount = fullCategory.permissions.length;
             const fullySelected = isCategoryFullySelected(fullCategory);
             const partiallySelected = isCategoryPartiallySelected(fullCategory);
@@ -312,11 +330,19 @@ export function GroupEditPage() {
                   {category.permissions.map((perm) => (
                     <label
                       key={perm.value}
-                      className="flex items-center gap-3 px-2 py-1.5 rounded hover:bg-bambu-dark-secondary cursor-pointer"
+                      title={isImplied(perm.value) ? t('groups.editor.includedInControl') : undefined}
+                      className={`flex items-center gap-3 px-2 py-1.5 rounded ${
+                        // Indent only while the umbrella row is shown above it (search can filter it out)
+                        isUmbrellaChild(perm.value) &&
+                        category.permissions.some((p) => p.value === PERMISSION_UMBRELLAS[perm.value])
+                          ? 'ml-7'
+                          : ''
+                      } ${isImplied(perm.value) ? 'cursor-default' : 'hover:bg-bambu-dark-secondary cursor-pointer'}`}
                     >
                       <input
                         type="checkbox"
-                        checked={permissions.includes(perm.value)}
+                        checked={isChecked(perm.value)}
+                        disabled={isImplied(perm.value)}
                         onChange={() => togglePermission(perm.value)}
                         className="w-4 h-4 shrink-0 rounded border-bambu-gray text-bambu-green focus:ring-bambu-green focus:ring-offset-0 bg-bambu-dark-secondary"
                       />

@@ -3784,6 +3784,7 @@ export default {
       selectAll: 'すべて選択',
       clearAll: 'すべて解除',
       permissionsSelected: '{{count}}件選択',
+      includedInControl: '「プリンター制御」に含まれています',
       noResults: '検索に一致する権限がありません',
       websocketHint: 'ライブ更新に必要です。この権限がないと、インターフェースは定期的なポーリングに切り替わります。',
       printerAccess: 'プリンターへのアクセス',

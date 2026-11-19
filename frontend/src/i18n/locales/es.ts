@@ -3786,6 +3786,7 @@ export default {
       selectAll: 'Seleccionar todo',
       clearAll: 'Borrar todo',
       permissionsSelected: '{{count}} seleccionados',
+      includedInControl: 'Incluido en «Controlar impresoras»',
       noResults: 'Ningún permiso coincide con su búsqueda',
       websocketHint: 'Necesario para las actualizaciones en vivo. Sin este permiso, la interfaz recurre al sondeo periódico.',
       printerAccess: 'Acceso a impresoras',

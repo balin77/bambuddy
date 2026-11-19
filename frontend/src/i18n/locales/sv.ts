@@ -3846,6 +3846,7 @@ errors: {
       selectAll: 'Markera alla',
       clearAll: 'Avmarkera alla',
       permissionsSelected: '{{count}} valda',
+      includedInControl: 'Ingår i "Styra skrivare"',
       noResults: 'Inga behörigheter matchar din sökning',
       websocketHint: 'Krävs för liveuppdateringar. Utan det faller gränssnittet tillbaka på periodisk avfrågning.',
       printerAccess: 'Skrivaråtkomst',

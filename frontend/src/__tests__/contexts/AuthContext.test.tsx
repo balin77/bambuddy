@@ -462,6 +462,46 @@ describe('AuthContext', () => {
     });
   });
 
+  describe('fine printer permissions (#3248)', () => {
+    async function signInWith(permissions: string[]) {
+      setAuthToken('valid-token', 'persistent');
+      server.use(
+        http.get('/api/v1/auth/status', () => HttpResponse.json({ auth_enabled: true, requires_setup: false })),
+        http.get('/api/v1/auth/me', () =>
+          HttpResponse.json({ id: 2, username: 'helper', is_active: true, is_admin: false, permissions, groups: [] }),
+        ),
+      );
+      const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current.user?.username).toBe('helper'));
+      return result;
+    }
+
+    afterEach(() => {
+      setAuthToken(null);
+      localStorage.removeItem('auth_token');
+    });
+
+    it('printers:control grants every fine printer permission', async () => {
+      const result = await signInWith(['printers:read', 'printers:control']);
+      for (const p of [
+        'printers:pause_resume', 'printers:stop', 'printers:filament', 'printers:tune',
+        'printers:motion', 'printers:drying', 'printers:maintenance', 'printers:admin',
+      ] as Permission[]) {
+        expect(result.current.hasPermission(p)).toBe(true);
+        expect(result.current.hasAnyPermission(p)).toBe(true);
+      }
+    });
+
+    it('a fine permission grants only itself, not the umbrella nor its siblings', async () => {
+      const result = await signInWith(['printers:read', 'printers:pause_resume']);
+      expect(result.current.hasPermission('printers:pause_resume')).toBe(true);
+      expect(result.current.hasPermission('printers:stop')).toBe(false);
+      expect(result.current.hasPermission('printers:control')).toBe(false);
+      expect(result.current.hasAnyPermission('printers:stop', 'printers:tune')).toBe(false);
+      expect(result.current.hasAnyPermission('printers:stop', 'printers:pause_resume')).toBe(true);
+    });
+  });
+
   describe('token validation on mount (#1889)', () => {
     beforeEach(() => {
       // Persisted "Remember Me" token — lives in localStorage.

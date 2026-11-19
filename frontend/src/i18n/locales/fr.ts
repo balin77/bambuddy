@@ -3772,6 +3772,7 @@ export default {
       selectAll: 'Tout sélectionner',
       clearAll: 'Tout désélectionner',
       permissionsSelected: '{{count}} sélectionnée(s)',
+      includedInControl: 'Inclus dans « Contrôler les imprimantes »',
       noResults: 'Aucune permission ne correspond à votre recherche',
       websocketHint: "Requis pour les mises à jour en direct. Sans cette permission, l'interface bascule sur une actualisation périodique.",
       printerAccess: 'Accès aux imprimantes',

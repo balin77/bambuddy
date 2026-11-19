@@ -3771,6 +3771,7 @@ export default {
       selectAll: '全选',
       clearAll: '清除全部',
       permissionsSelected: '已选 {{count}} 个',
+      includedInControl: '已包含在“控制打印机”中',
       noResults: '没有权限匹配您的搜索',
       websocketHint: '实时更新所需。缺少此权限时，界面将回退到定期轮询。',
       printerAccess: '打印机访问',
