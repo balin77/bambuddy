@@ -1,6 +1,6 @@
 # Issue draft – language picker for every user
 
-**Status:** Draft. Not posted. No existing issue found (searched "language per user", "language user menu", "language permission settings").
+**Status:** Posted on 19 November 2026 as maziggy/bambuddy#3623. Not assigned yet. No existing issue found (searched "language per user", "language user menu", "language permission settings").
 
 ---
 

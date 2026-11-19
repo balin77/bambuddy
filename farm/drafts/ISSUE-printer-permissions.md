@@ -1,6 +1,6 @@
 # Issue draft – finer printer permissions
 
-**Status:** Draft. Not posted. Builds on the open issue maziggy/bambuddy#3248 (no decision yet; maintainer asked for 👍).
+**Status:** Posted on 19 November 2026 as variant A, a comment on maziggy/bambuddy#3248 (https://github.com/maziggy/bambuddy/issues/3248#issuecomment-7003089748). No assignment yet; maintainer asked for 👍 on #3248.
 Two ways to post, the user decides:
 - **A (recommended):** a comment on #3248 that widens it (text at the end of this file), so it is not closed as a duplicate.
 - **B:** a new issue that references #3248 (text below).
