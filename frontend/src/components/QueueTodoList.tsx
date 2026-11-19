@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -12,6 +12,7 @@ import type {
   QueueTodoGroup,
   QueueTodoHintSlot,
   QueueTodoKind,
+  QueueTodoPrepare,
   QueueTodoSlotHint,
 } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
@@ -117,6 +118,56 @@ function hintText(t: TFn, hint: QueueTodoSlotHint): HintText {
     : [stateText(t, hint.state, hint.slots)];
   if (hint.unknown_jobs > 0) lines.push(t('queueTodo.slotHint.unknownJobs', { count: hint.unknown_jobs }));
   return { nozzles, lines };
+}
+
+// The name of a filament: its type and colour name, the colour code when it
+// has no name. Empty when the filament says nothing.
+function filamentName(f: QueueTodoFilament): string {
+  return [f.type, f.color_name || f.color].filter(Boolean).join(' ');
+}
+
+// "PETG Black (left nozzle) (no stock)", as the filament list of an entry names it.
+function filamentText(t: TFn, f: QueueTodoFilament): string {
+  let text = filamentName(f);
+  if (f.nozzle === 0 || f.nozzle === 1) {
+    text += ` (${t(f.nozzle === 1 ? 'printModal.leftNozzleTooltip' : 'printModal.rightNozzleTooltip')})`;
+  }
+  return f.no_stock ? `${text} (${t('queueTodo.noStock')})` : text;
+}
+
+// The lines of a group that have something to say: one that lists no filament
+// is left out, so "needs" never stands alone.
+function prepareLines(group: QueueTodoGroup): QueueTodoPrepare[] {
+  return (group.prepare ?? []).filter((line) => line.filaments.some((f) => filamentName(f) !== ''));
+}
+
+// What to prepare for a printer's next jobs: quiet rows under its entries (#3640).
+// ``first`` when the group has no entries above them: no rule and no gap then.
+function PrepareRows({ lines, first }: { lines: QueueTodoPrepare[]; first: boolean }) {
+  const { t } = useTranslation();
+  const titleId = useId();
+  return (
+    <div data-testid="todo-prepare" className={first ? 'space-y-1' : 'mt-1 border-t border-bambu-dark-tertiary pt-2 space-y-1'}>
+      <h4 id={titleId} className="text-[11px] font-medium uppercase tracking-wide text-bambu-gray">{t('queueTodo.prepare.title')}</h4>
+      <ul aria-labelledby={titleId} className="space-y-1.5">
+        {lines.map((line, i) => (
+          <li key={line.job.id} data-testid="todo-prepare-row" className="min-w-0 text-xs text-bambu-gray">
+            <div className="break-words">
+              {t(i === 0 ? 'queueTodo.prepare.next' : 'queueTodo.prepare.then', {
+                job: line.job.name,
+                filaments: line.filaments.filter((f) => filamentName(f) !== '').map((f) => filamentText(t, f)).join(', '),
+              })}
+            </div>
+            {line.slot_hint && (
+              <div data-testid="todo-prepare-hint" className="space-y-0.5 text-bambu-gray">
+                {hintText(t, line.slot_hint).lines.map((text, i) => <div key={i} className="break-words">{text}</div>)}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 function SlotHints({ entry }: { entry: QueueTodoEntry }) {
@@ -404,12 +455,15 @@ interface QueueTodoListProps {
 export function QueueTodoList({ todo, onNavigate, heading = false, overlayZIndex }: QueueTodoListProps) {
   const { t } = useTranslation();
   const { startMutation, modals } = useStartQueueItem(overlayZIndex);
-  if (!todo || todo.count === 0 || todo.groups.length === 0) return null;
+  // A group with nothing to show (a printer whose jobs wait on nothing) is
+  // left out; the list is empty when no group has an entry or a prepare line.
+  const groups = (todo?.groups ?? []).filter((g) => g.entries.length > 0 || prepareLines(g).length > 0);
+  if (!todo || groups.length === 0) return null;
   return (
     <div className={`space-y-3 min-w-0 ${heading ? 'mb-4' : ''}`} data-testid="queue-todo-list">
       {modals}
       {heading && <h2 className="text-sm font-semibold text-bambu-gray-light">{t('queueTodo.title')}</h2>}
-      {todo.groups.filter((group) => group.entries.length > 0).map((group) => (
+      {groups.map((group) => (
         <section
           key={group.printer_id ?? `model-${group.target_model}`}
           className="rounded-lg border border-bambu-dark-tertiary bg-bambu-dark-secondary p-3"
@@ -419,19 +473,22 @@ export function QueueTodoList({ todo, onNavigate, heading = false, overlayZIndex
               ? t('queueTodo.anyModel', { model: group.target_model ?? group.printer_name })
               : group.printer_name}
           </h3>
-          <ul className="divide-y divide-bambu-dark-tertiary">
-            {group.entries.map((entry, i) => (
-              <EntryRow
-                key={`${entry.kind}-${i}`}
-                group={group}
-                entry={entry}
-                onNavigate={onNavigate}
-                onStart={(id) => startMutation.mutate({ id })}
-                startPending={startMutation.isPending}
-                overlayZIndex={overlayZIndex}
-              />
-            ))}
-          </ul>
+          {group.entries.length > 0 && (
+            <ul className="divide-y divide-bambu-dark-tertiary">
+              {group.entries.map((entry, i) => (
+                <EntryRow
+                  key={`${entry.kind}-${i}`}
+                  group={group}
+                  entry={entry}
+                  onNavigate={onNavigate}
+                  onStart={(id) => startMutation.mutate({ id })}
+                  startPending={startMutation.isPending}
+                  overlayZIndex={overlayZIndex}
+                />
+              ))}
+            </ul>
+          )}
+          {prepareLines(group).length > 0 && <PrepareRows lines={prepareLines(group)} first={group.entries.length === 0} />}
         </section>
       ))}
     </div>

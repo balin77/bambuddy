@@ -8507,5 +8507,10 @@ export default {
       hasGramsNeeds: "{{filament}}이(가) 부족합니다: {{slots}}에 {{remaining}} g 남음, 작업에 {{required}} g 필요",
       haveGramsNeeds: "{{filament}}이(가) 부족합니다: {{slots}} 합계 {{remaining}} g 남음, 작업에 {{required}} g 필요",
     },
+    prepare: {
+      title: "준비",
+      next: "다음: {{job}}에 필요한 필라멘트: {{filaments}}",
+      then: "그다음: {{job}}에 필요한 필라멘트: {{filaments}}",
+    },
   },
 };

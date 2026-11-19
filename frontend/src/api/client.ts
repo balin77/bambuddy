@@ -2946,11 +2946,21 @@ export interface QueueTodoEntry {
   // load_filament of an "Any <model>" group: the same, per listed printer that has one.
   slot_hints?: (QueueTodoSlotHint & { printer_id: number })[];
 }
+// What to prepare for one of a printer's next jobs (#3640). Not a to do the queue waits on, and not counted.
+export interface QueueTodoPrepare {
+  job: { id: number; name: string };
+  // 1: the next job that misses a filament; 2: the one after.
+  position: 1 | 2;
+  filaments: QueueTodoFilament[];
+  // Where they can go without touching the running print or a nearer job.
+  slot_hint: QueueTodoSlotHint | null;
+}
 export interface QueueTodoGroup {
   printer_id: number | null;
   printer_name: string;
   target_model: string | null;
   entries: QueueTodoEntry[];
+  prepare?: QueueTodoPrepare[];
 }
 export interface QueueTodo { count: number; groups: QueueTodoGroup[] }
 

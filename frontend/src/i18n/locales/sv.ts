@@ -8966,5 +8966,10 @@ errors: {
       hasGramsNeeds: "För lite {{filament}}: {{slots}} har {{remaining}} g, jobbet behöver {{required}} g",
       haveGramsNeeds: "För lite {{filament}}: {{slots}} har tillsammans {{remaining}} g, jobbet behöver {{required}} g",
     },
+    prepare: {
+      title: "Förbered",
+      next: "Nästa: {{job}} behöver {{filaments}}",
+      then: "Sedan: {{job}} behöver {{filaments}}",
+    },
   },
 };

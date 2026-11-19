@@ -8883,5 +8883,10 @@ export default {
       hasGramsNeeds: "{{filament}}が足りません: {{slots}}に {{remaining}} g、ジョブには {{required}} g 必要です",
       haveGramsNeeds: "{{filament}}が足りません: {{slots}}の合計 {{remaining}} g、ジョブには {{required}} g 必要です",
     },
+    prepare: {
+      title: "準備",
+      next: "次: {{job}} には {{filaments}} が必要",
+      then: "その次: {{job}} には {{filaments}} が必要",
+    },
   },
 };

@@ -8867,5 +8867,10 @@ export default {
       hasGramsNeeds: "{{filament}}不足：{{slots}} 剩余 {{remaining}} g，任务需要 {{required}} g",
       haveGramsNeeds: "{{filament}}不足：{{slots}} 合计剩余 {{remaining}} g，任务需要 {{required}} g",
     },
+    prepare: {
+      title: "准备",
+      next: "下一个：{{job}} 需要 {{filaments}}",
+      then: "之后：{{job}} 需要 {{filaments}}",
+    },
   },
 };
