@@ -9,7 +9,7 @@ import time
 import uuid
 import zipfile
 from collections import deque
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Collection, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1443,6 +1443,62 @@ async def load_plate_clear_policy(db: AsyncSession, printer_id: int) -> tuple[bo
     return plate_clear.override(printer_id), setting_is_true(await get_setting(db, "require_plate_clear"))
 
 
+@dataclass(frozen=True)
+class NextJobs:
+    """The jobs that decide what a printer's next filaments are (#3640).
+
+    ``held`` hold on filament this pass: they get no Prepare line, but the
+    trays they plan stay reserved. ``candidates`` are the jobs a Prepare line
+    may be made for, in the order the pass takes them.
+    """
+
+    held: tuple[PrintQueueItem, ...] = ()
+    candidates: tuple[PrintQueueItem, ...] = ()
+
+
+def predict_next_jobs(
+    printer_id: int,
+    items: list[PrintQueueItem],
+    could_go: Mapping[int, set[int]],
+    held_ids: Collection[int],
+    now: datetime,
+    remaining_seconds: float | None,
+) -> NextJobs:
+    """The jobs that come next on ``printer_id``, in the order of ``items`` (#3640).
+
+    ``items`` is the pass's own order (position and id, or shortest first), so
+    the prediction is the queue's, not a second opinion. A job is a candidate
+    when it can only go to this printer: pinned to it, or a model job whose
+    printers (``could_go``) are exactly this one. A model job that several
+    printers could take is left out, as it is not known which one gets it.
+
+    A job scheduled for later is skipped unless it is due before the running
+    print ends (``remaining_seconds`` after ``now``); with the end unknown
+    (None) it is skipped. A job that waits for the user (staged) counts.
+    """
+    held: list[PrintQueueItem] = []
+    candidates: list[PrintQueueItem] = []
+    ends_at = now + timedelta(seconds=remaining_seconds) if remaining_seconds is not None else None
+    for item in items:
+        if item.status != "pending":
+            continue
+        ids = could_go.get(item.id, set())
+        if item.id in held_ids:
+            if printer_id in ids:
+                held.append(item)
+            continue
+        if ids != {printer_id}:
+            continue
+        scheduled = item.scheduled_time
+        if isinstance(scheduled, datetime):
+            if scheduled.tzinfo is None:
+                scheduled = scheduled.replace(tzinfo=timezone.utc)
+            if scheduled > now and (ends_at is None or scheduled > ends_at):
+                continue
+        candidates.append(item)
+    return NextJobs(tuple(held), tuple(candidates))
+
+
 class PrintScheduler:
     """Background scheduler that processes the print queue."""
 
@@ -1933,6 +1989,30 @@ class PrintScheduler:
         }
         return {pid for pid in failed if not printer_manager.is_connected(pid)}
 
+    async def _could_go_by_item(self, db: AsyncSession, items: list[PrintQueueItem]) -> dict[int, set[int]]:
+        """The printers each pending job could go to, by item id (#3634, #3640).
+
+        A pinned job to its printer, a model job to the printers of its models
+        (and location) that its creator may use. Jobs that are not pending
+        (rows this pass marked skipped are still in the list, in memory) and
+        jobs with neither a printer nor a model are left out.
+        """
+        creator_scopes: dict[int | None, PrinterScope] = {}
+        model_printers: dict[tuple[str, str | None, int | None], set[int]] = {}
+        out: dict[int, set[int]] = {}
+        for item in items:
+            if item.status != "pending":
+                continue
+            if item.printer_id:
+                out[item.id] = {item.printer_id}
+            elif item.target_model or item.variants:
+                if item.created_by_id not in creator_scopes:
+                    creator_scopes[item.created_by_id] = await self._creator_printer_scope(db, item.created_by_id)
+                out[item.id] = await self._model_job_printer_ids(
+                    db, item, creator_scopes[item.created_by_id], model_printers
+                )
+        return out
+
     async def _compute_slot_hints(
         self, db: AsyncSession, items: list[PrintQueueItem], holds: Mapping[int, list[FilamentHold]]
     ) -> tuple[dict[int, SlotHint], dict[int, tuple[tuple, SlotHint | None]]]:
@@ -1961,23 +2041,9 @@ class PrintScheduler:
         prefer_lowest = await self._get_bool_setting(db, "prefer_lowest_filament")
 
         jobs_for: dict[int, list[PrintQueueItem]] = {printer_id: [] for printer_id in held_printers}
-        creator_scopes: dict[int | None, PrinterScope] = {}
-        model_printers: dict[tuple[str, str | None, int | None], set[int]] = {}
+        could_go = await self._could_go_by_item(db, items)
         for item in items:
-            # Rows this pass marked skipped are still in the list, in memory.
-            if item.status != "pending":
-                continue
-            if item.printer_id:
-                could_go = {item.printer_id}
-            elif item.target_model or item.variants:
-                if item.created_by_id not in creator_scopes:
-                    creator_scopes[item.created_by_id] = await self._creator_printer_scope(db, item.created_by_id)
-                could_go = await self._model_job_printer_ids(
-                    db, item, creator_scopes[item.created_by_id], model_printers
-                )
-            else:
-                continue
-            for printer_id in could_go & held_printers:
+            for printer_id in could_go.get(item.id, set()) & held_printers:
                 jobs_for[printer_id].append(item)
 
         files = await self._source_file_identities(db, [job for jobs in jobs_for.values() for job in jobs])
