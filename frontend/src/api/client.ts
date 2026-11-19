@@ -2887,7 +2887,14 @@ export interface DiscoveredTasmotaDevice {
 // Print Queue types
 // "To do" list of everything the queue waits on (#3615).
 export type QueueTodoKind = 'plate_clear' | 'plate_changer_empty' | 'load_filament' | 'start_staged' | 'sensor_interlock' | 'power_on_failed';
-export interface QueueTodoFilament { type: string; color: string; color_name: string; no_stock: boolean }
+export interface QueueTodoFilament {
+  type: string;
+  color: string;
+  color_name: string;
+  no_stock: boolean;
+  // The nozzle a dual-nozzle file wants it on: 0 right, 1 left; null when it names none.
+  nozzle?: number | null;
+}
 export interface QueueTodoEntry {
   kind: QueueTodoKind;
   jobs: { id: number; name: string; can_start: boolean }[];

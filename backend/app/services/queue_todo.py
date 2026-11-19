@@ -32,12 +32,17 @@ _KIND_ORDER = (
 
 @dataclass(frozen=True)
 class TodoFilament:
-    """One filament a job waits for. ``color`` is "#RRGGBB" or empty."""
+    """One filament a job waits for. ``color`` is "#RRGGBB" or empty.
+
+    ``nozzle`` is the extruder a dual-nozzle file wants it on, as the waiting
+    text names it: 0 the right nozzle, 1 the left, None when the file names none.
+    """
 
     type: str
     color: str
     color_name: str = ""
     no_stock: bool = False
+    nozzle: int | None = None
     # What the stock check of #3590 needs; not part of the response.
     tray_info_idx: str = field(default="", compare=False)
     forced: bool = field(default=False, compare=False)
@@ -58,11 +63,13 @@ class FilamentHold:
 
 
 def todo_filament_from_requirement(req: Mapping) -> TodoFilament:
-    """A TodoFilament from a requirement or override dict (type/color/color_name)."""
+    """A TodoFilament from a requirement or override dict (type/color/color_name/nozzle_id)."""
+    nozzle = req.get("nozzle_id")
     return TodoFilament(
         type=str(req.get("type") or "").upper(),
         color=normalize_hex(req.get("color")),
         color_name=str(req.get("color_name") or ""),
+        nozzle=nozzle if type(nozzle) is int and nozzle in (0, 1) else None,
         tray_info_idx=str(req.get("tray_info_idx") or ""),
         forced=bool(req.get("force_color_match")),
     )
@@ -136,11 +143,12 @@ class _Group:
 
 
 def _sorted(filaments: Iterable[TodoFilament]) -> tuple[TodoFilament, ...]:
-    return tuple(sorted(filaments, key=lambda f: (f.type, f.color, f.color_name)))
+    # Without a nozzle first, then right (0) before left (1).
+    return tuple(sorted(filaments, key=lambda f: (f.type, f.color, f.color_name, -1 if f.nozzle is None else f.nozzle)))
 
 
 def _fil_key(filaments: Iterable[TodoFilament]) -> tuple:
-    return tuple((f.type, f.color) for f in _sorted(filaments))
+    return tuple((f.type, f.color, f.nozzle) for f in _sorted(filaments))
 
 
 def build_todo(
@@ -276,6 +284,7 @@ def build_todo(
                         "color": f.color,
                         "color_name": f.color_name,
                         "no_stock": f.no_stock,
+                        "nozzle": f.nozzle,
                     }
                     for f in fils
                 ]
