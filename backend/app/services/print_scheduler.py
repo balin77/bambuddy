@@ -1935,8 +1935,11 @@ class PrintScheduler:
 
     async def _compute_slot_hints(
         self, db: AsyncSession, items: list[PrintQueueItem], holds: Mapping[int, list[FilamentHold]]
-    ) -> dict[int, SlotHint]:
+    ) -> tuple[dict[int, SlotHint], dict[int, tuple[tuple, SlotHint | None]]]:
         """For each printer a job waits on for filament, where that filament can go (#3634).
+
+        Returns the hints and the memo to keep for the next pass; the caller
+        keeps the memo once this step is through.
 
         A hint only; nothing is reserved and no decision of the pass reads it.
         A tray is needed when the planned mapping of a pending job that could
@@ -1954,8 +1957,7 @@ class PrintScheduler:
             hold.printer_id for item_holds in holds.values() for hold in item_holds if hold.printer_id is not None
         }
         if not held_printers:
-            self._hint_memo.clear()
-            return {}
+            return {}, {}
         prefer_lowest = await self._get_bool_setting(db, "prefer_lowest_filament")
 
         jobs_for: dict[int, list[PrintQueueItem]] = {printer_id: [] for printer_id in held_printers}
@@ -1978,6 +1980,7 @@ class PrintScheduler:
             for printer_id in could_go & held_printers:
                 jobs_for[printer_id].append(item)
 
+        files = await self._source_file_identities(db, [job for jobs in jobs_for.values() for job in jobs])
         hints: dict[int, SlotHint] = {}
         memo: dict[int, tuple[tuple, SlotHint | None]] = {}
         for printer_id in sorted(held_printers):
@@ -1986,12 +1989,13 @@ class PrintScheduler:
                 if inputs is None:
                     self._hint_warned.discard(printer_id)
                     continue
-                signature = await self._slot_hint_signature(db, inputs, jobs_for[printer_id], prefer_lowest)
+                signature = await self._slot_hint_signature(db, inputs, jobs_for[printer_id], prefer_lowest, files)
                 previous = self._hint_memo.get(printer_id)
+                degraded = False
                 if previous is not None and previous[0] == signature:
                     hint = previous[1]
                 else:
-                    hint = await self._slot_hint_for_printer(
+                    hint, degraded = await self._slot_hint_for_printer(
                         db, printer_id, inputs, jobs_for[printer_id], prefer_lowest
                     )
             except Exception as e:
@@ -2004,11 +2008,38 @@ class PrintScheduler:
                     logger.warning("Printer %s: no slot hint for the To do list: %s", printer_id, e, exc_info=True)
                 continue
             self._hint_warned.discard(printer_id)
-            memo[printer_id] = (signature, hint)
+            # A hint computed while a job failed or came out unknown is shown
+            # but not kept: the next pass computes it again.
+            if not degraded:
+                memo[printer_id] = (signature, hint)
             if hint is not None:
                 hints[printer_id] = hint
-        self._hint_memo = memo
-        return hints
+        return hints, memo
+
+    async def _source_file_identities(self, db: AsyncSession, jobs: list[PrintQueueItem]) -> dict[tuple, tuple]:
+        """What identifies the source file of each job's archive or library row, one SELECT per kind (#3634).
+
+        A file replaced under the same id (new hash or path) or trashed
+        changes it, so a kept hint is not reused for a changed file.
+        """
+        archive_ids = {job.archive_id for job in jobs if job.archive_id}
+        library_ids = {job.library_file_id for job in jobs if job.library_file_id and not job.archive_id}
+        out: dict[tuple, tuple] = {}
+        if archive_ids:
+            rows = await db.execute(
+                select(PrintArchive.id, PrintArchive.content_hash, PrintArchive.file_path).where(
+                    PrintArchive.id.in_(archive_ids)
+                )
+            )
+            out.update({("archive", r[0]): (r[1], r[2]) for r in rows})
+        if library_ids:
+            rows = await db.execute(
+                select(LibraryFile.id, LibraryFile.file_hash, LibraryFile.file_path, LibraryFile.deleted_at).where(
+                    LibraryFile.id.in_(library_ids)
+                )
+            )
+            out.update({("library", r[0]): (r[1], r[2], r[3]) for r in rows})
+        return out
 
     def _running_trays(self, status) -> set[int]:
         """The trays the printer's running print uses: never offered as a place to load (#3634)."""
@@ -2107,8 +2138,13 @@ class PrintScheduler:
         inputs: tuple[Any, list[dict], set[int]],
         jobs: list[PrintQueueItem],
         prefer_lowest: bool,
+        files: Mapping[tuple, tuple] | None = None,
     ) -> tuple:
         """Everything the hint of one printer is computed from, comparable between passes (#3634).
+
+        Inventory remain overrides ("prefer lowest") are deliberately not in
+        it: reading them costs a Spoolman call, and the setting only reorders
+        equally good trays, so the needed set does not follow them.
 
         The slots (loaded, empty, running-print trays), the jobs that could go
         to the printer with what decides their mapping, and the matcher's
@@ -2153,6 +2189,9 @@ class PrintScheduler:
                         job.plate_id,
                         job.created_by_id,
                         blocked.get(job.created_by_id, ()) if job.created_by_id is not None else (),
+                        (files or {}).get(("archive", job.archive_id))
+                        if job.archive_id
+                        else (files or {}).get(("library", job.library_file_id)),
                     )
                     for job in jobs
                 ),
@@ -2165,6 +2204,14 @@ class PrintScheduler:
             bool(getattr(getattr(status, "fila_switch", None), "installed", False)),
             reports_two_nozzles(status),
             tuple(sorted(running)),
+            # External holders reported empty (an absent one is not in the list).
+            tuple(
+                sorted(
+                    int(v.get("id", 254))
+                    for v in (status.raw_data or {}).get("vt_tray") or []
+                    if not v.get("tray_type")
+                )
+            ),
             slot_key,
             job_key,
         )
@@ -2176,14 +2223,18 @@ class PrintScheduler:
         inputs: tuple[Any, list[dict], set[int]],
         jobs: list[PrintQueueItem],
         prefer_lowest: bool,
-    ) -> SlotHint | None:
-        """The hint for one printer, or None when nothing is loaded and nothing is empty (#3634).
+    ) -> tuple[SlotHint | None, bool]:
+        """The hint for one printer (None when nothing is loaded and nothing is empty), and whether it is degraded (#3634).
+
+        Degraded: a job failed to map or its filaments are unknown, so the
+        hint may change without anything the signature sees.
 
         Jobs that would map the same way (same file and plate, overrides,
         stored mapping and creator) are mapped once.
         """
         status, slots, running = inputs
         needed = set(running)
+        degraded = False
         unknown_job_ids: list[int] = []
         planned: dict[tuple, tuple[set[int], bool]] = {}
         for item in jobs:
@@ -2203,10 +2254,12 @@ class PrintScheduler:
                 except Exception as e:
                     logger.debug("Queue item %s: planned mapping for printer %s not read: %s", item.id, printer_id, e)
                     planned[key] = (set(), True)
+                    degraded = True
             trays, unknown = planned[key]
             needed |= trays
             if unknown:
                 unknown_job_ids.append(item.id)
+                degraded = True
 
         # The matcher takes a filament that names a nozzle only from the trays
         # on that nozzle, unless a Filament Track Switch routes any of them.
@@ -2238,7 +2291,7 @@ class PrintScheduler:
         # one feed path.
         overall = self._classify_slots(slots, needed)
         if overall is None:
-            return None
+            return None, degraded
         by_nozzle: list[NozzleHint] = []
         if split_by_nozzle:
             # One part per nozzle that has a slot. A filament that names a
@@ -2247,7 +2300,8 @@ class PrintScheduler:
                 part = self._classify_slots([c for c in slots if c["extruder_id"] == nozzle], needed)
                 if part is not None:
                     by_nozzle.append(NozzleHint(label, part[0], hint_slots(part[1])))
-        return SlotHint(printer_id, overall[0], hint_slots(overall[1]), tuple(unknown_job_ids), tuple(by_nozzle))
+        hint = SlotHint(printer_id, overall[0], hint_slots(overall[1]), tuple(unknown_job_ids), tuple(by_nozzle))
+        return hint, degraded
 
     def _record_hold(
         self, item_id: int, printer_id: int | None, target_model: str | None, filaments: list[TodoFilament]
@@ -3684,13 +3738,21 @@ class PrintScheduler:
 
             # Where a printer's missing filament can go (#3634). Read-only and
             # after every decision above: it can only fail by being left out.
+            if self._pass_slot_hints is not None and not self._pass_holds:
+                # Nobody is held: forget what the hints were computed from.
+                self._hint_memo.clear()
+                self._hint_warned.clear()
             if self._pass_slot_hints is not None and self._pass_holds:
                 try:
                     # A savepoint: a failed query (PostgreSQL then refuses every
                     # later statement of the transaction) is rolled back alone,
                     # and the loaded rows the steps below read stay as they are.
                     async with db.begin_nested():
-                        self._pass_slot_hints.update(await self._compute_slot_hints(db, items, self._pass_holds))
+                        hints, memo = await self._compute_slot_hints(db, items, self._pass_holds)
+                    # Only after the savepoint went through: a hint step that was
+                    # rolled back must not leave a memo behind.
+                    self._pass_slot_hints.update(hints)
+                    self._hint_memo = memo
                 except Exception as e:
                     logger.warning("Slot hints for the To do list failed, continuing: %s", e, exc_info=True)
 
@@ -5846,14 +5908,8 @@ class PrintScheduler:
             inventory_remain_overrides = await self._build_inventory_remain_overrides(db, printer_id, loaded_filaments)
 
         # Compute mapping: match required filaments to available slots
-        # ``quiet`` is only passed when set, so the dispatch call stays as it was.
         return self._match_filaments_to_slots(
-            filament_reqs,
-            loaded_filaments,
-            prefer_lowest,
-            inventory_remain_overrides,
-            fts_installed,
-            **({"quiet": True} if quiet else {}),
+            filament_reqs, loaded_filaments, prefer_lowest, inventory_remain_overrides, fts_installed, quiet=quiet
         )
 
     def _apply_filament_overrides(self, item: PrintQueueItem, filament_reqs: list[dict]) -> None:

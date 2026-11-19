@@ -162,7 +162,10 @@ async def _hints(scheduler, statuses, items, holds, db=None, connected=lambda pi
             MagicMock(side_effect=connected),
         ),
     ):
-        return await scheduler._compute_slot_hints(db or AsyncMock(), items, holds)
+        hints, memo = await scheduler._compute_slot_hints(db or AsyncMock(), items, holds)
+    # What the pass does once the hint step went through.
+    scheduler._hint_memo = memo
+    return hints
 
 
 def _labels(hint):
@@ -789,3 +792,106 @@ class TestFailures:
         assert True in rolled_back
         assert item_id in scheduler.filament_holds_snapshot()
         assert scheduler.slot_hints_snapshot() == {}
+
+
+class TestStaleMemo:
+    @staticmethod
+    def _counted(requirements):
+        scheduler = _scheduler_with(requirements)
+        scheduler._planned_mapping = AsyncMock(wraps=scheduler._planned_mapping)
+        return scheduler
+
+    @pytest.mark.asyncio
+    async def test_a_hint_computed_with_a_failing_job_is_not_kept(self):
+        scheduler = self._counted({1: _need(RED), 2: _need(BLUE)})
+        scheduler._planned_mapping = AsyncMock(side_effect=[[0], RuntimeError("bad"), [0], [1]])
+        statuses = {1: _status(_loaded_ams(RED, BLUE, WHITE))}
+        jobs = [_job(1), _job(2)]
+        assert 1 in await _hints(scheduler, statuses, jobs, _holds(1))
+        assert scheduler._hint_memo == {}
+        await _hints(scheduler, statuses, jobs, _holds(1))
+        assert scheduler._planned_mapping.await_count == 4
+
+    @pytest.mark.asyncio
+    async def test_a_hint_with_an_unknown_job_is_not_kept(self):
+        scheduler = self._counted({1: None})
+        await _hints(scheduler, {1: _status(_loaded_ams(RED, BLUE))}, [_job(1)], _holds(1))
+        assert scheduler._hint_memo == {}
+
+    @pytest.mark.asyncio
+    async def test_a_rolled_back_hint_step_keeps_no_memo(self, queue_db):
+        item_id = await _add_item(queue_db, printer_id=1, target_model=None)
+        scheduler = _scheduler_with({item_id: _need(RED)})
+        real = scheduler._compute_slot_hints
+
+        async def then_fail(db, items, holds):
+            await real(db, items, holds)
+            raise RuntimeError("after the work")
+
+        scheduler._compute_slot_hints = then_fail
+        loaded = [{"id": 0, "tray": [_tray(0, "PETG", BLUE), _tray(1, exists=False)]}]
+        await TestInThePass()._pass(queue_db, scheduler, _status(loaded))
+        assert scheduler._hint_memo == {}
+
+    @pytest.mark.asyncio
+    async def test_a_replaced_archive_file_computes_again(self):
+        scheduler = self._counted({1: _need(RED)})
+        statuses = {1: _status(_loaded_ams(RED, BLUE))}
+        jobs = [_job(1)]
+
+        def db_with(content_hash):
+            db = AsyncMock()
+            db.execute = AsyncMock(return_value=[(1, content_hash, "archives/a.3mf")])
+            return db
+
+        await _hints(scheduler, statuses, jobs, _holds(1), db=db_with("aaa"))
+        await _hints(scheduler, statuses, jobs, _holds(1), db=db_with("aaa"))
+        assert scheduler._planned_mapping.await_count == 1
+        await _hints(scheduler, statuses, jobs, _holds(1), db=db_with("bbb"))
+        assert scheduler._planned_mapping.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_a_trashed_library_file_computes_again(self, queue_db):
+        from datetime import datetime, timezone
+
+        from sqlalchemy import select, update
+
+        from backend.app.models.library import LibraryFile
+
+        item_id = await _add_item(queue_db, printer_id=1, target_model=None)
+        scheduler = self._counted({item_id: _need(RED)})
+        statuses = {1: _status(_loaded_ams(RED, BLUE))}
+        holds = {item_id: _holds(1)[101]}
+
+        async def run():
+            async with queue_db.session_maker() as db:
+                items = list((await db.execute(select(PrintQueueItem))).scalars().all())
+                return await _hints(scheduler, statuses, items, holds, db=db)
+
+        await run()
+        await run()
+        assert scheduler._planned_mapping.await_count == 1
+        async with queue_db.session_maker() as db:
+            await db.execute(update(LibraryFile).values(deleted_at=datetime.now(timezone.utc).replace(tzinfo=None)))
+            await db.commit()
+        await run()
+        assert scheduler._planned_mapping.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_an_external_holder_reported_empty_versus_absent_computes_again(self):
+        scheduler = self._counted({1: _need(RED)})
+        ams = _loaded_ams(RED, BLUE)
+        empty_vt = [{"id": 254, "tray_type": "", "tray_color": "", "tray_info_idx": ""}]
+        await _hints(scheduler, {1: _status(ams)}, [_job(1)], _holds(1))
+        await _hints(scheduler, {1: _status(ams, vt=empty_vt)}, [_job(1)], _holds(1))
+        assert scheduler._planned_mapping.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_a_pass_with_no_held_printer_forgets_memo_and_warnings(self, queue_db):
+        # A job the printer can take: no hold.
+        item_id = await _add_item(queue_db, printer_id=1, target_model=None)
+        scheduler = _scheduler_with({item_id: _need(RED)})
+        scheduler._hint_memo = {1: (("x",), None)}
+        scheduler._hint_warned = {1}
+        await TestInThePass()._pass(queue_db, scheduler, _status(_loaded_ams(RED)))
+        assert (scheduler._hint_memo, scheduler._hint_warned) == ({}, set())
