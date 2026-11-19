@@ -4304,6 +4304,7 @@ export default {
       showVersions: 'Mostra versioni',
       hideVersions: 'Nascondi versioni',
       versionsHeading: 'Versioni',
+      versionsOf: 'Versioni di {{name}}',
       inFolder: 'nella cartella {{folder}}',
       inLibraryRoot: 'nella radice della libreria',
       print: 'Stampa tutte le versioni come un unico lavoro',

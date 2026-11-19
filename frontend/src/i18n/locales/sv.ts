@@ -4379,6 +4379,7 @@ errors: {
       showVersions: 'Visa versioner',
       hideVersions: 'Dölj versioner',
       versionsHeading: 'Versioner',
+      versionsOf: 'Versioner av {{name}}',
       inFolder: 'i {{folder}}',
       inLibraryRoot: 'i bibliotekets rot',
       print: 'Skriv ut alla versioner som ett jobb',

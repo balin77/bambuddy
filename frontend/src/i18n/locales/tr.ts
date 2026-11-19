@@ -4312,6 +4312,7 @@ export default {
       showVersions: 'Sürümleri göster',
       hideVersions: 'Sürümleri gizle',
       versionsHeading: 'Sürümler',
+      versionsOf: '{{name}} sürümleri',
       inFolder: '{{folder}} içinde',
       inLibraryRoot: 'kütüphane kökünde',
       print: 'Tüm sürümleri tek iş olarak yazdır',

@@ -2664,6 +2664,8 @@ export function FileManagerPage() {
     t,
   };
 
+  const [openVariantGroupId, setOpenVariantGroupId] = useState<number | null>(null);
+
   const variantViewProps = {
     selectedIds: selectedFiles,
     highlightedFileId,
@@ -2672,6 +2674,8 @@ export function FileManagerPage() {
     authEnabled,
     onToggleSelect: handleGroupSelect,
     onTagClick: toggleTagFilter,
+    openGroupId: openVariantGroupId,
+    onOpenGroupChange: setOpenVariantGroupId,
     memberActions: {
       onDetails: setDetailsFile,
       onDownload: handleDownload,
