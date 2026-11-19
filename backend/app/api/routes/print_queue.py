@@ -1046,6 +1046,7 @@ async def queue_todo(
         plate_changer_empty,
         _scheduler.filament_priorities_snapshot(),
         visible_slot_hints(_scheduler.slot_hints_snapshot(), printer_names),
+        _scheduler.prepare_snapshot(),
     )
 
 

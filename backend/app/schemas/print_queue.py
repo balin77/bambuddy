@@ -680,11 +680,29 @@ class QueueTodoEntry(BaseModel):
     slot_hints: list[QueueTodoPrinterSlotHint] = []
 
 
+class QueueTodoPrepareJob(BaseModel):
+    id: int
+    name: str
+
+
+class QueueTodoPrepare(BaseModel):
+    """What to prepare for one of a printer's next jobs (#3640). Not a to do the queue waits on."""
+
+    job: QueueTodoPrepareJob
+    # 1 for the next job that misses a filament, 2 for the one after.
+    position: Literal[1, 2]
+    filaments: list[QueueTodoFilament]
+    # Where the filaments can go without touching the running print or a nearer job; None while the printer reports no trays.
+    slot_hint: QueueTodoSlotHint | None = None
+
+
 class QueueTodoGroup(BaseModel):
     printer_id: int | None = None
     printer_name: str
     target_model: str | None = None
     entries: list[QueueTodoEntry]
+    # Printers only. Not counted in ``count``.
+    prepare: list[QueueTodoPrepare] = []
 
 
 class QueueTodoResponse(BaseModel):

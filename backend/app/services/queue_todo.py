@@ -282,6 +282,7 @@ class _Group:
     target_model: str | None
     first_index: int
     entries: dict[tuple, dict] = field(default_factory=dict)
+    prepare: list[dict] = field(default_factory=list)
 
 
 def _sorted(filaments: Iterable[TodoFilament]) -> tuple[TodoFilament, ...]:
@@ -450,6 +451,7 @@ def build_todo(
     plate_changer_empty: Mapping[int, int | None] | None = None,
     priorities: Mapping[int, tuple[str, int | None]] | None = None,
     slot_hints: Mapping[int, SlotHint] | None = None,
+    prepare: Mapping[int, Iterable[PrepareEntry]] | None = None,
 ) -> dict:
     """The response of GET /queue/todo.
 
@@ -460,7 +462,12 @@ def build_todo(
     ``priorities`` maps a job to its place in the loaded-filament-first wait
     (#3587). ``slot_hints`` are the scheduler's, by
     printer id: a load entry carries its printer's (a model entry one per
-    printer it lists), and never names a job (#3634).
+    printer it lists), and never names a job (#3634). ``prepare`` are the
+    scheduler's lines for a printer's next jobs, by printer id: shown under
+    the printer, for the jobs and printers in ``jobs`` and ``printers`` only,
+    and not counted (#3640). Their positions are renumbered for what the
+    caller sees, so the first visible line is always position 1. A group with
+    neither entries nor lines is left out.
     """
     slot_hints = slot_hints or {}
     groups: dict[tuple, _Group] = {}
@@ -571,6 +578,38 @@ def build_todo(
             group = group_for(job.pinned_id, job.model_key, job.model_label, index)
             add(group, KIND_START_STAGED, (), job)
 
+    # Prepare lines: a job the caller may not see is no line. A printer with
+    # nothing else to do gets a group of its own.
+    jobs_by_id = {job.id: job for job in jobs}
+    for printer_id, lines in (prepare or {}).items():
+        if printer_id not in printers:
+            continue
+        for line in lines:
+            job = jobs_by_id.get(line.item_id)
+            if job is None:
+                continue
+            group_for(printer_id, None, None, index_of[job.id]).prepare.append(
+                {
+                    "job": {"id": job.id, "name": job.name},
+                    "position": line.position,
+                    "filaments": [
+                        {
+                            "type": f.type,
+                            "color": f.color,
+                            "color_name": f.color_name,
+                            "no_stock": f.no_stock,
+                            "nozzle": f.nozzle,
+                            # A Prepare line lists what is missing, never a short spool.
+                            "short": False,
+                            "short_trays": [],
+                            "required_grams": None,
+                        }
+                        for f in _sorted(line.filaments)
+                    ],
+                    "slot_hint": _hint_dict(line.hint, line.filaments, index_of) if line.hint else None,
+                }
+            )
+
     out_groups = []
     count = 0
     for group in sorted(groups.values(), key=lambda g: g.first_index):
@@ -615,7 +654,12 @@ def build_todo(
                             is not None
                         ]
                 entries.append(entry)
-        if not entries:
+        # What the caller sees of a printer's lines is numbered again: when the
+        # nearest job is not theirs, the first line they see is the next one.
+        lines = sorted(group.prepare, key=lambda line: line["position"])
+        for position, line in enumerate(lines, start=1):
+            line["position"] = position
+        if not entries and not lines:
             continue
         count += len(entries)
         out_groups.append(
@@ -624,6 +668,7 @@ def build_todo(
                 "printer_name": group.printer_name,
                 "target_model": group.target_model,
                 "entries": entries,
+                "prepare": lines,
             }
         )
     return {"count": count, "groups": out_groups}
