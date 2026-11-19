@@ -15,7 +15,7 @@ from sqlalchemy import select
 from backend.app.models.group import Group
 from backend.app.models.print_queue import PrintQueueItem
 from backend.app.services.print_scheduler import scheduler
-from backend.app.services.queue_todo import FilamentHold, TodoFilament
+from backend.app.services.queue_todo import FilamentHold, HintSlot, NozzleHint, SlotHint, TodoFilament
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -34,6 +34,7 @@ def _quiet_scheduler_state():
     """No holds, no failed power-ons, no sensors, no plate waits unless a test says so."""
     scheduler._filament_holds = {}
     scheduler._filament_priorities = {}
+    scheduler._slot_hints = {}
     scheduler._wake_failures = {}
     with (
         patch("backend.app.api.routes.print_queue.ha_sensor_manager.blocked_printers", AsyncMock(return_value={})),
@@ -44,6 +45,7 @@ def _quiet_scheduler_state():
         yield
     scheduler._filament_holds = {}
     scheduler._filament_priorities = {}
+    scheduler._slot_hints = {}
 
 
 @pytest.fixture
@@ -100,6 +102,8 @@ class TestTodoEntries:
                 "priority": None,
                 "priority_hours": None,
                 "plate_capacity": None,
+                "slot_hint": None,
+                "slot_hints": [],
             }
         ]
 
@@ -799,3 +803,148 @@ class TestFarmEntries:
         assert entry["filaments"] == [
             {"type": "PLA", "color": "#FF0000", "color_name": "Red", "no_stock": True, "nozzle": None}
         ]
+
+
+def _slot(tray_id, material="", color="", nozzle=None, ams_id=0):
+    return HintSlot(ams_id, tray_id, False, False, 1, nozzle, material, color, "")
+
+
+class TestSlotHint:
+    """Where a missing filament can go: the scheduler's hints, as the list serves them (#3634)."""
+
+    async def test_a_printer_entry_carries_the_hint_of_its_printer(self, async_client, printer_factory, make_item):
+        a = await printer_factory(name="A")
+        item = await make_item(a.id, name="Pink job")
+        scheduler._filament_holds = {item.id: [FilamentHold(item.id, a.id, None, (RED,))]}
+        scheduler._slot_hints = {
+            a.id: SlotHint(a.id, "replaceable", (_slot(3, "PLA", "#00FF00"),), unknown_job_ids=(item.id, 9999)),
+        }
+        (entry,) = _only_entries((await async_client.get(URL)).json())
+        assert entry["slot_hints"] == []
+        assert entry["slot_hint"] == {
+            "state": "replaceable",
+            "slots": [
+                {
+                    "ams_id": 0,
+                    "tray_id": 3,
+                    "is_ht": False,
+                    "is_external": False,
+                    "ams_type": 1,
+                    "nozzle": None,
+                    "type": "PLA",
+                    "color": "#00FF00",
+                    "tray_info_idx": "",
+                    "tray_sub_brands": "",
+                }
+            ],
+            # Job 9999 is not one the caller sees: not counted.
+            "unknown_jobs": 1,
+            "by_nozzle": [],
+        }
+
+    async def test_no_hint_is_null(self, async_client, printer_factory, make_item):
+        a = await printer_factory(name="A")
+        item = await make_item(a.id)
+        scheduler._filament_holds = {item.id: [FilamentHold(item.id, a.id, None, (RED,))]}
+        (entry,) = _only_entries((await async_client.get(URL)).json())
+        assert entry["slot_hint"] is None
+
+    async def test_other_entries_carry_no_hint(self, async_client, printer_factory, make_item):
+        a = await printer_factory(name="A")
+        await make_item(a.id, manual_start=True)
+        scheduler._slot_hints = {a.id: SlotHint(a.id, "free", (_slot(1),))}
+        (entry,) = _only_entries((await async_client.get(URL)).json())
+        assert (entry["kind"], entry["slot_hint"], entry["slot_hints"]) == ("start_staged", None, [])
+
+    async def test_an_any_entry_has_one_hint_per_printer_it_lists(self, async_client, printer_factory, make_item):
+        a = await printer_factory(name="A", model="X1C")
+        b = await printer_factory(name="B", model="X1C")
+        c = await printer_factory(name="C", model="X1C")
+        item = await make_item(None, target_model="X1C")
+        scheduler._filament_holds = {
+            item.id: [FilamentHold(item.id, pid, "X1C", (BLUE,)) for pid in (a.id, b.id, c.id)],
+        }
+        scheduler._slot_hints = {
+            a.id: SlotHint(a.id, "free", (_slot(1),)),
+            b.id: SlotHint(b.id, "all_needed"),
+            # No hint for C: it has not reported its trays.
+        }
+        (entry,) = _only_entries((await async_client.get(URL)).json())
+        assert entry["slot_hint"] is None
+        assert [(h["printer_id"], h["state"]) for h in entry["slot_hints"]] == [(a.id, "free"), (b.id, "all_needed")]
+        assert [p["id"] for p in entry["printers"]] == [a.id, b.id, c.id]
+
+    async def test_an_entry_for_one_nozzle_shows_the_slots_of_that_nozzle_only(
+        self, async_client, printer_factory, make_item
+    ):
+        a = await printer_factory(name="A", model="H2D")
+        left_job, both_job = await make_item(a.id, name="L"), await make_item(a.id, name="Both")
+        black = ("PETG", "#000000", "Black")
+        left, right = TodoFilament(*black, nozzle=1), TodoFilament(*black, nozzle=0)
+        scheduler._filament_holds = {
+            left_job.id: [FilamentHold(left_job.id, a.id, None, (left,))],
+            both_job.id: [FilamentHold(both_job.id, a.id, None, (right, left))],
+        }
+        scheduler._slot_hints = {
+            a.id: SlotHint(
+                a.id,
+                "free",
+                (_slot(1, nozzle="left"),),
+                by_nozzle=(
+                    NozzleHint("right", "all_needed", ()),
+                    NozzleHint("left", "free", (_slot(1, nozzle="left"),)),
+                ),
+            )
+        }
+        entries = _only_entries((await async_client.get(URL)).json())
+        only_left, both = (e["slot_hint"] for e in entries)
+        assert (only_left["state"], [s["tray_id"] for s in only_left["slots"]]) == ("free", [1])
+        assert [(p["nozzle"], p["state"]) for p in only_left["by_nozzle"]] == [("left", "free")]
+        assert [(p["nozzle"], p["state"]) for p in both["by_nozzle"]] == [("right", "all_needed"), ("left", "free")]
+
+    async def test_the_hint_of_a_printer_out_of_scope_is_dropped(self, async_client, printer_factory, make_item):
+        a = await printer_factory(name="A", model="X1C")
+        b = await printer_factory(name="B", model="X1C")
+        item = await make_item(None, name="Shown", target_model="X1C")
+        scheduler._filament_holds = {item.id: [FilamentHold(item.id, pid, "X1C", (RED,)) for pid in (a.id, b.id)]}
+        scheduler._slot_hints = {pid: SlotHint(pid, "free", (_slot(1),)) for pid in (a.id, b.id)}
+        _, member = await TestTodoAccess()._setup(async_client, ["queue:read_all"], printer_ids=[a.id])
+        (entry,) = _only_entries((await async_client.get(URL, headers=_auth(member))).json())
+        assert [h["printer_id"] for h in entry["slot_hints"]] == [a.id]
+
+    async def test_a_hint_names_no_job_of_anyone_else(self, async_client, printer_factory, make_item):
+        a = await printer_factory(name="A")
+        helper = TestTodoAccess()
+        admin, member = await helper._setup(async_client, ["queue:read_own"])
+        other_id = await helper._add_user(async_client, admin, "other")
+        mine = await make_item(a.id, name="Mine", created_by_id=helper.member_id)
+        theirs = await make_item(a.id, name="SecretCaseName", created_by_id=other_id)
+        scheduler._filament_holds = {
+            mine.id: [FilamentHold(mine.id, a.id, None, (RED,))],
+            theirs.id: [FilamentHold(theirs.id, a.id, None, (BLUE,))],
+        }
+        scheduler._slot_hints = {a.id: SlotHint(a.id, "all_needed", unknown_job_ids=(mine.id, theirs.id))}
+
+        response = await async_client.get(URL, headers=_auth(member))
+
+        (entry,) = _only_entries(response.json())
+        # The foreign job is neither named nor counted.
+        assert entry["slot_hint"]["unknown_jobs"] == 1
+        assert [j["name"] for j in entry["jobs"]] == ["Mine"]
+        assert "SecretCaseName" not in response.text
+
+    async def test_a_reader_of_all_jobs_counts_the_unknown_job_of_anyone(
+        self, async_client, printer_factory, make_item
+    ):
+        a = await printer_factory(name="A")
+        helper = TestTodoAccess()
+        admin, member = await helper._setup(async_client, ["queue:read_all"])
+        other_id = await helper._add_user(async_client, admin, "other")
+        mine = await make_item(a.id, name="Mine", created_by_id=helper.member_id)
+        theirs = await make_item(a.id, name="Theirs", created_by_id=other_id)
+        scheduler._filament_holds = {mine.id: [FilamentHold(mine.id, a.id, None, (RED,))]}
+        scheduler._slot_hints = {a.id: SlotHint(a.id, "all_needed", unknown_job_ids=(mine.id, theirs.id))}
+
+        (entry,) = _only_entries((await async_client.get(URL, headers=_auth(member))).json())
+
+        assert entry["slot_hint"]["unknown_jobs"] == 2
