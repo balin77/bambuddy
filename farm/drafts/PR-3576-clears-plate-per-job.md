@@ -132,7 +132,3 @@ Why there is no G-code check: I did not try to guess from the G-code whether a f
 **Security note.** Anyone who may create or edit queue jobs (`queue:create`, `queue:update`) or edit library files can set the flag. On a printer without a plate changer it would skip the confirmation that protects it. Set such printers to **Always require** (#3540): that setting wins over the flag.
 
 I did not touch the wording of #3540. The helpers are extracted, not rewritten.
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-https://claude.ai/code/session_0127bEAsde34UE3UDyMWQtka

@@ -102,7 +102,3 @@ Desktop (1280 px wide):
 
 - The CSS rule matches only the elements that the `cursor: pointer` rule already treats as controls. A `[role="button"]` element that holds text a user might want to copy loses selection on that text; `select-text` on the inner element brings it back (done for the slot card).
 - The `aria-label` uses " - " between slot and material because `check:i18n` does not allow a colon as the only joiner between two placeholders.
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-https://claude.ai/code/session_0127bEAsde34UE3UDyMWQtka

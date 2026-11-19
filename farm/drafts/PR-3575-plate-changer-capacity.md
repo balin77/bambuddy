@@ -126,7 +126,3 @@ Known limits:
 - **A rare toast changed.** If the count reaches 0 between the upload and the start (a second print finishing in that window), the job stays in the queue. The user now sees "Plate changer empty, the job stays in the queue" instead of a generic failure toast.
 
 I did not touch the wording of #3540. The helpers are extracted, not rewritten.
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-https://claude.ai/code/session_0127bEAsde34UE3UDyMWQtka
