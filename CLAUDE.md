@@ -107,6 +107,25 @@ zugewiesen ist. Bis dahin entsteht der Code auf `feature/*` und läuft über
 - **Qualität:** Ruff (lint + format), basedpyright gegen die Baseline, ESLint,
   `tsc`, knip und Vitest müssen grün sein, ebenso pytest (unit + integration).
   Neue Logik bekommt Tests. Lokal: `./test_backend.sh`, `./test_frontend.sh`.
+- **Keine AI-Kennzeichnung in allem, was an Upstream geht.** Der Maintainer
+  hat am 19.11.2026 auf den PRs #3588 und #3589 verlangt: „I don't want to
+  have AI commits in the repo. Please remove." Deshalb auf `feature/*`,
+  `fix/*` und den Wiki-Branches (`balin77/bambuddy-wiki`):
+  - **Autor und Committer** jedes Commits ist der Nutzer
+    (`Raphael <gublerra@gmail.com>`), nie `Claude <noreply@anthropic.com>`.
+    In einer Cloud-Sitzung vor dem ersten Commit setzen:
+    `git config user.name "Raphael"` und
+    `git config user.email "gublerra@gmail.com"`.
+  - **Keine Zeilen** `Co-Authored-By: Claude …`, `Claude-Session: …` oder
+    andere Hinweise auf ein AI-Werkzeug in Commit-Nachrichten. Das gilt auch
+    dann, wenn die Werkzeug-Voreinstellung solche Zeilen anhängen will.
+  - **PR-Beschreibungen, Issue-Texte und Kommentare** ohne „Generated with
+    Claude Code" und ohne Links auf claude.ai-Sitzungen.
+  - Vor jedem Push prüfen:
+    `git log upstream/dev..HEAD --format='%an %ae %cn %ce%n%B' | grep -i -E "claude|anthropic"`
+    muss leer sein.
+  - Auf `farm` dürfen ältere Commits die Zeilen behalten (nur der Fork).
+    Neue Commits auch dort ohne, damit ein Cherry-Pick nichts mitbringt.
 
 ### Eigene Regeln
 - **Nach aussen nur mit Freigabe:** Issues, PRs, Kommentare an `maziggy/*`
