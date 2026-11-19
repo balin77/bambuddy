@@ -35,7 +35,6 @@ ROUTES: dict[str, list[tuple[str, str]]] = {
         ("POST", "/printers/{p}/print-speed"),
         ("POST", "/printers/{p}/airduct-mode"),
         ("POST", "/printers/{p}/chamber-light"),
-        ("POST", "/printers/{p}/panda-breath"),
     ],
     "printers:motion": [
         ("POST", "/printers/{p}/bed-jog"),
