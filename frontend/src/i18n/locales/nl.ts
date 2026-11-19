@@ -8914,5 +8914,16 @@ export default {
     openPrinter: "Printer openen",
     openQueue: "Wachtrij openen",
     actionFailed: "Actie mislukt",
+    slotHint: {
+      free: "Vrij: {{slots}}",
+      replaceable: "Kunnen worden vervangen: {{slots}}",
+      allNeeded: "Elk geladen filament is nodig voor een wachtende opdracht",
+      unknownJobs: "Wachtende opdrachten met onbekende filamenten: {{count}}",
+      labelled: "{{label}}: {{text}}",
+      unknownJobs_one: "{{count}} wachtende opdracht heeft onbekende filamenten",
+      unknownJobs_other: "{{count}} wachtende opdrachten hebben onbekende filamenten",
+      more: "+{{count}} meer",
+      less: "Minder tonen",
+    },
   },
 };

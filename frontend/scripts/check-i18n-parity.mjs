@@ -141,6 +141,7 @@ function isAlwaysAllowedIdentical(value) {
 // German loanwords / cognates from English are extensive. Most short technical
 // UI labels are identical in DE. List below curates the legitimate ones.
 const DE_COGNATES = [
+  '{{label}}: {{text}}',  // #3634 To do list: "<nozzle or printer>: <text>" — only placeholders and a colon, written the same
   'A4 (210 × 297 mm)',  // #3296 page size name in the custom label sheet form — ISO name and metric size, written the same
   'Apps',  // notifications badge for messages from connected apps — same word
   '{{ams}} · Slot {{slot}}',  // #2587 runout slot label — "Slot" is the DE term too
@@ -235,6 +236,7 @@ const FR_COGNATES = [
 
 // Italian cognates.
 const IT_COGNATES = [
+  '{{label}}: {{text}}',  // #3634 To do list: "<nozzle or printer>: <text>" — only placeholders and a colon, written the same
   'A4 (210 × 297 mm)',  // #3296 page size name in the custom label sheet form — ISO name and metric size, written the same
   '{{ams}} · Slot {{slot}}',  // #2587 runout slot label — "Slot" is the IT term too
   'Bambu Cloud', 'Orca Cloud',  // brand names — same in every locale
@@ -272,6 +274,7 @@ const IT_COGNATES = [
 // Japanese: very few cognates because of script difference. Almost
 // everything needs translation. Only true loanwords / proper nouns stay.
 const JA_COGNATES = [
+  '{{label}}: {{text}}',  // #3634 To do list: "<nozzle or printer>: <text>" — only placeholders and a colon, written the same
   'OK', 'Bambu', 'Code',
   'Bambu Cloud', 'Orca Cloud',  // brand names — same in every locale
   'EU (DD/MM/YYYY)', 'US (MM/DD/YYYY)', 'ON, true, 1',
@@ -285,6 +288,7 @@ const JA_COGNATES = [
 
 // Portuguese (BR) cognates.
 const PT_BR_COGNATES = [
+  '{{label}}: {{text}}',  // #3634 To do list: "<nozzle or printer>: <text>" — only placeholders and a colon, written the same
   'A4 (210 × 297 mm)',  // #3296 page size name in the custom label sheet form — ISO name and metric size, written the same
   'Apps',  // notifications badge for messages from connected apps — same word
   '{{ams}} · Slot {{slot}}',  // #2587 runout slot label — "Slot" is the PT-BR term too
@@ -343,6 +347,7 @@ const ZH_TW_COGNATES = [
 // Korean: script difference means almost nothing is identical.
 // Allow loanwords/acronyms, format strings, and proper nouns that stay verbatim.
 const KO_COGNATES = [
+  '{{label}}: {{text}}',  // #3634 To do list: "<nozzle or printer>: <text>" — only placeholders and a colon, written the same
   'A4 (210 × 297 mm)',  // #3296 page size name in the custom label sheet form — ISO name and metric size, written the same
   'OK', 'Bambu', 'N/A',
   'Bambu Cloud', 'Orca Cloud',  // brand names — same in every locale
@@ -363,6 +368,7 @@ const KO_COGNATES = [
 
 // Spanish cognates — words/phrases that are genuinely identical in Spanish.
 const ES_COGNATES = [
+  '{{label}}: {{text}}',  // #3634 To do list: "<nozzle or printer>: <text>" — only placeholders and a colon, written the same
   'A4 (210 × 297 mm)',  // #3296 page size name in the custom label sheet form — ISO name and metric size, written the same
   'Apps',  // notifications badge for messages from connected apps — same word
   '{{ams}} · Slot {{slot}}',  // #2587 runout slot label — "Slot" is the ES term too
@@ -389,6 +395,7 @@ const ES_COGNATES = [
 // Swedish cognates — technical UI labels that Swedish speakers use verbatim
 // from English (loanwords + acronyms + format strings). Curated, not a shortcut.
 const SV_COGNATES = [
+  '{{label}}: {{text}}',  // #3634 To do list: "<nozzle or printer>: <text>" — only placeholders and a colon, written the same
   'A4 (210 × 297 mm)',  // #3296 page size name in the custom label sheet form — ISO name and metric size, written the same
   'MakerWorld: {{designer}}',
   'email',
@@ -410,6 +417,7 @@ const SV_COGNATES = [
 // Turkish cognates — technical UI labels that Turkish speakers use verbatim
 // from English (loanwords + acronyms + format strings). Curated, not a shortcut.
 const TR_COGNATES = [
+  '{{label}}: {{text}}',  // #3634 To do list: "<nozzle or printer>: <text>" — only placeholders and a colon, written the same
   'A4 (210 × 297 mm)',  // #3296 page size name in the custom label sheet form — ISO name and metric size, written the same
   '{{ams}} · Slot {{slot}}',  // #2587 runout slot label — "Slot" is the TR term too
   'Filament', 'Firmware', 'Disk', 'Hex', 'Test', 'Port', 'Model', 'Metal',
@@ -427,6 +435,7 @@ const TR_COGNATES = [
 ];
 
 const RU_COGNATES = [
+  '{{label}}: {{text}}',  // #3634 To do list: "<nozzle or printer>: <text>" — only placeholders and a colon, written the same
   'MakerWorld: {{designer}}',
   'email',
   '{{printer}}: {{error}}',
@@ -441,6 +450,7 @@ const RU_COGNATES = [
 // Ukrainian keeps only Latin brand names and placeholder/punctuation-only
 // formats verbatim; every prose string in uk.ts is translated.
 const UK_COGNATES = [
+  '{{label}}: {{text}}',  // #3634 To do list: "<nozzle or printer>: <text>" — only placeholders and a colon, written the same
   'MakerWorld: {{designer}}',                         // brand + placeholder
   '{{printer}}: {{error}}',                           // pure placeholders
   'Bambu Cloud', 'Orca Cloud',                        // brand names — same in every locale
@@ -458,6 +468,7 @@ const UK_COGNATES = [
 // are used untranslated by Dutch slicer users. Each entry below was
 // checked individually against the Dutch translation in #2891.
 const NL_COGNATES = [
+  '{{label}}: {{text}}',  // #3634 To do list: "<nozzle or printer>: <text>" — only placeholders and a colon, written the same
   '{{page}} · {{width}} × {{height}} mm · {{capacity}} labels ({{cols}} × {{rows}})',  // #3296 custom sheet summary — "labels" is the Dutch word too
   'A4 (210 × 297 mm)',  // #3296 page size name in the custom label sheet form — ISO name and metric size, written the same
   'Project:',  // archive page label
@@ -499,6 +510,7 @@ const NL_COGNATES = [
 // Polish cognates — brand names, acronyms, format strings and the technical
 // words Polish UIs use verbatim. Checked against pl.ts entry by entry.
 const PL_COGNATES = [
+  '{{label}}: {{text}}',  // #3634 To do list: "<nozzle or printer>: <text>" — only placeholders and a colon, written the same
   'MakerWorld: {{designer}}',
   '{{printer}}: {{error}}',
   'Bambu Cloud', 'Orca Cloud',

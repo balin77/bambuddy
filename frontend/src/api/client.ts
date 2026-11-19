@@ -2895,6 +2895,31 @@ export interface QueueTodoFilament {
   // The nozzle a dual-nozzle file wants it on: 0 right, 1 left; null when it names none.
   nozzle?: number | null;
 }
+// Where a missing filament can go (#3634): an empty slot, or a loaded one no waiting job needs.
+export interface QueueTodoHintSlot {
+  ams_id: number;
+  tray_id: number;
+  is_ht: boolean;
+  is_external: boolean;
+  ams_type: number | null;
+  // Dual-nozzle printer without a Filament Track Switch only.
+  nozzle: 'left' | 'right' | null;
+  // Empty for a free slot.
+  type: string;
+  color: string;
+  tray_info_idx: string;
+  // The tray's product line (empty without RFID); names the colour like the printer card.
+  tray_sub_brands: string;
+}
+export type QueueTodoHintState = 'free' | 'replaceable' | 'all_needed';
+export interface QueueTodoSlotHint {
+  state: QueueTodoHintState;
+  slots: QueueTodoHintSlot[];
+  // Waiting jobs whose filaments could not be read.
+  unknown_jobs: number;
+  // One part per nozzle of the entry on a dual-nozzle printer without a Filament Track Switch.
+  by_nozzle: { nozzle: 'left' | 'right'; state: QueueTodoHintState; slots: QueueTodoHintSlot[] }[];
+}
 export interface QueueTodoEntry {
   kind: QueueTodoKind;
   jobs: { id: number; name: string; can_start: boolean }[];
@@ -2907,6 +2932,10 @@ export interface QueueTodoEntry {
   priority_hours: number | null;
   // plate_changer_empty: the count a refill resets to (#3575).
   plate_capacity: number | null;
+  // load_filament of a printer: where it can go; null while the printer reports no trays (#3634).
+  slot_hint?: QueueTodoSlotHint | null;
+  // load_filament of an "Any <model>" group: the same, per listed printer that has one.
+  slot_hints?: (QueueTodoSlotHint & { printer_id: number })[];
 }
 export interface QueueTodoGroup {
   printer_id: number | null;

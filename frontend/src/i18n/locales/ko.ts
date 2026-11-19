@@ -8486,5 +8486,16 @@ export default {
     openPrinter: "프린터 열기",
     openQueue: "대기열 열기",
     actionFailed: "작업에 실패했습니다",
+    slotHint: {
+      free: "비어 있음: {{slots}}",
+      replaceable: "교체 가능: {{slots}}",
+      allNeeded: "장착된 모든 필라멘트가 대기 중인 작업에 필요합니다",
+      unknownJobs: "필라멘트를 알 수 없는 대기 작업: {{count}}개",
+      labelled: "{{label}}: {{text}}",
+      unknownJobs_one: "필라멘트를 알 수 없는 대기 작업: {{count}}개",
+      unknownJobs_other: "필라멘트를 알 수 없는 대기 작업: {{count}}개",
+      more: "{{count}}개 더 보기",
+      less: "간단히 보기",
+    },
   },
 };

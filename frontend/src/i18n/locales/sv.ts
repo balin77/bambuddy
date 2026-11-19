@@ -8945,5 +8945,16 @@ errors: {
     openPrinter: "Öppna skrivare",
     openQueue: "Öppna kön",
     actionFailed: "Åtgärden misslyckades",
+    slotHint: {
+      free: "Lediga: {{slots}}",
+      replaceable: "Kan bytas ut: {{slots}}",
+      allNeeded: "Varje laddat filament behövs av ett väntande jobb",
+      unknownJobs: "Väntande jobb med okända filament: {{count}}",
+      labelled: "{{label}}: {{text}}",
+      unknownJobs_one: "{{count}} väntande jobb har okända filament",
+      unknownJobs_other: "{{count}} väntande jobb har okända filament",
+      more: "+{{count}} till",
+      less: "Visa färre",
+    },
   },
 };

@@ -8871,5 +8871,16 @@ export default {
     openPrinter: "Abrir impresora",
     openQueue: "Abrir cola",
     actionFailed: "La acción falló",
+    slotHint: {
+      free: "Libres: {{slots}}",
+      replaceable: "Se pueden reemplazar: {{slots}}",
+      allNeeded: "Cada filamento cargado lo necesita un trabajo en espera",
+      unknownJobs: "Trabajos en espera con filamentos desconocidos: {{count}}",
+      labelled: "{{label}}: {{text}}",
+      unknownJobs_one: "{{count}} trabajo en espera tiene filamentos desconocidos",
+      unknownJobs_other: "{{count}} trabajos en espera tienen filamentos desconocidos",
+      more: "+{{count}} más",
+      less: "Mostrar menos",
+    },
   },
 };

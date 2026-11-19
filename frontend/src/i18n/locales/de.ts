@@ -8863,5 +8863,16 @@ export default {
     openPrinter: "Drucker öffnen",
     openQueue: "Warteschlange öffnen",
     actionFailed: "Aktion fehlgeschlagen",
+    slotHint: {
+      free: "Frei: {{slots}}",
+      replaceable: "Können ersetzt werden: {{slots}}",
+      allNeeded: "Jedes eingelegte Filament wird von einem wartenden Auftrag benötigt",
+      unknownJobs: "Wartende Aufträge mit unbekannten Filamenten: {{count}}",
+      labelled: "{{label}}: {{text}}",
+      unknownJobs_one: "{{count}} wartender Auftrag hat unbekannte Filamente",
+      unknownJobs_other: "{{count}} wartende Aufträge haben unbekannte Filamente",
+      more: "+{{count}} weitere",
+      less: "Weniger anzeigen",
+    },
   },
 };

@@ -8916,5 +8916,16 @@ export default {
     openPrinter: "Open printer",
     openQueue: "Open queue",
     actionFailed: "Action failed",
+    slotHint: {
+      free: "Free: {{slots}}",
+      replaceable: "Can be replaced: {{slots}}",
+      allNeeded: "Every loaded filament is needed by a waiting job",
+      unknownJobs: "Waiting jobs with unknown filaments: {{count}}",
+      labelled: "{{label}}: {{text}}",
+      unknownJobs_one: "{{count}} waiting job has unknown filaments",
+      unknownJobs_other: "{{count}} waiting jobs have unknown filaments",
+      more: "+{{count}} more",
+      less: "Show fewer",
+    },
   },
 };
