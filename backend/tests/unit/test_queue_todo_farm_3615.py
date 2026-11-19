@@ -297,7 +297,7 @@ class TestMatcherShortRecords:
 
 
 def _stock(count):
-    return [StockEntry("PLA", "#8B5A2B", "", "", "", None, None, None, count, 0.0, 0)]
+    return [StockEntry("PLA", "#8B5A2B", "", "", "", None, None, None, count, 0.0)]
 
 
 class TestNoStockFlags:

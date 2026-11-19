@@ -11,12 +11,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy import select, text
 
-from backend.app.core.filament_scope import (
-    file_hold_message,
-    print_anyway_hold_message,
-    spool_hold_message,
-    unlisted_file_hold_message,
-)
 from backend.app.models.printer import Printer
 from backend.app.models.settings import Settings
 from backend.app.services.inventory_stock import StockEntry
@@ -408,12 +402,13 @@ class TestPinnedHold:
             assert notify.await_count == fires
 
 
-PETG = [{"type": "PETG", "tray_info_idx": "GFG03"}]
+# farm has no filament scope (#3522) yet; these are its hold texts on dev.
+_CANT = "the job creator's group can't print with"
 SCOPE_HOLDS = [
-    file_hold_message(PETG),
-    spool_hold_message(PETG),
-    unlisted_file_hold_message(PETG),
-    print_anyway_hold_message([{"type": "PLA"}], PETG),
+    f"This file needs a filament {_CANT}: PETG",
+    f"It would print from a loaded spool {_CANT}: PETG",
+    f"This file doesn't list its filaments, and the printer has a loaded spool {_CANT}: PETG",
+    f"Print anyway leaves PLA without a slot, and the printer could pick a loaded spool {_CANT}: PETG",
 ]
 
 

@@ -213,7 +213,7 @@ class TestTodoEntries:
         await make_item(None, target_model="X1C")
         with (
             patch("backend.app.api.routes.print_queue.printer_manager.is_awaiting_plate_clear", lambda pid: True),
-            patch("backend.app.api.routes.print_queue.plate_clear.applies", lambda pid, setting: True),
+            patch("backend.app.services.plate_clear.applies", lambda pid, setting: True),
         ):
             body = (await async_client.get(URL)).json()
         # The scheduler only sends a model job to active printers.
@@ -418,7 +418,7 @@ class TestModelJobCreatorScope:
     async def _printer_entries(self, async_client, token, printer_ids):
         with (
             patch("backend.app.api.routes.print_queue.printer_manager.is_awaiting_plate_clear", lambda pid: True),
-            patch("backend.app.api.routes.print_queue.plate_clear.applies", lambda pid, setting: True),
+            patch("backend.app.services.plate_clear.applies", lambda pid, setting: True),
             patch(
                 "backend.app.api.routes.print_queue.ha_sensor_manager.blocked_printers",
                 AsyncMock(return_value=dict.fromkeys(printer_ids, "Door")),
@@ -796,4 +796,6 @@ class TestFarmEntries:
         gone = TodoFilament("PLA", "#FF0000", "Red", no_stock=True)
         scheduler._filament_holds = {item.id: [FilamentHold(item.id, a.id, None, (gone,))]}
         (entry,) = _only_entries((await async_client.get(URL)).json())
-        assert entry["filaments"] == [{"type": "PLA", "color": "#FF0000", "color_name": "Red", "no_stock": True, "nozzle": None}]
+        assert entry["filaments"] == [
+            {"type": "PLA", "color": "#FF0000", "color_name": "Red", "no_stock": True, "nozzle": None}
+        ]
