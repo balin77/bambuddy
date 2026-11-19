@@ -94,7 +94,12 @@ import { openInSlicer, resolveDesktopSlicer, type SlicerType } from '../utils/sl
 import { isSlicedLibraryFile, isSliceableLibraryFile } from '../utils/libraryFiles';
 import { useUiSettings } from '../hooks/useUiSettings';
 import { FOLDER_DRAG_TYPE, isValidFolderMove, isWritableFolder, moveDisallowedFolderIds } from '../utils/libraryFolders';
-import { filterAndSortFiles, type SortField, type SortDirection } from './fileManager/filterSort';
+import type { SortField, SortDirection } from './fileManager/filterSort';
+import { groupLibraryRows, rowFiles, rowLeadFile, type GroupRow, type LibraryRow } from './fileManager/variantGroups';
+import { VariantGroupCard } from '../components/fileManager/VariantGroupCard';
+import { VariantGroupListRow } from '../components/fileManager/VariantGroupListRow';
+import { VariantGroupColumnRow } from '../components/fileManager/VariantGroupColumnRow';
+import { useVariantGroupActions } from '../components/fileManager/useVariantGroupActions';
 
 type TFunction = (key: string, options?: Record<string, unknown>) => string;
 
@@ -1784,6 +1789,11 @@ export function FileManagerPage() {
   const [folderDropTarget, setFolderDropTarget] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'file' | 'folder' | 'bulk'; id: number; count?: number } | null>(null);
   const [printFile, setPrintFile] = useState<LibraryFileListItem | null>(null);
+  // Set when a variant group, or one of its versions, is printed (#3628): the
+  // dialog then shows exactly these files, whatever else is selected.
+  const [printOverride, setPrintOverride] = useState<{
+    variantFiles: { id: number; filename: string; sliced_for_model: string | null }[] | undefined;
+  } | null>(null);
   // A separate-jobs run (#3462) that was partly queued: what is in the queue,
   // so closing the dialog after a refusal doesn't queue it again on the next
   // Print (#3471 review). Kept while the selection is exactly the files left.
@@ -2098,6 +2108,7 @@ export function FileManagerPage() {
         selectedFolderId === null ? topLevelView : undefined,
         searchExpandsSubfolders,
         tagFilterKey,
+        true,
       ),
   });
 
@@ -2115,22 +2126,25 @@ export function FileManagerPage() {
   // Get unique file types for filter dropdown
   const fileTypes = useMemo(() => {
     if (!files) return [];
-    const types = new Set(files.map((f) => f.file_type));
+    const types = new Set(files.filter((f) => !f.variant_elsewhere).map((f) => f.file_type));
     return Array.from(types).sort();
   }, [files]);
 
-  // Filter and sort files
-  const filteredAndSortedFiles = useMemo(
+  // Filter and sort files. A variant group is one row (#3628); the flat list
+  // below is every file behind the rows, which selection and keyboard
+  // navigation still work on.
+  const libraryRows = useMemo(
     () =>
-      filterAndSortFiles(files ?? [], {
-        query: searchQuery,
-        filterType,
-        filterUsername,
-        sortField,
-        sortDirection,
-      }),
+      groupLibraryRows(
+        files ?? [],
+        { query: searchQuery, filterType, filterUsername },
+        { sortField, sortDirection },
+      ),
     [files, searchQuery, filterType, filterUsername, sortField, sortDirection],
   );
+  const filteredAndSortedFiles = useMemo(() => rowFiles(libraryRows), [libraryRows]);
+  // What the arrow keys walk: one file per row.
+  const paneNavFiles = useMemo(() => libraryRows.map(rowLeadFile), [libraryRows]);
 
   // Once the file's folder is listed afresh, mark the file; then scroll to it
   // and drop the mark after a few seconds, as the Archives page does.
@@ -2148,7 +2162,7 @@ export function FileManagerPage() {
   useEffect(() => {
     if (highlightedFileId === null) return;
     const scrollTimer = setTimeout(() => {
-      document.querySelector(`[data-file-id="${highlightedFileId}"]`)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+      document.querySelector(`[data-file-id="${highlightedFileId}"], [data-member-ids~="${highlightedFileId}"]`)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
     }, 100);
     const clearTimer = setTimeout(() => setHighlightedFileId(null), 5000);
     return () => {
@@ -2460,6 +2474,31 @@ export function FileManagerPage() {
     });
   }, []);
 
+  // A group's tick box selects every visible version, or clears them when all
+  // are already selected (#3628).
+  const handleGroupSelect = useCallback((row: GroupRow) => {
+    const ids = row.members.map((m) => m.id);
+    setSelectedFiles((prev) =>
+      ids.every((id) => prev.includes(id))
+        ? prev.filter((id) => !ids.includes(id))
+        : [...prev, ...ids.filter((id) => !prev.includes(id))],
+    );
+  }, []);
+
+  const printVariantGroup = useCallback((row: GroupRow) => {
+    const sliced = row.members.filter(isSlicedLibraryFile);
+    if (sliced.length === 0) return;
+    setPrintOverride({
+      variantFiles: sliced.map((f) => ({ id: f.id, filename: f.filename, sliced_for_model: f.sliced_for_model })),
+    });
+    setPrintFile(sliced[0]);
+  }, []);
+
+  const variantGroup = useVariantGroupActions({
+    onPrintGroup: printVariantGroup,
+    onFilesDeleted: (ids) => setSelectedFiles((prev) => prev.filter((id) => !ids.includes(id))),
+  });
+
   // In the columns view Select all adds the pane's files to what is ticked, so
   // a file ticked in an earlier column (still on screen) stays ticked (#3020).
   // Grid and list replace the selection: a file a search has hidden must not
@@ -2591,6 +2630,27 @@ export function FileManagerPage() {
     t,
   };
 
+  const variantViewProps = {
+    selectedIds: selectedFiles,
+    highlightedFileId,
+    thumbnailVersions,
+    showModified,
+    authEnabled,
+    onToggleSelect: handleGroupSelect,
+    onTagClick: toggleTagFilter,
+    memberActions: {
+      onDetails: setDetailsFile,
+      onDownload: handleDownload,
+      onRename: fileActionProps.onRename,
+      onDelete: fileActionProps.onDelete,
+      onPrintFile: (f: LibraryFileListItem) => {
+        setPrintOverride({ variantFiles: undefined });
+        setPrintFile(f);
+      },
+    },
+    groupActions: variantGroup.actions,
+  };
+
   const isLoading = foldersLoading || filesLoading;
 
   // The chain of folders from a top-level folder down to the selected one.
@@ -2672,18 +2732,24 @@ export function FileManagerPage() {
       // level's files" are the ones that sit in no folder at all. Under a
       // folder id the server already answers with that folder's own files.
       queryFn: () =>
-        api.getLibraryFiles(level.folderId, level.folderId === null, undefined, level.scope, false, []),
+        api.getLibraryFiles(level.folderId, level.folderId === null, undefined, level.scope, false, [], true),
     })),
   });
 
   // Keyed by column so the render stays a lookup. Deliberately not memoised:
   // useQueries hands back a fresh array every render, so a memo would recompute
   // anyway.
-  const columnFiles = new Map<string, { files: LibraryFileListItem[]; loading: boolean }>();
+  const columnFiles = new Map<string, { rows: LibraryRow[]; files: LibraryFileListItem[]; loading: boolean }>();
   columnFileLevels.forEach((level, i) => {
     const query = columnFileQueries.results[i];
+    const rows = groupLibraryRows(
+      query?.data ?? [],
+      { filterType, filterUsername },
+      { sortField, sortDirection },
+    );
     columnFiles.set(level.key, {
-      files: filterAndSortFiles(query?.data ?? [], { filterType, filterUsername, sortField, sortDirection }),
+      rows,
+      files: rows.map(rowLeadFile),
       loading: Boolean(query?.isPending),
     });
   });
@@ -2696,6 +2762,13 @@ export function FileManagerPage() {
     for (const file of [...(files ?? []), ...columnFileQueries.files]) byId.set(file.id, file);
     return byId;
   }, [files, columnFileQueries.files]);
+
+  // The version groups on screen, by each version's id: a key on a focused
+  // group row acts on the whole group (#3628).
+  const groupRowByFileId = new Map<number, GroupRow>();
+  for (const row of [...libraryRows, ...[...columnFiles.values()].flatMap((l) => l.rows)]) {
+    if (row.kind === 'group') for (const m of row.members) groupRowByFileId.set(m.id, row);
+  }
 
   // The toolbar's Preview button acts on one file, so it is offered only for
   // a single previewable selection.
@@ -2729,7 +2802,7 @@ export function FileManagerPage() {
   const { data: printFileGroup } = useQuery({
     queryKey: ['variant-group', printFile?.variant_group_id],
     queryFn: () => api.getVariantGroup(printFile!.variant_group_id!),
-    enabled: !!printFile?.variant_group_id,
+    enabled: !!printFile?.variant_group_id && !printOverride,
   });
 
   // The selection is the rest of a partly queued run: the files it left, and
@@ -2748,6 +2821,7 @@ export function FileManagerPage() {
   // card's Print would start it as a new run and queue again what a printer
   // already has (#3471 review). One file left resumes only from that file.
   const resumeRun =
+    !printOverride &&
     selectionIsRunRest &&
     !!printFile &&
     (selectedSlicedFiles.length > 1 || separateJobsRun!.remainingFileIds.includes(printFile.id));
@@ -2764,6 +2838,7 @@ export function FileManagerPage() {
   // list even with one file left: a printer may already have it.
   const printVariantFiles = useMemo(() => {
     if (!printFile) return undefined;
+    if (printOverride) return printOverride.variantFiles;
     if (selectedSlicedFiles.length > 1 || resumeRun) {
       // The rest of a run keeps the order the run had in its dialog, not the
       // order the files were ticked in.
@@ -2787,7 +2862,7 @@ export function FileManagerPage() {
       }));
     }
     return undefined;
-  }, [resumeRun, separateJobsRun, printFile, selectedSlicedFiles, printFileGroup]);
+  }, [resumeRun, separateJobsRun, printFile, printOverride, selectedSlicedFiles, printFileGroup]);
 
   // The list the arrow keys walk: the one that actually holds the focused
   // file, which may be an intermediate column rather than the selected
@@ -2798,7 +2873,7 @@ export function FileManagerPage() {
       : columnFileLevels
           .map((level) => columnFiles.get(level.key)?.files)
           .find((list) => list?.some((f) => f.id === columnsFocusedFileId));
-  const focusedFileList = focusedFileColumnList ?? filteredAndSortedFiles;
+  const focusedFileList = focusedFileColumnList ?? paneNavFiles;
 
   // Focus the columns pane when the view opens so arrow keys work right away,
   // and drop the file focus whenever the folder (and with it the file list)
@@ -2934,8 +3009,8 @@ export function FileManagerPage() {
         if (inFiles) break;
         if (!columnsFilterActive && selectedNode && selectedNode.children.length > 0) {
           setSelectedFolderId(selectedNode.children[0].id);
-        } else if (filteredAndSortedFiles.length > 0) {
-          setColumnsFocusedFileId(filteredAndSortedFiles[0].id);
+        } else if (paneNavFiles.length > 0) {
+          setColumnsFocusedFileId(paneNavFiles[0].id);
         }
         break;
       }
@@ -2975,8 +3050,8 @@ export function FileManagerPage() {
           // descending, exactly like ArrowRight.
           if (!columnsFilterActive && selectedNode && selectedNode.children.length > 0) {
             setSelectedFolderId(selectedNode.children[0].id);
-          } else if (filteredAndSortedFiles.length > 0) {
-            setColumnsFocusedFileId(filteredAndSortedFiles[0].id);
+          } else if (paneNavFiles.length > 0) {
+            setColumnsFocusedFileId(paneNavFiles[0].id);
           }
           break;
         }
@@ -2987,10 +3062,54 @@ export function FileManagerPage() {
       case ' ': {
         e.preventDefault();
         if (!inFiles) break;
-        if (columnsFocusedFileId !== null) handleFileSelect(columnsFocusedFileId);
+        if (columnsFocusedFileId !== null) {
+          const group = groupRowByFileId.get(columnsFocusedFileId);
+          if (group) handleGroupSelect(group);
+          else handleFileSelect(columnsFocusedFileId);
+        }
         break;
       }
     }
+  };
+
+  // One row of a column's file list: a file, or a version group (#3628).
+  const renderColumnRow = (row: LibraryRow) => {
+    if (row.kind === 'group') {
+      const leadId = row.thumbnailFile.id;
+      return (
+        <VariantGroupColumnRow
+          key={`group-${row.id}`}
+          row={row}
+          isFocused={columnsFocusedFileId === leadId}
+          onSelect={(r) => {
+            setColumnsFocusedFileId(r.thumbnailFile.id);
+            handleGroupSelect(r);
+          }}
+          {...variantViewProps}
+        />
+      );
+    }
+    const file = row.file;
+    return (
+      <ColumnFileRow
+        key={file.id}
+        file={file}
+        isSelected={selectedFiles.includes(file.id)}
+        isHighlighted={highlightedFileId === file.id}
+        isFocused={columnsFocusedFileId === file.id}
+        showModified={showModified}
+        thumbnailVersion={thumbnailVersions[file.id]}
+        onSelect={(f) => {
+          // Focusing a file in an intermediate column must not move the
+          // folder selection out from under it.
+          setColumnsFocusedFileId(f.id);
+          handleFileSelect(f.id);
+        }}
+        onOpen={openPreview}
+        actionProps={fileActionProps}
+        t={t}
+      />
+    );
   };
 
   return (
@@ -3540,7 +3659,7 @@ export function FileManagerPage() {
               {/* Results count */}
               {(searchQuery || filterType !== 'all' || filterUsername) && (
                 <span className="text-sm text-bambu-gray hidden sm:inline">
-                  {t('fileManager.resultsCount', { showing: filteredAndSortedFiles.length, total: files.length })}
+                  {t('fileManager.resultsCount', { showing: filteredAndSortedFiles.filter((f) => !f.variant_elsewhere).length, total: files.filter((f) => !f.variant_elsewhere).length })}
                 </span>
               )}
             </div>
@@ -3820,26 +3939,7 @@ export function FileManagerPage() {
                     {level?.loading && (
                       <div className="px-3 py-2 text-sm text-bambu-gray" aria-hidden="true">…</div>
                     )}
-                    {level && !level.loading && level.files.map((file) => (
-                      <ColumnFileRow
-                        key={file.id}
-                        file={file}
-                        isSelected={selectedFiles.includes(file.id)}
-                        isHighlighted={highlightedFileId === file.id}
-                        isFocused={columnsFocusedFileId === file.id}
-                        showModified={showModified}
-                        thumbnailVersion={thumbnailVersions[file.id]}
-                        onSelect={(f) => {
-                          // Focusing a file in an intermediate column must not
-                          // move the folder selection out from under it.
-                          setColumnsFocusedFileId(f.id);
-                          handleFileSelect(f.id);
-                        }}
-                        onOpen={openPreview}
-                        actionProps={fileActionProps}
-                        t={t}
-                      />
-                    ))}
+                    {level && !level.loading && level.rows.map(renderColumnRow)}
                   </FolderDropZone>
                   );
                 })}
@@ -3867,24 +3967,7 @@ export function FileManagerPage() {
                             : t('fileManager.noFilesYet')}
                     </div>
                   ) : (
-                    filteredAndSortedFiles.map((file) => (
-                      <ColumnFileRow
-                        key={file.id}
-                        file={file}
-                        isSelected={selectedFiles.includes(file.id)}
-                        isHighlighted={highlightedFileId === file.id}
-                        isFocused={columnsFocusedFileId === file.id}
-                        showModified={showModified}
-                        thumbnailVersion={thumbnailVersions[file.id]}
-                        onSelect={(f) => {
-                          setColumnsFocusedFileId(f.id);
-                          handleFileSelect(f.id);
-                        }}
-                        onOpen={openPreview}
-                        actionProps={fileActionProps}
-                        t={t}
-                      />
-                    ))
+                    libraryRows.map(renderColumnRow)
                   )}
                 </div>
               </div>
@@ -3933,7 +4016,12 @@ export function FileManagerPage() {
           ) : viewMode === 'grid' ? (
             <div className="flex-1 lg:overflow-y-auto">
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
-                {filteredAndSortedFiles.map((file) => (
+                {libraryRows.map((row) => {
+                  if (row.kind === 'group') {
+                    return <VariantGroupCard key={`group-${row.id}`} row={row} {...variantViewProps} />;
+                  }
+                  const file = row.file;
+                  return (
                   <FileCard
                     key={file.id}
                     file={file}
@@ -3961,7 +4049,8 @@ export function FileManagerPage() {
                     authEnabled={authEnabled}
                     showModified={showModified}
                   />
-                ))}
+                  );
+                })}
               </div>
             </div>
           ) : (
@@ -3992,7 +4081,19 @@ export function FileManagerPage() {
                   <div />
                 </div>
                 {/* List rows */}
-                {filteredAndSortedFiles.map((file) => (
+                {libraryRows.map((row) => {
+                  if (row.kind === 'group') {
+                    return (
+                      <VariantGroupListRow
+                        key={`group-${row.id}`}
+                        row={row}
+                        gridClassName={fileListGridColumns(authEnabled)}
+                        {...variantViewProps}
+                      />
+                    );
+                  }
+                  const file = row.file;
+                  return (
                   <div
                     key={file.id}
                     data-testid="file-list-grid-row"
@@ -4133,7 +4234,8 @@ export function FileManagerPage() {
                     {/* Actions */}
                     <FileActionStrip file={file} {...fileActionProps} />
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -4254,10 +4356,12 @@ export function FileManagerPage() {
         />
       )}
 
+      {variantGroup.dialogs}
+
       {/* Held back until the variant group has loaded. The modal reads its
           candidate list once, on mount, so opening before the group arrives
           would show a single-file print for a file that has alternatives. */}
-      {printFile && (!printFile.variant_group_id || printFileGroup !== undefined) && (
+      {printFile && (printOverride || !printFile.variant_group_id || printFileGroup !== undefined) && (
         <PrintModal
           mode="create"
           libraryFileId={printVariantFiles?.[0]?.id ?? printFile.id}
@@ -4265,7 +4369,7 @@ export function FileManagerPage() {
           // A version group is by definition alternatives; only an explicit
           // selection (the same one printVariantFiles prefers) may mean separate
           // jobs (#3462).
-          separateJobsAllowed={selectedSlicedFiles.length > 1 || resumeRun}
+          separateJobsAllowed={!printOverride && (selectedSlicedFiles.length > 1 || resumeRun)}
           resumeSeparateJobs={resumeRun ? separateJobsRun! : undefined}
           onSeparateJobsProgress={setSeparateJobsRun}
           // Naming a cross-model job after one of its files reads as though the
@@ -4277,6 +4381,7 @@ export function FileManagerPage() {
           }
           onClose={() => {
             setPrintFile(null);
+            setPrintOverride(null);
             // Closed after a refusal: what went in leaves the selection, and the
             // rest reopens as that run (see separateJobsRun).
             if (separateJobsRun) {
@@ -4288,6 +4393,7 @@ export function FileManagerPage() {
           }}
           onSuccess={() => {
             setPrintFile(null);
+            setPrintOverride(null);
             setSeparateJobsRun(null);
             setSelectedFiles([]);
             queryClient.invalidateQueries({ queryKey: ['library-files'] });
