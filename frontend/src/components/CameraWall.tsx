@@ -59,9 +59,10 @@ interface CameraWallProps {
   // 1=S, 2=M, 3=L, 4=XL, the same scale as the printer cards (#2735). Sets how
   // many tiles share a row; the tiles stay 16:9.
   tileSize?: number;
-  // Pause/resume, stop and the chamber light on each tile (#3479), for a user
-  // with printers:control. Never on a kiosk wall: nobody stands at a TV, and
-  // its token is read-only.
+  // Pause/resume, stop and the chamber light on each tile (#3479); each control
+  // follows its own permission (printers:pause_resume, printers:stop,
+  // printers:tune; printers:control covers all). Never on a kiosk wall: nobody
+  // stands at a TV, and its token is read-only.
   showControls?: boolean;
   // Whether those controls wait for hover or are always shown. The setting is
   // offered only on a wall that has the controls.

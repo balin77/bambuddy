@@ -300,9 +300,9 @@ async def webhook_stop_print(
 ):
     """Stop the current print on a printer.
 
-    Requires 'can_control_printer' permission.
+    Requires 'can_control_printer' permission and an owner holding printers:stop.
     """
-    await check_webhook_permission(db, api_key, "control_printer")
+    await check_webhook_permission(db, api_key, "stop_printer")
     await ensure_api_key_printer_access(db, api_key, printer_id)
 
     status = printer_manager.get_status(printer_id)
@@ -328,9 +328,9 @@ async def webhook_cancel_print(
 ):
     """Cancel the current print on a printer.
 
-    Requires 'can_control_printer' permission.
+    Requires 'can_control_printer' permission and an owner holding printers:stop.
     """
-    await check_webhook_permission(db, api_key, "control_printer")
+    await check_webhook_permission(db, api_key, "stop_printer")
     await ensure_api_key_printer_access(db, api_key, printer_id)
 
     status = printer_manager.get_status(printer_id)

@@ -3954,7 +3954,7 @@ function PrinterCard({
               : t('printers.maintenance.menuExit')}
           </button>
           <button
-            className="w-full px-4 py-2 text-left text-sm hover:bg-bambu-dark-tertiary flex items-center gap-2 disabled:opacity-50"
+            className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 disabled:opacity-50 ${hasPermission('printers:admin') ? 'hover:bg-bambu-dark-tertiary' : ''}`}
             disabled={!hasPermission('printers:admin')}
             title={!hasPermission('printers:admin') ? t('printers.permission.noControl') : undefined}
             onClick={() => {
@@ -10207,7 +10207,7 @@ export function PrintersPage() {
             : 'bg-bambu-dark border-bambu-dark-tertiary text-white hover:bg-bambu-dark-tertiary'
         }`}
         title={t('printers.bulk.select')}
-        disabled={!hasAnyPermission('printers:pause_resume', 'printers:stop', 'printers:maintenance')}
+        disabled={!hasAnyPermission('printers:pause_resume', 'printers:stop', 'printers:maintenance', 'printers:clear_plate')}
       >
         <CheckSquare className="w-4 h-4" />
         {inMenu && <span>{t('printers.bulk.select')}</span>}
