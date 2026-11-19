@@ -93,9 +93,12 @@ from backend.app.services.queue_todo import (
     FilamentHold,
     HintSlot,
     NozzleHint,
+    PrepareEntry,
     SlotHint,
     TodoFilament,
+    settled_hint,
     todo_filament_from_requirement,
+    tray_fits_filament,
     unique_filaments,
 )
 from backend.app.services.slot_nozzle import reports_two_nozzles
@@ -426,6 +429,9 @@ class _UploadProgressBridge:
 # a post-print prompt) is NOT a valid "command landed" signal even though the
 # state value did change. SLICING is included because some firmwares park
 # briefly in SLICING between PREPARE and RUNNING while parsing the g-code.
+# The most jobs of one printer a Prepare line looks at (#3640).
+_PREPARE_CANDIDATES = 8
+
 _ACTIVE_PRINT_STATES: frozenset[str] = frozenset({"PREPARE", "SLICING", "RUNNING", "PAUSE"})
 
 # How many times the start-watchdog may revert an item to 'pending' before it
@@ -1490,6 +1496,29 @@ def predict_next_jobs(
     return NextJobs(tuple(held), tuple(candidates))
 
 
+def _hint_slot_of(c: dict) -> HintSlot:
+    """A classified slot dict as the hint names it (#3634)."""
+    return HintSlot(
+        ams_id=c["ams_id"],
+        tray_id=c["tray_id"],
+        is_ht=c["is_ht"],
+        is_external=c["is_external"],
+        ams_type=c["ams_type"],
+        nozzle=c.get("nozzle"),
+        type=str(c["type"] or ""),
+        color=str(c["color"] or "") if c["type"] else "",
+        tray_info_idx=str(c["tray_info_idx"] or ""),
+        tray_sub_brands=str(c["tray_sub_brands"] or ""),
+    )
+
+
+def _mapping_trays(mapping: object) -> set[int]:
+    """The trays a mapping list uses (unresolved entries and padding left out) (#3640)."""
+    if not isinstance(mapping, list):
+        return set()
+    return {tray for tray in mapping if _is_tray_id(tray) and tray >= 0}
+
+
 class PrintScheduler:
     """Background scheduler that processes the print queue."""
 
@@ -1550,8 +1579,12 @@ class PrintScheduler:
         # Per printer, what its last hint was computed from, so an unchanged
         # printer is not mapped again; and the printers whose hint failed and
         # was already warned about.
-        self._hint_memo: dict[int, tuple[tuple, SlotHint | None]] = {}
-        self._hint_warned: set[int] = set()
+        # Prepare lines (#3640) share both, under the key (printer id, "prepare").
+        self._hint_memo: dict[Any, tuple[tuple, Any]] = {}
+        self._hint_warned: set[Any] = set()
+        # What a printer's next jobs need and where it can go (#3640), kept and swapped the same way.
+        self._prepare: dict[int, tuple[PrepareEntry, ...]] = {}
+        self._pass_prepare: dict[int, tuple[PrepareEntry, ...]] | None = None
         # Printers a pinned job could not switch on this pass, swapped the same way.
         self._power_failed_pinned: set[int] = set()
         self._pass_power_failed: set[int] | None = None
@@ -1963,6 +1996,10 @@ class PrintScheduler:
         """Copy of the slot hints noted by the last queue pass, by printer id (#3634)."""
         return dict(self._slot_hints)
 
+    def prepare_snapshot(self) -> dict[int, tuple[PrepareEntry, ...]]:
+        """Copy of what the last queue pass noted for each printer's next jobs, by printer id (#3640)."""
+        return dict(self._prepare)
+
     def power_on_failed_printers(self) -> set[int]:
         """Printers a power-on failed on: pinned jobs this pass, model wakes while cooling off (#2786, #3615).
 
@@ -1999,8 +2036,22 @@ class PrintScheduler:
                 )
         return out
 
+    async def _pass_could_go(
+        self, db: AsyncSession, items: list[PrintQueueItem], shared: dict[str, Any] | None
+    ) -> dict[int, set[int]]:
+        """``_could_go_by_item`` once per pass: the slot hint step and the prepare step share ``shared`` (#3640)."""
+        if shared is None:
+            return await self._could_go_by_item(db, items)
+        if "could_go" not in shared:
+            shared["could_go"] = await self._could_go_by_item(db, items)
+        return shared["could_go"]
+
     async def _compute_slot_hints(
-        self, db: AsyncSession, items: list[PrintQueueItem], holds: Mapping[int, list[FilamentHold]]
+        self,
+        db: AsyncSession,
+        items: list[PrintQueueItem],
+        holds: Mapping[int, list[FilamentHold]],
+        shared: dict[str, Any] | None = None,
     ) -> tuple[dict[int, SlotHint], dict[int, tuple[tuple, SlotHint | None]]]:
         """For each printer a job waits on for filament, where that filament can go (#3634).
 
@@ -2027,7 +2078,7 @@ class PrintScheduler:
         prefer_lowest = await self._get_bool_setting(db, "prefer_lowest_filament")
 
         jobs_for: dict[int, list[PrintQueueItem]] = {printer_id: [] for printer_id in held_printers}
-        could_go = await self._could_go_by_item(db, items)
+        could_go = await self._pass_could_go(db, items, shared)
         for item in items:
             for printer_id in could_go.get(item.id, set()) & held_printers:
                 jobs_for[printer_id].append(item)
@@ -2313,6 +2364,17 @@ class PrintScheduler:
                 unknown_job_ids.append(item.id)
                 degraded = True
 
+        hint = self._hint_from_slots(printer_id, status, slots, needed, tuple(unknown_job_ids))
+        return hint, degraded
+
+    def _hint_from_slots(
+        self, printer_id: int, status, slots: list[dict], needed: set[int], unknown_job_ids: tuple[int, ...]
+    ) -> SlotHint | None:
+        """The hint over ``slots`` for the trays in ``needed`` (#3634): where a filament may go, per nozzle where it matters.
+
+        Sets ``nozzle`` on each slot. None when there is nothing loaded and
+        nothing empty to speak of.
+        """
         # The matcher takes a filament that names a nozzle only from the trays
         # on that nozzle, unless a Filament Track Switch routes any of them.
         fts_installed = bool(getattr(getattr(status, "fila_switch", None), "installed", False))
@@ -2322,28 +2384,14 @@ class PrintScheduler:
             slot["nozzle"] = ("right" if extruder == 0 else "left") if split_by_nozzle and extruder in (0, 1) else None
 
         def hint_slots(chosen: list[dict]) -> tuple[HintSlot, ...]:
-            return tuple(
-                HintSlot(
-                    ams_id=c["ams_id"],
-                    tray_id=c["tray_id"],
-                    is_ht=c["is_ht"],
-                    is_external=c["is_external"],
-                    ams_type=c["ams_type"],
-                    nozzle=c["nozzle"],
-                    type=str(c["type"] or ""),
-                    color=str(c["color"] or "") if c["type"] else "",
-                    tray_info_idx=str(c["tray_info_idx"] or ""),
-                    tray_sub_brands=str(c["tray_sub_brands"] or ""),
-                )
-                for c in chosen
-            )
+            return tuple(_hint_slot_of(c) for c in chosen)
 
         # Over every tray: what a filament that names no nozzle may take (the
         # matcher does not filter it either), and the answer of a printer with
         # one feed path.
         overall = self._classify_slots(slots, needed)
         if overall is None:
-            return None, degraded
+            return None
         by_nozzle: list[NozzleHint] = []
         if split_by_nozzle:
             # One part per nozzle that has a slot. A filament that names a
@@ -2352,15 +2400,401 @@ class PrintScheduler:
                 part = self._classify_slots([c for c in slots if c["extruder_id"] == nozzle], needed)
                 if part is not None:
                     by_nozzle.append(NozzleHint(label, part[0], hint_slots(part[1])))
-        hint = SlotHint(
+        return SlotHint(
             printer_id,
             overall[0],
             hint_slots(overall[1]),
-            tuple(unknown_job_ids),
+            unknown_job_ids,
             tuple(by_nozzle),
-            hint_slots([c for c in slots if not c["empty"]]),
+            loaded=hint_slots([c for c in slots if not c["empty"]]),
         )
-        return hint, degraded
+
+    @staticmethod
+    def _backup_peer_trays(status, slots: list[dict], used: set[int]) -> set[int]:
+        """The loaded AMS slots the printer would switch to when a tray in ``used`` runs out (#3640).
+
+        With AMS filament backup on, the firmware continues on another slot
+        that holds the same filament (the same ``tray_info_idx``, else the
+        same type) in the same colour, on the same nozzle. The setting reads
+        as on when the printer does not report it (None): replacing what
+        might be a backup is the worse mistake. Empty when it is off.
+        """
+        if status.ams_filament_backup is False:
+            return set()
+        any_nozzle = bool(getattr(getattr(status, "fila_switch", None), "installed", False))
+
+        def identity(slot: dict) -> tuple:
+            idx = str(slot.get("tray_info_idx") or "").strip()
+            kind = ("idx", idx) if idx else ("type", str(slot.get("type") or "").strip().upper())
+            return (*kind, str(slot.get("color") or "").strip().upper())
+
+        loaded = [slot for slot in slots if not slot["empty"] and not slot["is_external"]]
+        peers: set[int] = set()
+        for source in loaded:
+            if source["global_tray_id"] not in used:
+                continue
+            for other in loaded:
+                if (
+                    other["global_tray_id"] != source["global_tray_id"]
+                    and identity(other) == identity(source)
+                    and (any_nozzle or other["extruder_id"] == source["extruder_id"])
+                ):
+                    peers.add(other["global_tray_id"])
+        return peers
+
+    def _prepare_reserved(self, status, slots: list[dict], running: set[int]) -> set[int]:
+        """The trays a Prepare line must never offer for the running print (#3640).
+
+        What the print uses (``running``), the slots a paused print expects
+        or has just left (``tray_tar`` and ``tray_pre``), and the backup peers
+        of those. Both are raw: a rack printer (H3C) reports its slot 0-8,
+        which its layout resolves; otherwise, or when that does not resolve, a
+        slot 0-3 names that slot on every AMS (the conservative reading) and
+        anything else is a global tray.
+        """
+        reserved = set(running)
+        if status.state == "PAUSE":
+            layout = TrayLayout.from_state(status)
+            for raw in (status.tray_tar, status.tray_pre):
+                if not _is_tray_id(raw) or raw < 0 or raw == NO_TRAY:
+                    continue
+                resolved = layout.raw_slot_to_global(raw) if layout.rack_units else None
+                if resolved is not None:
+                    reserved.add(resolved)
+                    continue
+                for slot in slots:
+                    local = raw <= 3 and slot["tray_id"] == raw and not slot["is_ht"] and not slot["is_external"]
+                    if slot["global_tray_id"] == raw or local:
+                        reserved.add(slot["global_tray_id"])
+        return reserved | self._backup_peer_trays(status, slots, reserved)
+
+    def _claimed_trays(
+        self, hint: SlotHint | None, filaments: tuple[TodoFilament, ...], slots: list[dict], reserved: set[int]
+    ) -> set[int]:
+        """The trays a job's missing filaments would take of its hint, in the order shown (#3640).
+
+        The first n offered slots, n being the filaments it misses: on a
+        dual-nozzle printer without a Filament Track Switch the ones that name
+        a nozzle take from that nozzle's part, the others from the whole hint.
+        When the hint offers fewer free slots than there are filaments, the
+        rest would replace loaded slots: the first of those (``reserved`` and
+        what is taken left out) are claimed too. The job after it is offered
+        what remains.
+        """
+        # A short filament is fixed by replacing its own tray, which the job's
+        # mapping already reserves: it takes no other slot.
+        filaments = tuple(f for f in filaments if not f.short)
+        if hint is None or not filaments:
+            return set()
+        hint = settled_hint(hint, filaments)
+        if hint.state == HINT_ALL_NEEDED:
+            return set()
+        tray_of = {(s["ams_id"], s["tray_id"], s["is_external"]): s["global_tray_id"] for s in slots}
+
+        def first(chosen: tuple[HintSlot, ...], count: int) -> set[int]:
+            ids = [tray_of.get((c.ams_id, c.tray_id, c.is_external)) for c in chosen]
+            return set([tray for tray in ids if tray is not None][: max(count, 0)])
+
+        def overflow(scope: list[dict], state: str, count: int, got: int, taken: set[int]) -> set[int]:
+            if state != HINT_FREE or count <= got:
+                return set()
+            loaded = [
+                s
+                for s in scope
+                if not s["empty"]
+                and s["global_tray_id"] not in taken
+                and not any(tray_fits_filament(_hint_slot_of(s), f) for f in filaments)
+            ]
+            classified = self._classify_slots(loaded, reserved | taken)
+            if classified is None or classified[0] != HINT_REPLACEABLE:
+                return set()
+            return {c["global_tray_id"] for c in classified[1][: count - got]}
+
+        taken: set[int] = set()
+        unnamed = len(filaments)
+        if hint.by_nozzle:
+            for part in hint.by_nozzle:
+                extruder = 1 if part.nozzle == "left" else 0
+                count = sum(1 for f in filaments if f.nozzle == extruder)
+                got = first(part.slots, count)
+                taken |= got
+                unnamed -= count
+                scope = [s for s in slots if s["extruder_id"] == extruder]
+                taken |= overflow(scope, part.state, count, len(got), taken)
+        rest = tuple(c for c in hint.slots if tray_of.get((c.ams_id, c.tray_id, c.is_external)) not in taken)
+        unnamed = max(unnamed, 0)
+        got = first(rest, unnamed)
+        taken |= got
+        return taken | overflow(slots, hint.state, unnamed, len(got), taken)
+
+    def _prepare_hint(
+        self,
+        printer_id: int,
+        status,
+        slots: list[dict],
+        reserved: set[int],
+        unknown_job_ids: tuple[int, ...],
+    ) -> SlotHint:
+        """Where a Prepare line's filaments can go, with ``reserved`` trays kept out (#3640).
+
+        As for a held printer (#3634), but a reserved tray is never offered,
+        empty or not.
+        """
+        pool = [slot for slot in slots if not (slot["empty"] and slot["global_tray_id"] in reserved)]
+        hint = self._hint_from_slots(printer_id, status, pool, reserved, unknown_job_ids) if pool else None
+        return hint or SlotHint(printer_id, HINT_ALL_NEEDED, (), unknown_job_ids, ())
+
+    async def _running_mapping_trays(self, db: AsyncSession, printer_ids: set[int]) -> dict[int, set[int]]:
+        """The trays of the running print by printer, from its queue row (#3640).
+
+        Read for a printer that did not report the mapping of its print: a
+        print the queue started carries the mapping it was sent with.
+        """
+        if not printer_ids:
+            return {}
+        rows = await db.execute(
+            select(PrintQueueItem.printer_id, PrintQueueItem.ams_mapping).where(
+                PrintQueueItem.status == "printing", PrintQueueItem.printer_id.in_(printer_ids)
+            )
+        )
+        out: dict[int, set[int]] = {}
+        for printer_id, raw in rows:
+            if printer_id is None:
+                continue
+            try:
+                trays = _mapping_trays(json.loads(raw)) if raw else set()
+            except (json.JSONDecodeError, TypeError):
+                trays = set()
+            out.setdefault(printer_id, set()).update(trays)
+        return out
+
+    async def _compute_prepare(
+        self,
+        db: AsyncSession,
+        items: list[PrintQueueItem],
+        holds: Mapping[int, list[FilamentHold]],
+        shared: dict[str, Any] | None = None,
+        slot_hints: Mapping[int, SlotHint] | None = None,
+    ) -> tuple[dict[int, tuple[PrepareEntry, ...]], dict[tuple[int, str], tuple[tuple, Any]]]:
+        """For each printer, what its next jobs miss and where that can go without touching the running print (#3640).
+
+        Returns the entries by printer id and the memo to keep for the next
+        pass. A hint only: nothing is reserved and no decision of the pass
+        reads it.
+
+        Printers: those a job holds on this pass, and those that print, read
+        from the printers' state before anything is queried. A printer whose
+        running print's mapping is not known (print_ams_mapping empty, and no
+        queue row to read it from) gets nothing: the list never guesses what
+        the print uses. For each printer the next jobs come from
+        ``predict_next_jobs`` (the first ``_PREPARE_CANDIDATES`` of them are
+        looked at); the first two that miss a filament get an entry. The trays
+        the running print, its backup peers, the jobs that hold (and what
+        their Load entry offers) and every nearer job plan are never offered,
+        and job two is offered only what job one would not take.
+
+        ``shared`` and ``slot_hints`` come from the slot hint step: the
+        printers each job could go to are asked once per pass, and the hint of
+        a printer that holds is the one its Load entry shows.
+        """
+        slot_hints = slot_hints or {}
+        held_by_printer: dict[int, set[int]] = {}
+        held_filaments: dict[int, dict[int, tuple[TodoFilament, ...]]] = {}
+        for item_id, item_holds in holds.items():
+            for hold in item_holds:
+                if hold.printer_id is not None:
+                    held_by_printer.setdefault(hold.printer_id, set()).add(item_id)
+                    known_filaments = held_filaments.setdefault(hold.printer_id, {}).get(item_id, ())
+                    held_filaments[hold.printer_id][item_id] = tuple(unique_filaments(known_filaments, hold.filaments))
+        printing = {
+            pid for pid, status in printer_manager.get_all_statuses().items() if status.state in _ACTIVE_PRINT_STATES
+        }
+        printer_ids = set(held_by_printer) | printing
+        if not printer_ids:
+            # Nobody holds or prints: no query, and no printer is left warned about.
+            self._hint_warned = {key for key in self._hint_warned if not isinstance(key, tuple)}
+            return {}, {}
+
+        could_go = await self._pass_could_go(db, items, shared)
+        pending = [item for item in items if item.status == "pending"]
+        prefer_lowest = await self._get_bool_setting(db, "prefer_lowest_filament")
+        now = datetime.now(timezone.utc)
+        failed: set[tuple[int, str]] = set()
+
+        def failure(warn_key: tuple[int, str], printer_id: int, e: Exception) -> None:
+            failed.add(warn_key)
+            if warn_key in self._hint_warned:
+                logger.debug("Printer %s: no prepare lines: %s", printer_id, e)
+            else:
+                self._hint_warned.add(warn_key)
+                logger.warning("Printer %s: no prepare lines for the To do list: %s", printer_id, e, exc_info=True)
+
+        # Which printers have something to look at, from what is in memory.
+        stepped: list[tuple[int, Any, list[dict], set[int], NextJobs]] = []
+        for printer_id in sorted(printer_ids):
+            warn_key = (printer_id, "prepare")
+            try:
+                inputs = self._slot_hint_inputs(printer_id)
+                if inputs is None:
+                    continue
+                status, slots, running = inputs
+                remaining: float | None = 0
+                if printer_id in printing:
+                    minutes = status.remaining_time
+                    remaining = minutes * 60 if isinstance(minutes, (int, float)) and minutes > 0 else None
+                elif printer_id not in held_by_printer:
+                    continue
+                next_jobs = predict_next_jobs(
+                    printer_id, pending, could_go, held_by_printer.get(printer_id, set()), now, remaining
+                )
+                if not next_jobs.candidates:
+                    continue
+                # Jobs beyond the cap are ignored: a long queue is not mapped in full.
+                # Held jobs beyond the same bound are not considered for reservations.
+                next_jobs = NextJobs(next_jobs.held[:_PREPARE_CANDIDATES], next_jobs.candidates[:_PREPARE_CANDIDATES])
+                stepped.append((printer_id, status, slots, running, next_jobs))
+            except Exception as e:
+                failure(warn_key, printer_id, e)
+
+        from_queue = await self._running_mapping_trays(
+            db,
+            {pid for pid, status, *_ in stepped if pid in printing and not _mapping_trays(print_ams_mapping(status))},
+        )
+        files = await self._source_file_identities(
+            db, [job for *_, next_jobs in stepped for job in (*next_jobs.held, *next_jobs.candidates)]
+        )
+        entries_by_printer: dict[int, tuple[PrepareEntry, ...]] = {}
+        memo: dict[tuple[int, str], tuple[tuple, Any]] = {}
+        for printer_id, status, slots, running, next_jobs in stepped:
+            warn_key = (printer_id, "prepare")
+            try:
+                if printer_id in printing:
+                    known = _mapping_trays(print_ams_mapping(status)) or from_queue.get(printer_id, set())
+                    if not known:
+                        continue
+                    running = running | known
+                held_fils = held_filaments.get(printer_id, {})
+                held_hint = slot_hints.get(printer_id)
+                signature = (
+                    await self._slot_hint_signature(
+                        db,
+                        (status, slots, running),
+                        [*next_jobs.held, *next_jobs.candidates],
+                        prefer_lowest,
+                        files,
+                    ),
+                    tuple(job.id for job in next_jobs.held),
+                    tuple((job.id, bool(job.skip_filament_check)) for job in next_jobs.candidates),
+                    tuple(sorted(held_fils.items())),
+                    held_hint,
+                    status.state,
+                    status.tray_tar,
+                    status.tray_pre,
+                )
+                previous = self._hint_memo.get(warn_key)
+                degraded = False
+                if previous is not None and previous[0] == signature:
+                    entries = previous[1]
+                else:
+                    entries, degraded = await self._prepare_for_printer(
+                        db, printer_id, status, slots, running, next_jobs, prefer_lowest, held_fils, held_hint
+                    )
+            except Exception as e:
+                failure(warn_key, printer_id, e)
+                continue
+            if not degraded:
+                memo[warn_key] = (signature, entries)
+            if entries:
+                entries_by_printer[printer_id] = entries
+        # A printer that left the step is no longer warned about.
+        self._hint_warned = {key for key in self._hint_warned if not isinstance(key, tuple) or key in failed}
+        return entries_by_printer, memo
+
+    async def _prepare_for_printer(
+        self,
+        db: AsyncSession,
+        printer_id: int,
+        status,
+        slots: list[dict],
+        running: set[int],
+        next_jobs: NextJobs,
+        prefer_lowest: bool,
+        held_filaments: Mapping[int, tuple[TodoFilament, ...]] | None = None,
+        held_hint: SlotHint | None = None,
+    ) -> tuple[tuple[PrepareEntry, ...], bool]:
+        """The entries for one printer's next jobs, and whether they are degraded (#3640).
+
+        Degraded: a job failed to map or its filaments are unknown, so the
+        result may change without anything the signature sees.
+
+        A job that holds reserves what it plans and the slots its Load entry
+        offers for what it misses (``held_hint`` is the hint that entry shows,
+        else it is worked out here), so no line suggests them. A job that
+        skips the filament check gets no line; its trays still count. A
+        filament listed for a nearer job is not listed again.
+        """
+        held_filaments = held_filaments or {}
+        reserved = self._prepare_reserved(status, slots, running)
+        degraded = False
+        unknown_ids: list[int] = []
+        planned: dict[tuple, tuple[set[int], list[dict], bool]] = {}
+
+        async def plan(item: PrintQueueItem) -> tuple[set[int], list[dict], bool]:
+            nonlocal degraded
+            key = (
+                item.archive_id,
+                item.library_file_id,
+                item.plate_id,
+                item.filament_overrides,
+                item.ams_mapping,
+                item.created_by_id,
+            )
+            if key not in planned:
+                try:
+                    required = await self._get_filament_requirements(db, item) or _forced_override_requirements(item)
+                    mapping = await self._planned_mapping(db, item, printer_id, prefer_lowest=prefer_lowest, quiet=True)
+                    unmatched = await self._unmatched_requirements(db, item, printer_id, mapping)
+                    planned[key] = (_mapping_trays(mapping), unmatched, not required)
+                except Exception as e:
+                    logger.debug("Queue item %s: prepare mapping for printer %s not read: %s", item.id, printer_id, e)
+                    planned[key] = (set(), [], True)
+                    degraded = True
+            return planned[key]
+
+        for item in next_jobs.held:
+            trays, _unmatched, unknown = await plan(item)
+            reserved |= trays
+            if unknown:
+                unknown_ids.append(item.id)
+                degraded = True
+            if missing := held_filaments.get(item.id, ()):
+                hint = held_hint or self._prepare_hint(printer_id, status, slots, reserved, ())
+                reserved |= self._claimed_trays(hint, missing, slots, reserved)
+        entries: list[PrepareEntry] = []
+        listed: set[tuple] = set()
+        for item in next_jobs.candidates:
+            trays, unmatched, unknown = await plan(item)
+            if unknown:
+                unknown_ids.append(item.id)
+                degraded = True
+            # What this job uses is never offered to it or to a later job.
+            reserved |= trays
+            if item.skip_filament_check or not unmatched:
+                continue
+            filaments = tuple(
+                f
+                for f in (todo_filament_from_requirement(r) for r in unmatched)
+                if (f.type, f.color, f.nozzle) not in listed
+            )
+            if not filaments:
+                continue
+            listed |= {(f.type, f.color, f.nozzle) for f in filaments}
+            hint = self._prepare_hint(printer_id, status, slots, reserved, tuple(unknown_ids))
+            entries.append(PrepareEntry(printer_id, item.id, len(entries) + 1, filaments, hint))
+            if len(entries) == 2:
+                break
+            reserved |= self._claimed_trays(hint, filaments, slots, reserved)
+        return tuple(entries), degraded
 
     def _record_hold(
         self, item_id: int, printer_id: int | None, target_model: str | None, filaments: list[TodoFilament]
@@ -2450,9 +2884,11 @@ class PrintScheduler:
         """Run one queue pass and keep the "To do" records of it (#3615)."""
         holds: dict[int, list[FilamentHold]] = {}
         slot_hints: dict[int, SlotHint] = {}
+        prepare: dict[int, tuple[PrepareEntry, ...]] = {}
         power_failed: set[int] = set()
         self._pass_holds = holds
         self._pass_slot_hints = slot_hints
+        self._pass_prepare = prepare
         self._pass_power_failed = power_failed
         self._rebuild_seen = set()
         failed = False
@@ -2464,15 +2900,18 @@ class PrintScheduler:
         finally:
             self._pass_holds = None
             self._pass_slot_hints = None
+            self._pass_prepare = None
             self._pass_power_failed = None
             if failed:
                 # A pass that stopped early did not look at every job: keep what
                 # was known about the rest.
                 holds = {**self._filament_holds, **holds}
                 slot_hints = {**self._slot_hints, **slot_hints}
+                prepare = {**self._prepare, **prepare}
                 power_failed |= self._power_failed_pinned
             self._filament_holds = holds
             self._slot_hints = slot_hints
+            self._prepare = prepare
             self._power_failed_pinned = power_failed
             if not failed:
                 self._rebuild_tried &= self._rebuild_seen
@@ -3643,25 +4082,41 @@ class PrintScheduler:
                 item_printers = {it.id: it.printer_id for it in items}
                 self._launch_uploads(dispatch_ids, item_printers, upload_limit)
 
-            # Where a printer's missing filament can go (#3634). Read-only and
-            # after every decision above: it can only fail by being left out.
-            if self._pass_slot_hints is not None and not self._pass_holds:
-                # Nobody is held: forget what the hints were computed from.
-                self._hint_memo.clear()
-                self._hint_warned.clear()
-            if self._pass_slot_hints is not None and self._pass_holds:
+            # Where a printer's missing filament can go (#3634), and what its
+            # next jobs need (#3640). Read-only and after every decision
+            # above: it can only fail by being left out. Two steps, each in a
+            # savepoint of its own (a failed query makes PostgreSQL refuse every
+            # later statement of the transaction, and the loaded rows the steps
+            # below read stay as they are): one failing leaves the other's
+            # result alone.
+            if self._pass_slot_hints is not None and self._pass_prepare is not None:
+                shared: dict[str, Any] = {}
+                hint_memo: dict[Any, tuple[tuple, Any]] = {}
+                prepare_memo: dict[Any, tuple[tuple, Any]] = {}
+                if self._pass_holds:
+                    try:
+                        async with db.begin_nested():
+                            hints, hint_memo = await self._compute_slot_hints(db, items, self._pass_holds, shared)
+                        # Only after the savepoint went through: a step that was
+                        # rolled back must not leave a memo behind.
+                        self._pass_slot_hints.update(hints)
+                    except Exception as e:
+                        hint_memo = {}
+                        logger.warning("Slot hints for the To do list failed, continuing: %s", e, exc_info=True)
+                else:
+                    # Nobody is held: forget the printers whose hint failed.
+                    self._hint_warned = {key for key in self._hint_warned if isinstance(key, tuple)}
                 try:
-                    # A savepoint: a failed query (PostgreSQL then refuses every
-                    # later statement of the transaction) is rolled back alone,
-                    # and the loaded rows the steps below read stay as they are.
                     async with db.begin_nested():
-                        hints, memo = await self._compute_slot_hints(db, items, self._pass_holds)
-                    # Only after the savepoint went through: a hint step that was
-                    # rolled back must not leave a memo behind.
-                    self._pass_slot_hints.update(hints)
-                    self._hint_memo = memo
+                        prepare, prepare_memo = await self._compute_prepare(
+                            db, items, self._pass_holds or {}, shared, self._pass_slot_hints
+                        )
+                    self._pass_prepare.update(prepare)
                 except Exception as e:
-                    logger.warning("Slot hints for the To do list failed, continuing: %s", e, exc_info=True)
+                    prepare_memo = {}
+                    logger.warning("Prepare lines for the To do list failed, continuing: %s", e, exc_info=True)
+                # What this pass did not look at is forgotten.
+                self._hint_memo = {**hint_memo, **prepare_memo}
 
             # Auto-drying: start drying on idle printers that have no pending queue items
             await self._check_auto_drying(db, items, dispatching_printers)
