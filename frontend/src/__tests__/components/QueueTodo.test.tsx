@@ -12,7 +12,7 @@ import { render } from '../utils';
 import { server } from '../mocks/server';
 import i18n from '../../i18n';
 import { setColorCatalog, __resetColorCatalogForTests } from '../../utils/colors';
-import type { QueueTodo, QueueTodoEntry, QueueTodoHintSlot, QueueTodoSlotHint } from '../../api/client';
+import type { QueueTodo, QueueTodoEntry, QueueTodoHintSlot, QueueTodoPrepare, QueueTodoSlotHint } from '../../api/client';
 
 const perms = { granted: new Set<string>() };
 
@@ -586,6 +586,205 @@ describe('QueueTodoList slot hints (#3634)', () => {
     t2.groups[0].entries[0].kind = 'start_staged';
     render(<QueueTodoList todo={t2} />);
     expect(screen.queryByTestId('todo-slot-hint')).toBeNull();
+  });
+});
+
+describe('QueueTodoList prepare lines (#3640)', () => {
+  const slot = (tray_id: number, type = '', color = '', extra: Partial<QueueTodoHintSlot> = {}): QueueTodoHintSlot => ({
+    ams_id: 0, tray_id, is_ht: false, is_external: false, ams_type: 1, nozzle: null, type, color, tray_info_idx: '', tray_sub_brands: '', ...extra,
+  });
+  const hint = (state: QueueTodoSlotHint['state'], slots: QueueTodoHintSlot[] = [], extra: Partial<QueueTodoSlotHint> = {}): QueueTodoSlotHint => ({
+    state, slots, unknown_jobs: 0, by_nozzle: [], ...extra,
+  });
+  const petg = { type: 'PETG', color: '#000000', color_name: 'Black', no_stock: false };
+  const plaBlue = { type: 'PLA', color: '#0000FF', color_name: 'Blue', no_stock: false };
+  const line = (position: 1 | 2, name: string, extra: Partial<QueueTodoPrepare> = {}): QueueTodoPrepare => ({
+    job: { id: position, name }, position, filaments: [petg, plaBlue], slot_hint: hint('free', [slot(2)]), ...extra,
+  });
+  const only = (prepare: QueueTodoPrepare[], entries: QueueTodoEntry[] = []): QueueTodo => ({
+    count: entries.length,
+    groups: [{ printer_id: 1, printer_name: 'Farm-X1C', target_model: null, entries, prepare }],
+  });
+
+  it('shows the next job, what it needs and where it can go', () => {
+    render(<QueueTodoList todo={only([line(1, 'Bracket')])} />);
+    const row = screen.getByTestId('todo-prepare-row');
+    expect(screen.getByTestId('todo-prepare')).toHaveTextContent('Prepare');
+    expect(row).toHaveTextContent('Next: Bracket needs PETG Black, PLA Blue');
+    expect(screen.getByTestId('todo-prepare-hint')).toHaveTextContent('Free: A3');
+  });
+
+  it('labels by place in the list: a dropped first line leaves no lone "Then"', () => {
+    const blank = { type: '', color: '', color_name: '', no_stock: false };
+    render(<QueueTodoList todo={only([line(1, 'Bracket', { filaments: [blank] }), line(2, 'Lid')])} />);
+    const rows = screen.getAllByTestId('todo-prepare-row');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveTextContent('Next: Lid needs');
+  });
+
+  it('says "Then" for the second job, in order', () => {
+    render(<QueueTodoList todo={only([line(1, 'Bracket'), line(2, 'Lid', { slot_hint: hint('all_needed') })])} />);
+    const rows = screen.getAllByTestId('todo-prepare-row');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent('Next: Bracket');
+    expect(rows[1]).toHaveTextContent('Then: Lid needs PETG Black, PLA Blue');
+    expect(rows[1]).toHaveTextContent('Every loaded filament is needed by a waiting job');
+  });
+
+  it('shows the list for a printer that has prepare lines and nothing else to do', () => {
+    render(<QueueTodoList todo={only([line(1, 'Bracket')])} />);
+    expect(screen.getByTestId('queue-todo-list')).toBeInTheDocument();
+    expect(screen.getByText('Farm-X1C')).toBeInTheDocument();
+  });
+
+  it('shows the lines under the entries of the same printer', () => {
+    const entry: QueueTodoEntry = { kind: 'plate_clear', jobs: [{ id: 9, name: 'Now', can_start: false }], filaments: [], printers: [], detail: null };
+    render(<QueueTodoList todo={only([line(1, 'Bracket')], [entry])} />);
+    const entryEl = screen.getByTestId('todo-entry-plate_clear');
+    const prepare = screen.getByTestId('todo-prepare');
+    expect(entryEl.compareDocumentPosition(prepare) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('leaves out a group with neither entries nor prepare lines', () => {
+    const entry: QueueTodoEntry = { kind: 'plate_clear', jobs: [{ id: 9, name: 'Now', can_start: false }], filaments: [], printers: [], detail: null };
+    const mixed: QueueTodo = {
+      count: 1,
+      groups: [
+        { printer_id: 1, printer_name: 'Farm-X1C', target_model: null, entries: [entry], prepare: [] },
+        { printer_id: 2, printer_name: 'Farm-P1S', target_model: null, entries: [], prepare: [] },
+      ],
+    };
+    const { container } = render(<QueueTodoList todo={mixed} />);
+    expect(container.querySelectorAll('section')).toHaveLength(1);
+    expect(screen.queryByText('Farm-P1S')).toBeNull();
+  });
+
+  it('is hidden when no group has anything to show', () => {
+    const empty: QueueTodo = { count: 0, groups: [{ printer_id: 1, printer_name: 'Farm-X1C', target_model: null, entries: [], prepare: [] }] };
+    const { container } = render(<QueueTodoList todo={empty} />);
+    expect(container.querySelector('[data-testid="queue-todo-list"]')).toBeNull();
+  });
+
+  it('renders a group of prepare rows only without an empty entries list or a second rule', () => {
+    const { container } = render(<QueueTodoList todo={only([line(1, 'Bracket')])} />);
+    // The one list is the prepare list.
+    expect(container.querySelectorAll('section ul')).toHaveLength(1);
+    expect(screen.getByTestId('todo-prepare').className).not.toMatch(/border-t|mt-1/);
+  });
+
+  it('keeps the rule between entries and prepare rows', () => {
+    const entry: QueueTodoEntry = { kind: 'plate_clear', jobs: [{ id: 9, name: 'Now', can_start: false }], filaments: [], printers: [], detail: null };
+    render(<QueueTodoList todo={only([line(1, 'Bracket')], [entry])} />);
+    expect(screen.getByTestId('todo-prepare').className).toMatch(/border-t/);
+  });
+
+  it('labels the prepare list with its heading', () => {
+    render(<QueueTodoList todo={only([line(1, 'Bracket')])} />);
+    const heading = screen.getByRole('heading', { level: 4, name: 'Prepare' });
+    expect(screen.getByRole('list', { name: 'Prepare' })).toHaveAttribute('aria-labelledby', heading.id);
+  });
+
+  it('shows the hint in the plain gray of the other rows', () => {
+    render(<QueueTodoList todo={only([line(1, 'Bracket')])} />);
+    const hintEl = screen.getByTestId('todo-prepare-hint');
+    expect(hintEl).toHaveClass('text-bambu-gray');
+    expect(hintEl.className).not.toMatch(/gray-light/);
+  });
+
+  it('marks a filament that is out of stock, as a load entry does', () => {
+    render(<QueueTodoList todo={only([line(1, 'Bracket', { filaments: [{ ...petg, no_stock: true }, plaBlue] })])} />);
+    expect(screen.getByTestId('todo-prepare-row')).toHaveTextContent('Next: Bracket needs PETG Black (none left in inventory), PLA Blue');
+  });
+
+  it('names a filament without a colour name by its colour code, and never says "needs" alone', () => {
+    const unnamed = { type: 'PETG', color: '#123456', color_name: '', no_stock: false };
+    const blank = { type: '', color: '', color_name: '', no_stock: false };
+    render(<QueueTodoList todo={only([line(1, 'Bracket', { filaments: [unnamed, blank] }), line(2, 'Lid', { filaments: [blank] })])} />);
+    const rows = screen.getAllByTestId('todo-prepare-row');
+    // The line that lists nothing is left out.
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveTextContent('Next: Bracket needs PETG #123456');
+    expect(rows[0].textContent).not.toMatch(/needs\s*$/);
+  });
+
+  it('works against a server that sends no prepare list', () => {
+    const entry: QueueTodoEntry = { kind: 'plate_clear', jobs: [{ id: 9, name: 'Now', can_start: false }], filaments: [], printers: [], detail: null };
+    render(<QueueTodoList todo={{ count: 1, groups: [{ printer_id: 1, printer_name: 'Farm-X1C', target_model: null, entries: [entry] }] }} />);
+    expect(screen.queryByTestId('todo-prepare')).toBeNull();
+  });
+
+  it('shows no hint line without a hint', () => {
+    render(<QueueTodoList todo={only([line(1, 'Bracket', { slot_hint: null })])} />);
+    expect(screen.queryByTestId('todo-prepare-hint')).toBeNull();
+  });
+
+  it('prefixes the nozzle on a dual-nozzle printer and names the nozzle a filament wants', () => {
+    const left = { ...petg, nozzle: 1 };
+    const parts = [
+      { nozzle: 'right' as const, state: 'all_needed' as const, slots: [] },
+      { nozzle: 'left' as const, state: 'free' as const, slots: [slot(1, '', '', { nozzle: 'left' })] },
+    ];
+    render(<QueueTodoList todo={only([line(1, 'Bracket', { filaments: [left], slot_hint: hint('free', parts[1].slots, { by_nozzle: parts }) })])} />);
+    expect(screen.getByTestId('todo-prepare-row')).toHaveTextContent('Next: Bracket needs PETG Black (Left nozzle)');
+    expect(screen.getByTestId('todo-prepare-hint')).toHaveTextContent('Left nozzle: Free: A2');
+  });
+
+  it('counts the jobs with unknown filaments', () => {
+    render(<QueueTodoList todo={only([line(1, 'Bracket', { slot_hint: hint('free', [slot(1)], { unknown_jobs: 2 }) })])} />);
+    expect(screen.getByTestId('todo-prepare-hint')).toHaveTextContent('2 waiting jobs have unknown filaments');
+  });
+
+  it('keeps a job name with markup as text', () => {
+    render(<QueueTodoList todo={only([line(1, '<b>Bold</b> & co')])} />);
+    expect(screen.getByTestId('todo-prepare-row')).toHaveTextContent('Next: <b>Bold</b> & co needs');
+    expect(screen.getByTestId('todo-prepare-row').querySelector('b')).toBeNull();
+  });
+
+  it('is translated', async () => {
+    await i18n.loadLanguages('de');
+    await i18n.changeLanguage('de');
+    try {
+      render(<QueueTodoList todo={only([line(1, 'Bracket'), line(2, 'Lid')])} />);
+      const rows = screen.getAllByTestId('todo-prepare-row');
+      expect(rows[0]).toHaveTextContent('Als Nächstes: Bracket braucht PETG Black, PLA Blue');
+      expect(rows[1]).toHaveTextContent('Danach: Lid braucht');
+    } finally {
+      await i18n.changeLanguage('en');
+    }
+  });
+
+  it('is not counted: the badge shows what the queue waits on, not the prepare lines', async () => {
+    const entry: QueueTodoEntry = { kind: 'plate_clear', jobs: [{ id: 9, name: 'Now', can_start: false }], filaments: [], printers: [], detail: null };
+    const served: QueueTodo = {
+      count: 1,
+      groups: [
+        { printer_id: 1, printer_name: 'Farm-X1C', target_model: null, entries: [entry], prepare: [line(1, 'Bracket'), line(2, 'Lid')] },
+        { printer_id: 2, printer_name: 'Farm-P1S', target_model: null, entries: [], prepare: [line(1, 'Cover')] },
+      ],
+    };
+    const hit = vi.fn();
+    server.use(
+      http.get('/api/v1/queue/todo', () => {
+        hit();
+        return HttpResponse.json(served);
+      }),
+    );
+    render(<QueueTodoLauncher />);
+    await waitFor(() => expect(hit).toHaveBeenCalled());
+    expect(await screen.findByTestId('queue-todo-badge')).toHaveTextContent(/^1$/);
+  });
+
+  it('shows no badge when only prepare lines are served', async () => {
+    const hit = vi.fn();
+    server.use(
+      http.get('/api/v1/queue/todo', () => {
+        hit();
+        return HttpResponse.json(only([line(1, 'Bracket')]));
+      }),
+    );
+    render(<QueueTodoLauncher />);
+    await waitFor(() => expect(hit).toHaveBeenCalled());
+    expect(screen.queryByTestId('queue-todo-badge')).toBeNull();
   });
 });
 

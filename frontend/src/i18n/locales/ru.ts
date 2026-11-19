@@ -8513,5 +8513,10 @@ export default {
       hasGramsNeeds: "Недостаточно филамента {{filament}}: в {{slots}} осталось {{remaining}} г, заданию нужно {{required}} г",
       haveGramsNeeds: "Недостаточно филамента {{filament}}: в {{slots}} вместе осталось {{remaining}} г, заданию нужно {{required}} г",
     },
+    prepare: {
+      title: "Подготовить",
+      next: "Далее: для {{job}} нужно {{filaments}}",
+      then: "Затем: для {{job}} нужно {{filaments}}",
+    },
   },
 };

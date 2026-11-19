@@ -8961,5 +8961,10 @@ export default {
       hasGramsNeeds: "Not enough {{filament}}: {{slots}} has {{remaining}} g, the job needs {{required}} g",
       haveGramsNeeds: "Not enough {{filament}}: {{slots}} have {{remaining}} g, the job needs {{required}} g",
     },
+    prepare: {
+      title: "Prepare",
+      next: "Next: {{job}} needs {{filaments}}",
+      then: "Then: {{job}} needs {{filaments}}",
+    },
   },
 };

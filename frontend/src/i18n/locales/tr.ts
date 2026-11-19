@@ -8835,5 +8835,10 @@ export default {
       hasGramsNeeds: "Yeterli {{filament}} yok: {{slots}} içinde {{remaining}} g var, iş {{required}} g gerektiriyor",
       haveGramsNeeds: "Yeterli {{filament}} yok: {{slots}} içinde toplam {{remaining}} g var, iş {{required}} g gerektiriyor",
     },
+    prepare: {
+      title: "Hazırla",
+      next: "Sıradaki: {{job}} için {{filaments}} gerekli",
+      then: "Ardından: {{job}} için {{filaments}} gerekli",
+    },
   },
 };

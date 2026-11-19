@@ -8959,5 +8959,10 @@ export default {
       hasGramsNeeds: "Te weinig {{filament}}: {{slots}} heeft {{remaining}} g, de opdracht heeft {{required}} g nodig",
       haveGramsNeeds: "Te weinig {{filament}}: {{slots}} hebben samen {{remaining}} g, de opdracht heeft {{required}} g nodig",
     },
+    prepare: {
+      title: "Voorbereiden",
+      next: "Volgende: {{job}} heeft {{filaments}} nodig",
+      then: "Daarna: {{job}} heeft {{filaments}} nodig",
+    },
   },
 };

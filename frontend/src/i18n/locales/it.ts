@@ -8893,5 +8893,10 @@ export default {
       hasGramsNeeds: "{{filament}} insufficiente: {{slots}} ha {{remaining}} g, il lavoro ne richiede {{required}} g",
       haveGramsNeeds: "{{filament}} insufficiente: {{slots}} hanno {{remaining}} g in totale, il lavoro ne richiede {{required}} g",
     },
+    prepare: {
+      title: "Prepara",
+      next: "Prossimo: {{job}} richiede {{filaments}}",
+      then: "Poi: {{job}} richiede {{filaments}}",
+    },
   },
 };
