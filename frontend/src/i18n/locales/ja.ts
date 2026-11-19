@@ -8886,5 +8886,16 @@ export default {
     openPrinter: "プリンターを開く",
     openQueue: "キューを開く",
     actionFailed: "操作に失敗しました",
+    slotHint: {
+      free: "空き: {{slots}}",
+      replaceable: "交換可能: {{slots}}",
+      allNeeded: "装填済みのフィラメントはすべて待機中のジョブで必要です",
+      unknownJobs: "フィラメントが不明な待機中のジョブ: {{count}} 件",
+      labelled: "{{label}}: {{text}}",
+      unknownJobs_one: "フィラメントが不明な待機中のジョブ: {{count}} 件",
+      unknownJobs_other: "フィラメントが不明な待機中のジョブ: {{count}} 件",
+      more: "他 {{count}} 件",
+      less: "表示を減らす",
+    },
   },
 };

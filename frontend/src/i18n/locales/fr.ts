@@ -8873,5 +8873,16 @@ export default {
     openPrinter: "Ouvrir l'imprimante",
     openQueue: "Ouvrir la file",
     actionFailed: "Échec de l'action",
+    slotHint: {
+      free: "Libres : {{slots}}",
+      replaceable: "Peuvent être remplacés : {{slots}}",
+      allNeeded: "Chaque filament chargé est nécessaire à une tâche en attente",
+      unknownJobs: "Tâches en attente avec des filaments inconnus : {{count}}",
+      labelled: "{{label}} : {{text}}",
+      unknownJobs_one: "{{count}} tâche en attente a des filaments inconnus",
+      unknownJobs_other: "{{count}} tâches en attente ont des filaments inconnus",
+      more: "+{{count}} de plus",
+      less: "Afficher moins",
+    },
   },
 };

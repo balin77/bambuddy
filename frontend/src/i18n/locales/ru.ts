@@ -8492,5 +8492,16 @@ export default {
     openPrinter: "Открыть принтер",
     openQueue: "Открыть очередь",
     actionFailed: "Не удалось выполнить действие",
+    slotHint: {
+      free: "Свободно: {{slots}}",
+      replaceable: "Можно заменить: {{slots}}",
+      allNeeded: "Каждый загруженный филамент нужен ожидающему заданию",
+      unknownJobs: "Ожидающие задания с неизвестным филаментом: {{count}}",
+      labelled: "{{label}}: {{text}}",
+      unknownJobs_one: "Ожидающие задания с неизвестным филаментом: {{count}}",
+      unknownJobs_other: "Ожидающие задания с неизвестным филаментом: {{count}}",
+      more: "Ещё {{count}}",
+      less: "Показать меньше",
+    },
   },
 };

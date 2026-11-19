@@ -1,14 +1,24 @@
+import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Palette, Play, ShieldAlert, PowerOff, Loader2 } from 'lucide-react';
 import { api, ApiError } from '../api/client';
-import type { QueueTodo, QueueTodoEntry, QueueTodoGroup, QueueTodoKind } from '../api/client';
+import type {
+  QueueTodo,
+  QueueTodoEntry,
+  QueueTodoGroup,
+  QueueTodoHintSlot,
+  QueueTodoKind,
+  QueueTodoSlotHint,
+} from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { PlateClearedIcon } from './icons/PlateClearedIcon';
 import { QUEUE_TODO_KEY } from '../hooks/useQueueTodo';
 import { useStartQueueItem } from '../hooks/useStartQueueItem';
+import { formatSlotLabel } from '../utils/amsHelpers';
+import { getColorName } from '../utils/colors';
 
 const KIND_ICON: Record<QueueTodoKind, React.ComponentType<{ className?: string }>> = {
   plate_clear: PlateClearedIcon,
@@ -25,6 +35,91 @@ const KIND_TEXT_KEY: Record<QueueTodoKind, string> = {
   sensor_interlock: 'queueTodo.kind.sensorInterlock',
   power_on_failed: 'queueTodo.kind.powerOnFailed',
 };
+
+// How many printers of an "Any <model>" entry show their hint before "+N more".
+const HINT_PRINTERS_SHOWN = 3;
+
+type TFn = (key: string, options?: Record<string, unknown>) => string;
+
+// A slot as the Printers page names it: its label, and for a loaded one the
+// filament, with the colour named the way the printer card names it.
+function slotText(slot: QueueTodoHintSlot): string {
+  const label = formatSlotLabel(slot.ams_id, slot.tray_id, slot.is_ht, slot.is_external, slot.ams_type);
+  if (!slot.type) return label;
+  const color = slot.color ? getColorName(slot.color, slot.tray_sub_brands || null, slot.tray_info_idx) : '';
+  return `${label} (${[slot.type, color].filter(Boolean).join(' ')})`;
+}
+
+function stateText(t: TFn, state: QueueTodoSlotHint['state'], slots: QueueTodoHintSlot[]): string {
+  if (state === 'all_needed') return t('queueTodo.slotHint.allNeeded');
+  return t(state === 'free' ? 'queueTodo.slotHint.free' : 'queueTodo.slotHint.replaceable', {
+    slots: slots.map(slotText).join(', '),
+  });
+}
+
+interface HintText {
+  // Set when the printer's filaments go on nozzles: the printer name then
+  // stands on a line of its own and the parts hang under it.
+  nozzles: boolean;
+  lines: string[];
+}
+
+// The lines one printer's hint is shown as: one per nozzle on a dual-nozzle
+// printer (even when only one of its nozzles is meant), else one; then the
+// jobs whose filaments are unknown.
+function hintText(t: TFn, hint: QueueTodoSlotHint): HintText {
+  const nozzleName = (n: 'left' | 'right') => t(n === 'left' ? 'printModal.leftNozzleTooltip' : 'printModal.rightNozzleTooltip');
+  const nozzles = hint.by_nozzle.length > 0;
+  const lines = nozzles
+    ? hint.by_nozzle.map((part) => t('queueTodo.slotHint.labelled', { label: nozzleName(part.nozzle), text: stateText(t, part.state, part.slots) }))
+    : [stateText(t, hint.state, hint.slots)];
+  if (hint.unknown_jobs > 0) lines.push(t('queueTodo.slotHint.unknownJobs', { count: hint.unknown_jobs }));
+  return { nozzles, lines };
+}
+
+function SlotHints({ entry }: { entry: QueueTodoEntry }) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  if (entry.slot_hint) {
+    return (
+      <div data-testid="todo-slot-hint" className="space-y-0.5 text-xs text-bambu-gray-light">
+        {hintText(t, entry.slot_hint).lines.map((line, i) => <div key={i} className="break-words">{line}</div>)}
+      </div>
+    );
+  }
+  const hints = entry.slot_hints ?? [];
+  if (hints.length === 0) return null;
+  const shown = expanded ? hints : hints.slice(0, HINT_PRINTERS_SHOWN);
+  const hidden = hints.length - shown.length;
+  const nameOf = (id: number) => entry.printers.find((p) => p.id === id)?.name ?? '';
+  return (
+    <div data-testid="todo-slot-hints" className="space-y-0.5 text-xs text-bambu-gray-light">
+      {shown.map((hint) => {
+        const { nozzles, lines } = hintText(t, hint);
+        // One line: "X1C-2: Free: A2". With nozzles: the name alone, then the
+        // lines. Whatever follows the name's line is indented under it.
+        const head = nozzles ? nameOf(hint.printer_id) : t('queueTodo.slotHint.labelled', { label: nameOf(hint.printer_id), text: lines[0] });
+        const rest = nozzles ? lines : lines.slice(1);
+        return (
+          <div key={hint.printer_id} className="break-words" data-testid="todo-slot-hint-printer">
+            <div>{head}</div>
+            {rest.map((line, i) => <div key={i} className="pl-3">{line}</div>)}
+          </div>
+        );
+      })}
+      {hints.length > HINT_PRINTERS_SHOWN && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
+          className="text-bambu-green hover:underline"
+        >
+          {expanded ? t('queueTodo.slotHint.less') : t('queueTodo.slotHint.more', { count: hidden })}
+        </button>
+      )}
+    </div>
+  );
+}
 
 function EntryRow({ group, entry, onNavigate, onStart, startPending }: {
   group: QueueTodoGroup;
@@ -180,6 +275,7 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending }: {
             ))}
           </ul>
         )}
+        {entry.kind === 'load_filament' && <SlotHints entry={entry} />}
         <div className="text-xs text-bambu-gray truncate max-w-full" title={jobs.map((j) => j.name).join(', ')}>
           {jobLabel}
         </div>

@@ -8814,5 +8814,16 @@ export default {
     openPrinter: "Yazıcıyı aç",
     openQueue: "Kuyruğu aç",
     actionFailed: "İşlem başarısız oldu",
+    slotHint: {
+      free: "Boş: {{slots}}",
+      replaceable: "Değiştirilebilir: {{slots}}",
+      allNeeded: "Yüklü her filament bekleyen bir iş için gerekli",
+      unknownJobs: "Filamentleri bilinmeyen bekleyen işler: {{count}}",
+      labelled: "{{label}}: {{text}}",
+      unknownJobs_one: "{{count}} bekleyen işin filamentleri bilinmiyor",
+      unknownJobs_other: "{{count}} bekleyen işin filamentleri bilinmiyor",
+      more: "+{{count}} tane daha",
+      less: "Daha az göster",
+    },
   },
 };

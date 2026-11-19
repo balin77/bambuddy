@@ -8870,5 +8870,16 @@ export default {
     openPrinter: "開啟印表機",
     openQueue: "開啟佇列",
     actionFailed: "操作失敗",
+    slotHint: {
+      free: "空閒：{{slots}}",
+      replaceable: "可更換：{{slots}}",
+      allNeeded: "每個已裝入的耗材都被等待中的工作需要",
+      unknownJobs: "耗材未知的等待中工作：{{count}} 個",
+      labelled: "{{label}}：{{text}}",
+      unknownJobs_one: "{{count}} 個等待中的工作耗材未知",
+      unknownJobs_other: "{{count}} 個等待中的工作耗材未知",
+      more: "另外 {{count}} 個",
+      less: "收合",
+    },
   },
 };

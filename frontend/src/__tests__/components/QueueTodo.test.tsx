@@ -2,7 +2,7 @@
  * "To do" list of what the queue waits on (#3615): list rendering per kind,
  * merged entries, empty state, nav badge, actions and their permissions.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor, fireEvent, render as rtlRender, renderHook } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
@@ -10,7 +10,9 @@ import { ToastProvider } from '../../contexts/ToastContext';
 import { http, HttpResponse } from 'msw';
 import { render } from '../utils';
 import { server } from '../mocks/server';
-import type { QueueTodo } from '../../api/client';
+import i18n from '../../i18n';
+import { setColorCatalog, __resetColorCatalogForTests } from '../../utils/colors';
+import type { QueueTodo, QueueTodoEntry, QueueTodoHintSlot, QueueTodoSlotHint } from '../../api/client';
 
 const perms = { granted: new Set<string>() };
 
@@ -266,6 +268,238 @@ describe('QueueTodoList', () => {
     );
     expect(screen.getByRole('heading', { name: 'To do', level: 2 })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Open queue' })).toBeNull();
+  });
+});
+
+describe('QueueTodoList slot hints (#3634)', () => {
+  const slot = (tray_id: number, type = '', color = '', extra: Partial<QueueTodoHintSlot> = {}): QueueTodoHintSlot => ({
+    ams_id: 0, tray_id, is_ht: false, is_external: false, ams_type: 1, nozzle: null, type, color, tray_info_idx: '', tray_sub_brands: '', ...extra,
+  });
+  const hint = (state: QueueTodoSlotHint['state'], slots: QueueTodoHintSlot[] = [], extra: Partial<QueueTodoSlotHint> = {}): QueueTodoSlotHint => ({
+    state, slots, unknown_jobs: 0, by_nozzle: [], ...extra,
+  });
+  const pink = { type: 'PLA', color: '#FF69B4', color_name: 'Pink', no_stock: false };
+  const pinned = (slot_hint: QueueTodoSlotHint | null): QueueTodo => ({
+    count: 1,
+    groups: [{
+      printer_id: 1, printer_name: 'Farm-A1', target_model: null,
+      entries: [{ kind: 'load_filament', jobs: [{ id: 1, name: 'Job', can_start: false }], filaments: [pink], printers: [], detail: null, slot_hint }],
+    }],
+  });
+
+  it('names a free slot', () => {
+    render(<QueueTodoList todo={pinned(hint('free', [slot(1), slot(3)]))} />);
+    expect(screen.getByTestId('todo-slot-hint')).toHaveTextContent('Free: A2, A4');
+  });
+
+  it('names the replaceable slots with their filament', () => {
+    render(<QueueTodoList todo={pinned(hint('replaceable', [slot(3, 'PLA', '#00FF00'), slot(0, 'PETG', '#000000', { ams_id: 1 })]))} />);
+    const text = screen.getByTestId('todo-slot-hint').textContent ?? '';
+    expect(text).toMatch(/^Can be replaced: A4 \(PLA \w+/);
+    expect(text).toContain('B1 (PETG ');
+  });
+
+  it('labels AMS-HT, 3H and the external holder like the printer card', () => {
+    render(<QueueTodoList todo={pinned(hint('free', [
+      slot(0, '', '', { ams_id: 128, tray_id: 0, is_ht: true, ams_type: 4 }),
+      slot(2, '', '', { ams_id: 32, ams_type: 6 }),
+      slot(0, '', '', { ams_id: 255, is_external: true, ams_type: null }),
+    ]))} />);
+    expect(screen.getByTestId('todo-slot-hint')).toHaveTextContent('Free: HT-A, 3H-3, Ext');
+  });
+
+  it('says when every loaded filament is needed', () => {
+    render(<QueueTodoList todo={pinned(hint('all_needed'))} />);
+    expect(screen.getByTestId('todo-slot-hint')).toHaveTextContent('Every loaded filament is needed by a waiting job');
+  });
+
+  it('adds the jobs whose filaments are unknown, singular and plural', () => {
+    const { unmount } = render(<QueueTodoList todo={pinned(hint('free', [slot(1)], { unknown_jobs: 1 }))} />);
+    expect(screen.getByTestId('todo-slot-hint')).toHaveTextContent('1 waiting job has unknown filaments');
+    unmount();
+    render(<QueueTodoList todo={pinned(hint('free', [slot(1)], { unknown_jobs: 2 }))} />);
+    expect(screen.getByTestId('todo-slot-hint')).toHaveTextContent('2 waiting jobs have unknown filaments');
+  });
+
+  it('shows nothing without a hint', () => {
+    render(<QueueTodoList todo={pinned(null)} />);
+    expect(screen.queryByTestId('todo-slot-hint')).toBeNull();
+    expect(screen.queryByTestId('todo-slot-hints')).toBeNull();
+  });
+
+  it('prefixes the nozzle when the filaments go on different nozzles', () => {
+    const h = hint('free', [slot(1, '', '', { nozzle: 'left' })], {
+      by_nozzle: [
+        { nozzle: 'right', state: 'all_needed', slots: [] },
+        { nozzle: 'left', state: 'free', slots: [slot(1, '', '', { nozzle: 'left' })] },
+      ],
+    });
+    render(<QueueTodoList todo={pinned(h)} />);
+    const text = screen.getByTestId('todo-slot-hint').textContent ?? '';
+    expect(text).toContain('Right nozzle: Every loaded filament is needed by a waiting job');
+    expect(text).toContain('Left nozzle: Free: A2');
+  });
+
+  it('puts no nozzle prefix on a printer without nozzle parts', () => {
+    render(<QueueTodoList todo={pinned(hint('free', [slot(1, '', '', { nozzle: 'left' })]))} />);
+    expect(screen.getByTestId('todo-slot-hint').textContent).toBe('Free: A2');
+  });
+
+  it('names the nozzle as soon as the hint has one part, never a combined state', () => {
+    const only = { nozzle: 'left' as const, state: 'free' as const, slots: [slot(1, '', '', { nozzle: 'left' })] };
+    render(<QueueTodoList todo={pinned(hint('free', only.slots, { by_nozzle: [only] }))} />);
+    expect(screen.getByTestId('todo-slot-hint').textContent).toBe('Left nozzle: Free: A2');
+  });
+
+  describe('colour names', () => {
+    beforeEach(() => {
+      setColorCatalog(
+        { '00ff00': 'Lime' },
+        { 'pla basic|00ff00': 'Bambu Green' },
+        [],
+        { GFA00: 'pla basic' },
+      );
+    });
+    afterEach(() => __resetColorCatalogForTests());
+
+    it('does not pass the material type as the range: the preset names it', () => {
+      // Nothing from RFID (no sub brand), only the preset the printer shows.
+      render(<QueueTodoList todo={pinned(hint('replaceable', [slot(3, 'PLA', '#00FF00', { tray_info_idx: 'GFA00' })]))} />);
+      expect(screen.getByTestId('todo-slot-hint')).toHaveTextContent('A4 (PLA Bambu Green)');
+    });
+
+    it('uses the sub brand of the tray as the range', () => {
+      render(<QueueTodoList todo={pinned(hint('replaceable', [slot(3, 'PLA', '#00FF00', { tray_sub_brands: 'PLA Basic' })]))} />);
+      expect(screen.getByTestId('todo-slot-hint')).toHaveTextContent('A4 (PLA Bambu Green)');
+    });
+
+    it('falls back to the plain catalogue without either', () => {
+      render(<QueueTodoList todo={pinned(hint('replaceable', [slot(3, 'PLA', '#00FF00')]))} />);
+      expect(screen.getByTestId('todo-slot-hint')).toHaveTextContent('A4 (PLA Lime)');
+    });
+  });
+
+  describe('plurals and separators in other languages', () => {
+    afterEach(async () => {
+      await i18n.changeLanguage('en');
+    });
+
+    it.each([2, 5])('says "unknown filaments" in Russian for %i jobs, not in English', async (count) => {
+      await i18n.loadLanguages('ru');
+      await i18n.changeLanguage('ru');
+      render(<QueueTodoList todo={pinned(hint('free', [slot(1)], { unknown_jobs: count }))} />);
+      const text = screen.getByTestId('todo-slot-hint').textContent ?? '';
+      expect(text).toContain(`Ожидающие задания с неизвестным филаментом: ${count}`);
+      expect(text).not.toContain('waiting jobs');
+    });
+
+    it('uses the localised separator: French puts a space before the colon', async () => {
+      await i18n.loadLanguages('fr');
+      await i18n.changeLanguage('fr');
+      const only = { nozzle: 'left' as const, state: 'free' as const, slots: [slot(1, '', '', { nozzle: 'left' })] };
+      render(<QueueTodoList todo={pinned(hint('free', only.slots, { by_nozzle: [only] }))} />);
+      expect(screen.getByTestId('todo-slot-hint').textContent).toBe('Buse gauche : Libres : A2');
+    });
+
+    it('uses the full-width colon in Chinese', async () => {
+      await i18n.loadLanguages('zh-CN');
+      await i18n.changeLanguage('zh-CN');
+      const only = { nozzle: 'right' as const, state: 'all_needed' as const, slots: [] };
+      render(<QueueTodoList todo={pinned(hint('all_needed', [], { by_nozzle: [only] }))} />);
+      expect(screen.getByTestId('todo-slot-hint').textContent).toMatch(/^.+：.+/);
+      expect(screen.getByTestId('todo-slot-hint').textContent).not.toContain(': ');
+    });
+
+    it.each([
+      ['pl', 'Wolne: A2'],
+      ['es', 'Libres: A2'],
+      ['it', 'Liberi: A2'],
+    ])('uses the plural for free slots in %s', async (lang, expected) => {
+      await i18n.loadLanguages(lang);
+      await i18n.changeLanguage(lang);
+      render(<QueueTodoList todo={pinned(hint('free', [slot(1)]))} />);
+      expect(screen.getByTestId('todo-slot-hint').textContent).toBe(expected);
+    });
+  });
+
+  const anyEntry = (count: number): QueueTodo => {
+    const ids = Array.from({ length: count }, (_, i) => i + 1);
+    const entry: QueueTodoEntry = {
+      kind: 'load_filament',
+      jobs: [{ id: 9, name: 'Model job', can_start: false }],
+      filaments: [pink],
+      printers: ids.map((id) => ({ id, name: `Farm-X1C-${id}` })),
+      detail: null,
+      slot_hints: ids.map((id) => ({ printer_id: id, ...(id % 2 ? hint('free', [slot(id % 4)]) : hint('all_needed')) })),
+    };
+    return { count: 1, groups: [{ printer_id: null, printer_name: 'X1C', target_model: 'X1C', entries: [entry] }] };
+  };
+
+  it('lists an "Any" entry per printer, three first and the rest behind +N more', () => {
+    render(<QueueTodoList todo={anyEntry(5)} />);
+    const box = screen.getByTestId('todo-slot-hints');
+    expect(box).toHaveTextContent('Farm-X1C-1: Free: A2');
+    expect(box).toHaveTextContent('Farm-X1C-3: Free: A4');
+    expect(box).not.toHaveTextContent('Farm-X1C-4');
+    const toggle = screen.getByRole('button', { name: '+2 more' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(toggle);
+
+    expect(box).toHaveTextContent('Farm-X1C-4: Every loaded filament is needed by a waiting job');
+    expect(box).toHaveTextContent('Farm-X1C-5');
+    const less = screen.getByRole('button', { name: 'Show fewer' });
+    expect(less).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(less);
+    expect(box).not.toHaveTextContent('Farm-X1C-4');
+  });
+
+  it('hangs the continuation lines of a printer under it', () => {
+    const entry: QueueTodoEntry = {
+      kind: 'load_filament',
+      jobs: [{ id: 9, name: 'Model job', can_start: false }],
+      filaments: [pink],
+      printers: [{ id: 1, name: 'X1C-2' }, { id: 2, name: 'H2D-1' }],
+      detail: null,
+      slot_hints: [
+        { printer_id: 1, ...hint('free', [slot(1)], { unknown_jobs: 2 }) },
+        {
+          printer_id: 2,
+          ...hint('free', [slot(1, '', '', { nozzle: 'left' })], {
+            by_nozzle: [
+              { nozzle: 'left', state: 'free', slots: [slot(1, '', '', { nozzle: 'left' })] },
+              { nozzle: 'right', state: 'all_needed', slots: [] },
+            ],
+          }),
+        },
+      ],
+    };
+    render(<QueueTodoList todo={{ count: 1, groups: [{ printer_id: null, printer_name: 'Any', target_model: 'X1C', entries: [entry] }] }} />);
+    const [single, dual] = screen.getAllByTestId('todo-slot-hint-printer');
+    // One main line, the unknown-jobs line indented under it.
+    expect(Array.from(single.children).map((c) => [c.textContent, c.className.includes('pl-3')])).toEqual([
+      ['X1C-2: Free: A2', false],
+      ['2 waiting jobs have unknown filaments', true],
+    ]);
+    // A dual-nozzle printer: its name alone, the nozzles under it.
+    expect(Array.from(dual.children).map((c) => [c.textContent, c.className.includes('pl-3')])).toEqual([
+      ['H2D-1', false],
+      ['Left nozzle: Free: A2', true],
+      ['Right nozzle: Every loaded filament is needed by a waiting job', true],
+    ]);
+  });
+
+  it('has no toggle for three printers or fewer', () => {
+    render(<QueueTodoList todo={anyEntry(3)} />);
+    expect(screen.getByTestId('todo-slot-hints')).toHaveTextContent('Farm-X1C-3');
+    expect(screen.queryByRole('button', { name: /more|fewer/ })).toBeNull();
+  });
+
+  it('shows no hint on entries of another kind', () => {
+    const t2 = pinned(hint('free', [slot(1)]));
+    t2.groups[0].entries[0].kind = 'start_staged';
+    render(<QueueTodoList todo={t2} />);
+    expect(screen.queryByTestId('todo-slot-hint')).toBeNull();
   });
 });
 

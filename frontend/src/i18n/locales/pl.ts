@@ -8940,5 +8940,16 @@ export default {
     openPrinter: "Otwórz drukarkę",
     openQueue: "Otwórz kolejkę",
     actionFailed: "Akcja nie powiodła się",
+    slotHint: {
+      free: "Wolne: {{slots}}",
+      replaceable: "Można wymienić: {{slots}}",
+      allNeeded: "Każdy załadowany filament jest potrzebny oczekującemu zadaniu",
+      unknownJobs: "Oczekujące zadania z nieznanym filamentem: {{count}}",
+      labelled: "{{label}}: {{text}}",
+      unknownJobs_one: "Oczekujące zadania z nieznanym filamentem: {{count}}",
+      unknownJobs_other: "Oczekujące zadania z nieznanym filamentem: {{count}}",
+      more: "+{{count}} więcej",
+      less: "Pokaż mniej",
+    },
   },
 };

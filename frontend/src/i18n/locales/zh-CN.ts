@@ -8870,5 +8870,16 @@ export default {
     openPrinter: "打开打印机",
     openQueue: "打开队列",
     actionFailed: "操作失败",
+    slotHint: {
+      free: "空闲：{{slots}}",
+      replaceable: "可更换：{{slots}}",
+      allNeeded: "每个已装载的耗材都被等待中的任务需要",
+      unknownJobs: "耗材未知的等待中任务：{{count}} 个",
+      labelled: "{{label}}：{{text}}",
+      unknownJobs_one: "{{count}} 个等待中的任务耗材未知",
+      unknownJobs_other: "{{count}} 个等待中的任务耗材未知",
+      more: "另外 {{count}} 个",
+      less: "收起",
+    },
   },
 };
