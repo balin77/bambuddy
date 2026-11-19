@@ -154,6 +154,24 @@ class SlotHint:
         return len(self.unknown_job_ids)
 
 
+@dataclass(frozen=True)
+class PrepareEntry:
+    """What to prepare for one of a printer's next jobs (#3640).
+
+    ``position`` is 1 for the next job that misses filament, 2 for the one
+    after. ``filaments`` are the ones it misses; ``hint`` says where they can
+    go without touching the running print, a nearer job or the printer's
+    filament backup. The job is named by the route, for the callers who may
+    see it.
+    """
+
+    printer_id: int
+    item_id: int
+    position: int
+    filaments: tuple[TodoFilament, ...]
+    hint: SlotHint | None
+
+
 def todo_filament_from_requirement(req: Mapping) -> TodoFilament:
     """A TodoFilament from a requirement or override dict (type/color/color_name/nozzle_id)."""
     nozzle = req.get("nozzle_id")
@@ -351,6 +369,25 @@ def _replace_slots(hint: SlotHint, filaments: Iterable[TodoFilament]) -> tuple[H
     return tuple(out[key] for key in sorted(out))
 
 
+def settled_hint(hint: SlotHint, filaments: Iterable[TodoFilament]) -> SlotHint:
+    """``hint`` for an entry's filaments: no slot that already holds a spool of one of them (#3634).
+
+    See ``tray_fits_filament``: the matcher would use such a slot, so it is
+    never offered, whether the hint is for a Load entry or a Prepare line.
+    A hint that offered replaceable slots and has none left becomes
+    ``all_needed``; the same goes for each nozzle's part.
+    """
+    filaments = tuple(filaments)
+
+    def settle(state: str, slots: tuple[HintSlot, ...]) -> tuple[str, tuple[HintSlot, ...]]:
+        kept = tuple(s for s in slots if not any(tray_fits_filament(s, f) for f in filaments))
+        return (HINT_ALL_NEEDED, ()) if state == HINT_REPLACEABLE and not kept else (state, kept)
+
+    state, slots = settle(hint.state, hint.slots)
+    parts = tuple(NozzleHint(p.nozzle, *settle(p.state, p.slots)) for p in hint.by_nozzle)
+    return replace(hint, state=state, slots=slots, by_nozzle=parts)
+
+
 def _hint_dict(hint: SlotHint, filaments: Iterable[TodoFilament], visible_ids: Collection[int]) -> dict | None:
     """A printer's hint as one entry shows it (#3634), or None when it has nothing for the entry.
 
@@ -382,12 +419,8 @@ def _hint_dict(hint: SlotHint, filaments: Iterable[TodoFilament], visible_ids: C
             "by_nozzle": [],
         }
 
-    def settle(state: str, slots: tuple[HintSlot, ...]) -> tuple[str, tuple[HintSlot, ...]]:
-        kept = tuple(s for s in slots if not any(tray_fits_filament(s, f) for f in filaments))
-        return (HINT_ALL_NEEDED, ()) if state == HINT_REPLACEABLE and not kept else (state, kept)
-
-    state, slots = settle(hint.state, hint.slots)
-    parts = tuple(NozzleHint(p.nozzle, *settle(p.state, p.slots)) for p in hint.by_nozzle)
+    hint = settled_hint(hint, filaments)
+    state, slots, parts = hint.state, hint.slots, hint.by_nozzle
     shown: tuple[NozzleHint, ...] = ()
     if parts:
         nozzles = {f.nozzle for f in filaments}

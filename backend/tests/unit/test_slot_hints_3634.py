@@ -773,7 +773,7 @@ class TestFailures:
         item_id = await _add_item(queue_db, printer_id=1, target_model=None)
         scheduler = _scheduler_with({item_id: _need(RED)})
 
-        async def bad_query(db, items, holds):
+        async def bad_query(db, items, holds, *shared):
             await db.execute(text("SELECT * FROM table_that_does_not_exist"))
 
         scheduler._compute_slot_hints = bad_query
@@ -822,8 +822,8 @@ class TestStaleMemo:
         scheduler = _scheduler_with({item_id: _need(RED)})
         real = scheduler._compute_slot_hints
 
-        async def then_fail(db, items, holds):
-            await real(db, items, holds)
+        async def then_fail(db, items, holds, *shared):
+            await real(db, items, holds, *shared)
             raise RuntimeError("after the work")
 
         scheduler._compute_slot_hints = then_fail
