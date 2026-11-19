@@ -921,8 +921,8 @@ export function Layout() {
                 >
                   <ThemeIcon className="w-5 h-5" />
                 </button>
-                {/* Auth off: no account menu, so the language gets its own button (#3623). */}
-                {!authEnabled && <LanguageMenu />}
+                {/* Language is a per-browser choice for everyone (#3623); farm has no account menu. */}
+                <LanguageMenu />
                 {authEnabled && user && (
                   <>
                     <button
@@ -1046,8 +1046,8 @@ export function Layout() {
               >
                 <ThemeIcon className="w-5 h-5" />
               </button>
-              {/* Auth off: no account menu, so the language gets its own button (#3623). */}
-              {!authEnabled && <LanguageMenu />}
+              {/* Language is a per-browser choice for everyone (#3623); farm has no account menu. */}
+              <LanguageMenu />
               {authEnabled && user && (
                 <>
                   <button

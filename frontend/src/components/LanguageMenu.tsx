@@ -7,10 +7,9 @@ import { LanguageSelect } from './LanguageSelect';
 const MENU_WIDTH = 220;
 
 /**
- * Language button for the sidebar footer when authentication is off (#3623):
- * there is no account menu then, but the interface language is still a
- * per-browser choice. Rendered in a portal, like AccountMenu, so the
- * scrolling footer cannot clip it.
+ * Globe button in the sidebar footer (#3623): the interface language is a
+ * per-browser choice for everyone, with authentication on or off. Rendered in
+ * a portal so the scrolling footer cannot clip it.
  */
 export function LanguageMenu() {
   const { t } = useTranslation();

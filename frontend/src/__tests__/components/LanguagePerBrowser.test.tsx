@@ -1,6 +1,6 @@
 /**
  * Interface language per browser (#3623): every user can switch it from the
- * sidebar footer without settings permissions, and it never touches the
+ * sidebar footer (globe icon) without settings permissions, and it never touches the
  * install-wide `language` setting.
  */
 
@@ -131,13 +131,13 @@ describe('language per browser (#3623)', () => {
     expect(labels).toEqual(expect.arrayContaining(['Deutsch', '日本語', 'Português (Brasil)']));
   });
 
-  it('is in the account menu for a user with no settings permissions', async () => {
+  it('is available with auth on for a user with no settings permissions', async () => {
     signIn(['inventory:read']);
     const changeLanguage = vi.spyOn(i18n, 'changeLanguage');
     const updateSettings = vi.spyOn(api, 'updateSettings');
     render(<Layout />);
 
-    fireEvent.click((await screen.findAllByRole('button', { name: 'Account' }))[0]);
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Language' }))[0]);
     const select = await screen.findByRole('combobox', { name: 'Language' });
     fireEvent.change(select, { target: { value: 'fr' } });
 
