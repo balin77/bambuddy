@@ -5043,6 +5043,31 @@ class PrintScheduler:
                 filled = True
         return merged if filled else None
 
+    async def _planned_mapping(self, db: AsyncSession, item: PrintQueueItem, printer_id: int) -> list:
+        """The AMS mapping ``item`` would start with on ``printer_id`` (#2799, #3634).
+
+        Read-only. A stored mapping that fits the printer is kept and only its
+        gaps are matched again; one that does not fit (or is missing) is
+        replaced by a fresh match. An empty list when nothing can be matched.
+        It leaves the per-pass memos alone: a request clears them first.
+        """
+        mapping: list | None = None
+        if item.ams_mapping:
+            try:
+                mapping = json.loads(item.ams_mapping)
+            except (json.JSONDecodeError, TypeError):
+                mapping = None
+        if not isinstance(mapping, list) or _mapping_is_all_unresolved(mapping):
+            mapping = None
+        if mapping is not None:
+            if await self._stored_mapping_conflict(db, printer_id, item, mapping) is None:
+                mapping = await self._fill_unresolved_slots(db, printer_id, item, mapping) or mapping
+            else:
+                mapping = None
+        if mapping is None:
+            mapping = await self._compute_ams_mapping_for_printer(db, printer_id, item) or []
+        return mapping
+
     async def missing_filament_for_start(self, db: AsyncSession, item: PrintQueueItem) -> list[str] | None:
         """What a staged item would be held for if it were started now (#2799).
 
@@ -5069,21 +5094,7 @@ class PrintScheduler:
         # same time only loses its cache.
         self._filament_req_memo.clear()
 
-        mapping: list | None = None
-        if item.ams_mapping:
-            try:
-                mapping = json.loads(item.ams_mapping)
-            except (json.JSONDecodeError, TypeError):
-                mapping = None
-        if not isinstance(mapping, list) or _mapping_is_all_unresolved(mapping):
-            mapping = None
-        if mapping is not None:
-            if await self._stored_mapping_conflict(db, item.printer_id, item, mapping) is None:
-                mapping = await self._fill_unresolved_slots(db, item.printer_id, item, mapping) or mapping
-            else:
-                mapping = None
-        if mapping is None:
-            mapping = await self._compute_ams_mapping_for_printer(db, item.printer_id, item) or []
+        mapping = await self._planned_mapping(db, item, item.printer_id)
 
         required = await self._get_filament_requirements(db, item)
         if required:
