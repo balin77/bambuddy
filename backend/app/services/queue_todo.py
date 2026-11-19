@@ -9,7 +9,7 @@ records and the pure part of the list; the route gathers the inputs.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 
 KIND_PLATE_CLEAR = "plate_clear"
@@ -174,6 +174,54 @@ def _fil_key(filaments: Iterable[TodoFilament]) -> tuple:
     return tuple((f.type, f.color, f.nozzle) for f in _sorted(filaments))
 
 
+def _slot_dict(slot: HintSlot) -> dict:
+    return {
+        "ams_id": slot.ams_id,
+        "tray_id": slot.tray_id,
+        "is_ht": slot.is_ht,
+        "is_external": slot.is_external,
+        "ams_type": slot.ams_type,
+        "nozzle": slot.nozzle,
+        "type": slot.type,
+        "color": slot.color,
+        "tray_info_idx": slot.tray_info_idx,
+        "tray_sub_brands": slot.tray_sub_brands,
+    }
+
+
+_HINT_RANK = {HINT_FREE: 0, HINT_REPLACEABLE: 1, HINT_ALL_NEEDED: 2}
+
+
+def _hint_dict(hint: SlotHint, filaments: Iterable[TodoFilament], visible_ids: Collection[int]) -> dict | None:
+    """A printer's hint as one entry shows it (#3634), or None when it has nothing for the entry.
+
+    On a dual-nozzle printer without a Filament Track Switch the hint has a
+    part per nozzle. An entry whose filaments all name a nozzle is built from
+    the parts of those nozzles alone, so it is never offered a slot of the
+    other one; when none of its nozzles has a slot, there is no hint. A
+    filament that names no nozzle may take any tray, as the matcher reads it,
+    so such an entry shows the printer's hint over every slot.
+
+    ``unknown_jobs`` counts only the waiting jobs in ``visible_ids``.
+    """
+    state, slots, parts = hint.state, hint.slots, ()
+    if hint.by_nozzle:
+        nozzles = {f.nozzle for f in filaments}
+        if None not in nozzles:
+            labels = {"left" if n == 1 else "right" for n in nozzles}
+            parts = tuple(p for p in hint.by_nozzle if p.nozzle in labels)
+            if not parts:
+                return None
+            state = min((p.state for p in parts), key=_HINT_RANK.__getitem__)
+            slots = tuple(slot for p in parts if p.state == state for slot in p.slots)
+    return {
+        "state": state,
+        "slots": [_slot_dict(slot) for slot in slots],
+        "unknown_jobs": sum(1 for job_id in hint.unknown_job_ids if job_id in visible_ids),
+        "by_nozzle": [{"nozzle": p.nozzle, "state": p.state, "slots": [_slot_dict(x) for x in p.slots]} for p in parts],
+    }
+
+
 def build_todo(
     jobs: list[TodoJob],
     printers: Mapping[int, str],
@@ -181,13 +229,17 @@ def build_todo(
     plate_clear_ids: Iterable[int],
     interlock: Mapping[int, str],
     power_failed_ids: Iterable[int],
+    slot_hints: Mapping[int, SlotHint] | None = None,
 ) -> dict:
     """The response of GET /queue/todo.
 
     ``jobs`` are the visible pending jobs in queue order; ``printers`` maps the
     visible printer ids to their names. Printer entries need a waiting job
-    that could go to that printer.
+    that could go to that printer. ``slot_hints`` are the scheduler's, by
+    printer id: a load entry carries its printer's (a model entry one per
+    printer it lists), and never names a job (#3634).
     """
+    slot_hints = slot_hints or {}
     groups: dict[tuple, _Group] = {}
     index_of = {job.id: i for i, job in enumerate(jobs)}
 
@@ -289,6 +341,17 @@ def build_todo(
                     }
                     for f in fils
                 ]
+                if kind == KIND_LOAD_FILAMENT:
+                    if group.printer_id is not None:
+                        hint = slot_hints.get(group.printer_id)
+                        entry["slot_hint"] = _hint_dict(hint, fils, index_of) if hint else None
+                    else:
+                        entry["slot_hints"] = [
+                            {"printer_id": p["id"], **shown}
+                            for p in entry["printers"]
+                            if p["id"] in slot_hints
+                            and (shown := _hint_dict(slot_hints[p["id"]], fils, index_of)) is not None
+                        ]
                 entries.append(entry)
         count += len(entries)
         out_groups.append(

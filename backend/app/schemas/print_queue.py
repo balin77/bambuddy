@@ -594,6 +594,46 @@ class QueueTodoPrinter(BaseModel):
     name: str
 
 
+class QueueTodoHintSlot(BaseModel):
+    """A slot a missing filament can go into (#3634): empty, or loaded with a filament no waiting job needs."""
+
+    ams_id: int
+    tray_id: int
+    is_ht: bool = False
+    is_external: bool = False
+    ams_type: int | None = None
+    # "left" / "right" on a dual-nozzle printer without a Filament Track Switch, else None.
+    nozzle: Literal["left", "right"] | None = None
+    # Empty for a free slot.
+    type: str = ""
+    color: str = ""
+    tray_info_idx: str = ""
+    # What the tray reports as its product line (empty without RFID); names the colour.
+    tray_sub_brands: str = ""
+
+
+class QueueTodoNozzleHint(BaseModel):
+    nozzle: Literal["left", "right"]
+    state: Literal["free", "replaceable", "all_needed"]
+    slots: list[QueueTodoHintSlot] = []
+
+
+class QueueTodoSlotHint(BaseModel):
+    """Where the missing filaments of one printer can go (#3634). Names no job."""
+
+    state: Literal["free", "replaceable", "all_needed"]
+    # free: the empty slots; replaceable: the loaded slots no waiting job needs; all_needed: none.
+    slots: list[QueueTodoHintSlot] = []
+    # Waiting jobs whose filaments could not be read: they may need a slot.
+    unknown_jobs: int = 0
+    # One part per nozzle of the entry on a dual-nozzle printer without a Filament Track Switch.
+    by_nozzle: list[QueueTodoNozzleHint] = []
+
+
+class QueueTodoPrinterSlotHint(QueueTodoSlotHint):
+    printer_id: int
+
+
 class QueueTodoEntry(BaseModel):
     kind: Literal["plate_clear", "load_filament", "start_staged", "sensor_interlock", "power_on_failed"]
     jobs: list[QueueTodoJob]
@@ -601,6 +641,10 @@ class QueueTodoEntry(BaseModel):
     # Printers where loading ``filaments`` lets a model job start; empty for other kinds.
     printers: list[QueueTodoPrinter] = []
     detail: str | None = None
+    # load_filament of a printer: where the filament can go; None while the printer reports no trays (#3634).
+    slot_hint: QueueTodoSlotHint | None = None
+    # load_filament of an "Any <model>" group: the same, per printer of ``printers`` that has one.
+    slot_hints: list[QueueTodoPrinterSlotHint] = []
 
 
 class QueueTodoGroup(BaseModel):

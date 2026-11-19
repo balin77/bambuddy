@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import zipfile
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -84,7 +85,7 @@ from backend.app.services.printer_manager import printer_manager
 from backend.app.services.queue_announcements import announce_queue_jobs_added
 from backend.app.services.queue_item_printer import PRINTER_RESOLVED_DEFAULTS, drop_printer_resolved
 from backend.app.services.queue_position import lock_queue_positions, max_queue_position
-from backend.app.services.queue_todo import TodoJob, build_todo
+from backend.app.services.queue_todo import SlotHint, TodoJob, build_todo
 from backend.app.utils.printer_models import (
     is_gcode_compatible,
     normalize_printer_model,
@@ -883,6 +884,11 @@ def _may_start_item(
     return True
 
 
+def visible_slot_hints(hints: Mapping[int, SlotHint], printer_names: Mapping[int, str]) -> dict[int, SlotHint]:
+    """The scheduler's slot hints (#3634) limited to the printers the caller may see."""
+    return {pid: hint for pid, hint in hints.items() if pid in printer_names}
+
+
 @router.get("/todo", response_model=QueueTodoResponse)
 async def queue_todo(
     db: AsyncSession = Depends(get_db, scope="function"),
@@ -990,7 +996,15 @@ async def queue_todo(
         interlock = {}
     power_failed = [pid for pid in _scheduler.power_on_failed_printers() if pid in printer_names]
 
-    return build_todo(jobs, printer_names, _scheduler.filament_holds_snapshot(), plate_ids, interlock, power_failed)
+    return build_todo(
+        jobs,
+        printer_names,
+        _scheduler.filament_holds_snapshot(),
+        plate_ids,
+        interlock,
+        power_failed,
+        visible_slot_hints(_scheduler.slot_hints_snapshot(), printer_names),
+    )
 
 
 HISTORY_STATUSES = ("completed", "failed", "skipped", "cancelled")
