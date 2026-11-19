@@ -919,9 +919,15 @@ export function SpoolFormModal({
   };
 
   // Remember the spool just created for the next create form (#3619).
-  const rememberSpool = () => {
+  const rememberSpool = (created?: { suppliers?: { supplier_id: number }[] } | null) => {
     if (!isCreating) return;
     const f = formDataRef.current;
+    // What the spool really has: where the chips are not saved (see shouldSaveSupplierLinks),
+    // it keeps the suppliers the backend's inheritance attached, so those are remembered
+    // and the next form shows them instead of chips that were skipped.
+    const inheritedSupplierIds = shouldSaveSupplierLinks(created)
+      ? []
+      : (created?.suppliers ?? []).map((l) => l.supplier_id);
     saveLastSpool(spoolmanMode ? 'spoolman' : 'builtin', {
       brand: f.brand,
       material: f.material,
@@ -939,9 +945,11 @@ export function SpoolFormModal({
       location_id: f.location_id ?? pendingLast?.location_id ?? null,
       cost_per_kg: f.cost_per_kg,
       category: f.category.trim(),
-      supplier_ids: !supplierLinksTouched && pendingLast?.supplier_ids
-        ? pendingLast.supplier_ids
-        : supplierLinks.map((l) => l.supplier_id),
+      supplier_ids: inheritedSupplierIds.length > 0
+        ? inheritedSupplierIds
+        : !supplierLinksTouched && pendingLast?.supplier_ids
+          ? pendingLast.supplier_ids
+          : supplierLinks.map((l) => l.supplier_id),
       preset_from_default: !!f.slicer_filament && presetFromDefault.current,
     });
   };
@@ -953,7 +961,7 @@ export function SpoolFormModal({
         ? api.createSpoolmanInventorySpool(data as Parameters<typeof api.createSpoolmanInventorySpool>[0])
         : api.createSpool(data as Parameters<typeof api.createSpool>[0]),
     onSuccess: async (newSpool) => {
-      rememberSpool();
+      rememberSpool(newSpool);
       if (newSpool?.id) {
         const ok = await savePrinterProfiles(newSpool.id);
         if (!ok) return;
@@ -995,7 +1003,8 @@ export function SpoolFormModal({
       const createdSpools: InventorySpool[] = spoolmanResult
         ? spoolmanResult.created
         : (result as InventorySpool[]);
-      if (createdSpools.length > 0) rememberSpool();
+      // Every copy has the same suppliers: the first one stands for all.
+      if (createdSpools.length > 0) rememberSpool(createdSpools[0]);
 
       // Bulk create: every copy gets the same profiles and overrides. A no-op
       // when the user left the Printers tab alone (savePrinterProfiles), so a
@@ -1185,7 +1194,8 @@ export function SpoolFormModal({
   //
   // Remembered chips (#3619) are not a touch: they are saved only when the
   // create response shows that inheritance attached nothing (Spoolman mode has
-  // no inheritance), so they never overwrite what the backend inherited.
+  // no inheritance), so they never overwrite what the backend inherited. What
+  // the spool got instead is what rememberSpool stores for the next form.
   const shouldSaveSupplierLinks = (created?: { suppliers?: unknown[] } | null) =>
     supplierLinksTouched
     || isCopying
