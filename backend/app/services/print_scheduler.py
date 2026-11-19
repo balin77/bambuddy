@@ -729,9 +729,6 @@ def _is_tray_id(value: object) -> bool:
 # A job released to the pool has no printer and keeps the bare "Needs ...".
 _UNMATCHED_HOLD_PREFIX = "Needs "
 _UNMATCHED_HOLD_VERB = " needs "
-# "<printer> needs <filament>", and not the short-spool text "PLA (20 g left,
-# needs 300 g)", which also holds the word.
-_UNMATCHED_HOLD_NAMED = re.compile(r" needs (?!\d+(?:\.\d+)? g\))")
 
 # "Loaded filament first" (#3587): the reason a job skipped for filament shows,
 # and the suffix that says when it gets priority. Wire format, parsed by the
@@ -756,11 +753,26 @@ _NO_STOCK_SUFFIX = " \u2013 none left in inventory"
 _SHORT_HOLD_RECHECK_SECONDS = 120
 
 
-def _is_unmatched_hold_reason(reason: str | None) -> bool:
-    """True for the reason the unmatched-filament hold wrote when it staged the item."""
+def _unmatched_hold_reason(printer_name: str, wanted: str) -> str:
+    """The reason the unmatched-filament hold writes; ``printer_name`` is empty for a job no printer holds."""
+    name = printer_name.strip()
+    return f"{name}{_UNMATCHED_HOLD_VERB}{wanted}" if name else f"{_UNMATCHED_HOLD_PREFIX}{wanted}"
+
+
+def _is_unmatched_hold_reason(reason: str | None, printer_name: str = "") -> bool:
+    """True for the reason the unmatched-filament hold wrote when it staged the item.
+
+    ``printer_name`` is the name of the printer the item is on. The form naming
+    a printer is recognised only as that printer's own "<name> needs ": other
+    reasons hold the word too, such as the filament scope hold "This file needs
+    a filament ..." (#3522), and those are cleared on a staged item (#3074).
+    """
     if not reason:
         return False
-    return reason.startswith(_UNMATCHED_HOLD_PREFIX) or _UNMATCHED_HOLD_NAMED.search(reason) is not None
+    if reason.startswith(_UNMATCHED_HOLD_PREFIX):
+        return True
+    name = printer_name.strip()
+    return bool(name) and reason.startswith(f"{name}{_UNMATCHED_HOLD_VERB}")
 
 
 def _is_filament_wait(reason: str | None) -> bool:
@@ -1914,7 +1926,7 @@ class PrintScheduler:
         self._pass_holds[item.id] = [FilamentHold(item.id, item.printer_id, item.target_model, tuple(filaments))]
         return True
 
-    async def _rebuild_filament_hold(self, db: AsyncSession, item: PrintQueueItem) -> None:
+    async def _rebuild_filament_hold(self, db: AsyncSession, item: PrintQueueItem, printer_name: str = "") -> None:
         """Structured filaments for a staged job that has none, e.g. after a restart (#3615).
 
         Read from the same sources as the writers and leaves the waiting text
@@ -1942,7 +1954,7 @@ class PrintScheduler:
                 deficit = await compute_deficit_for_queue_item(db, item)
                 if deficit:
                     filaments = await self._deficit_todo_filaments(db, item, deficit)
-            if not filaments and _is_unmatched_hold_reason(item.waiting_reason):
+            if not filaments and _is_unmatched_hold_reason(item.waiting_reason, printer_name):
                 if item.printer_id:
                     if printer_manager.get_status(item.printer_id) is None:
                         # Offline: nothing to map against, and not worth
@@ -2510,9 +2522,10 @@ class PrintScheduler:
                     # reason was written at staging and is why the item waits:
                     # it names the filament to load (#2799). Pressing start
                     # clears manual_start, and the branches below overwrite it.
-                    keep = item.waiting_reason if _is_unmatched_hold_reason(item.waiting_reason) else None
+                    held_on = pinned_printers.get(item.printer_id, ("", ""))[0] if item.printer_id else ""
+                    keep = item.waiting_reason if _is_unmatched_hold_reason(item.waiting_reason, held_on) else None
                     if (keep or item.filament_short) and not self._carry_filament_hold(item):
-                        await self._rebuild_filament_hold(db, item)
+                        await self._rebuild_filament_hold(db, item, held_on)
                     await hold_item(item, keep)
                     skip_reasons["manual_start"] = skip_reasons.get("manual_start", 0) + 1
                     continue
@@ -10002,11 +10015,7 @@ class PrintScheduler:
         # to the pool below and no printer holds it any more (#3590).
         printer = await self._get_printer(db, held_by) if held_by is not None else None
         name = None if release_assignment or printer is None else printer.name
-        printer_name = name.strip() if isinstance(name, str) else ""
-        if printer_name:
-            item.waiting_reason = f"{printer_name}{_UNMATCHED_HOLD_VERB}{wanted}"
-        else:
-            item.waiting_reason = f"{_UNMATCHED_HOLD_PREFIX}{wanted}"
+        item.waiting_reason = _unmatched_hold_reason(name if isinstance(name, str) else "", wanted)
         if release_assignment:
             # "Any P2S" means any, so the job returns to the pool rather than
             # waiting on the printer that could not take it. The mapping goes
