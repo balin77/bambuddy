@@ -1499,9 +1499,27 @@ describe('FileManagerPage', () => {
       server.use(
         http.get('/api/v1/library/files', ({ request }) =>
           HttpResponse.json(
-            filesForRequest(request).map((f: { id: number }) =>
-              f.id === 1 ? { ...f, variant_group_id: 7 } : f
-            )
+            new URL(request.url).searchParams.get('with_variant_members') === 'true'
+              ? [
+                  ...filesForRequest(request).map((f: { id: number }) =>
+                    f.id === 1
+                      ? { ...f, variant_group_id: 7, variant_group_name: 'Benchy', variant_position: 0 }
+                      : f
+                  ),
+                  // The group's member from another folder, appended by the server (#3628).
+                  {
+                    ...filesForRequest(request)[0],
+                    id: 999,
+                    filename: 'elsewhere.gcode.3mf',
+                    folder_id: 99,
+                    folder_name: 'elsewhere',
+                    variant_elsewhere: true,
+                    variant_group_id: 7,
+                    variant_group_name: 'Benchy',
+                    variant_position: 1,
+                  },
+                ]
+              : filesForRequest(request)
           )
         ),
         http.get('/api/v1/library/variant-groups/7', () =>
@@ -1517,7 +1535,9 @@ describe('FileManagerPage', () => {
       );
       render(<FileManagerPage />);
       await waitFor(() => expect(screen.getByText('Benchy')).toBeInTheDocument());
-      await user.click(screen.getByText('Benchy').closest('div[class*="cursor-pointer"]') as HTMLElement);
+      // Tick the group card: its only member in this folder is file 1, so the
+      // group is fully ticked and prints as one job with every version.
+      await user.click(within(await screen.findByTestId('variant-group-card')).getByRole('checkbox'));
       await user.click(await screen.findByRole('button', { name: /^Print$/ }));
 
       await screen.findByText('Printer alternatives');

@@ -10,7 +10,9 @@ import { planBulkPrint, promotePartialGroups, type BulkPrintPlan } from './varia
 // (#3628) rather than for the selection.
 interface PrintOverride {
   ids: number[];
-  variantFiles: { id: number; filename: string; sliced_for_model: string | null }[] | undefined;
+  variantFiles:
+    | { id: number; filename: string; sliced_for_model: string | null; clears_plate?: boolean }[]
+    | undefined;
 }
 
 type PrintQueue = { groups: GroupRow[]; loose: LibraryFileListItem[] };
@@ -79,6 +81,8 @@ export function useBulkVariantPrint({
       if (sliced.length === 0) return;
       const request = ++printRequest.current;
       const targets = new Map<number, string | null>();
+      // The group's per-version clears-plate flag, the alternatives' starting value (#3576).
+      const clears = new Map<number, boolean>();
       try {
         const group = await queryClient.fetchQuery({
           queryKey: ['variant-group', row.id],
@@ -86,7 +90,10 @@ export function useBulkVariantPrint({
           staleTime: 30_000,
           retry: 0,
         });
-        for (const m of group.members) targets.set(m.library_file_id, m.target_model);
+        for (const m of group.members) {
+          targets.set(m.library_file_id, m.target_model);
+          clears.set(m.library_file_id, m.clears_plate);
+        }
       } catch {
         // Fall back to each file's declared model.
       }
@@ -97,6 +104,7 @@ export function useBulkVariantPrint({
           id: f.id,
           filename: f.filename,
           sliced_for_model: targets.get(f.id) ?? f.sliced_for_model,
+          clears_plate: clears.get(f.id) ?? f.clears_plate,
         })),
       });
       setPrintFile(sliced[0]);
