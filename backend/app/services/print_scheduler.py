@@ -2170,11 +2170,6 @@ class PrintScheduler:
                 key=lambda entry: entry[0],
             )
         )
-        loaded = [slot for slot in slots if not slot["empty"]]
-        blocked: dict[int, tuple[int, ...]] = {}
-        for user_id in {job.created_by_id for job in jobs if job.created_by_id is not None}:
-            scope = await self._creator_filament_scope(db, user_id)
-            blocked[user_id] = () if scope.is_unrestricted else tuple(sorted(scope.blocked_tray_ids(loaded)))
         job_key = tuple(
             sorted(
                 (
@@ -2188,7 +2183,6 @@ class PrintScheduler:
                         job.library_file_id,
                         job.plate_id,
                         job.created_by_id,
-                        blocked.get(job.created_by_id, ()) if job.created_by_id is not None else (),
                         (files or {}).get(("archive", job.archive_id))
                         if job.archive_id
                         else (files or {}).get(("library", job.library_file_id)),

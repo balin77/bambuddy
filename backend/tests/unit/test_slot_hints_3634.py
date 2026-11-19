@@ -34,7 +34,6 @@ from backend.tests.unit.test_scheduler_model_filament_short_3137 import (
 def _planning_scheduler(trays, requirements=None):
     scheduler = _scheduler(trays) if requirements is None else _scheduler(trays, requirements)
     scheduler._get_bool_setting = AsyncMock(return_value=False)
-    scheduler._creator_filament_scope = AsyncMock(return_value=MagicMock(is_unrestricted=True))
     return scheduler
 
 
@@ -143,7 +142,6 @@ def _scheduler_with(requirements: dict):
         side_effect=lambda db, item: [dict(r) for r in requirements[item.id]] if requirements.get(item.id) else None
     )
     scheduler._get_bool_setting = AsyncMock(return_value=False)
-    scheduler._creator_filament_scope = AsyncMock(return_value=MagicMock(is_unrestricted=True))
     return scheduler
 
 
