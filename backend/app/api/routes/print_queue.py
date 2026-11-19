@@ -909,9 +909,9 @@ async def queue_todo(
 ):
     """What the waiting queue needs a person for, grouped by printer (#3615)."""
     from backend.app.api.routes.settings import get_setting, setting_is_true
+    from backend.app.services import plate_clear
     from backend.app.services.print_scheduler import (
         _could_take_printer,
-        finish_needs_plate_confirmation,
         plate_changer_reads_empty,
         scheduler as _scheduler,
     )
@@ -944,7 +944,6 @@ async def queue_todo(
         Printer.model,
         Printer.location,
         Printer.is_active,
-        Printer.plate_clear_override,
         Printer.plate_capacity,
         Printer.plates_remaining,
     )
@@ -995,8 +994,7 @@ async def queue_todo(
     plate_ids = [
         row.id
         for row in printer_rows
-        if finish_needs_plate_confirmation(row.plate_clear_override, require_plate_clear)
-        and printer_manager.is_awaiting_plate_clear(row.id)
+        if plate_clear.applies(row.id, require_plate_clear) and printer_manager.is_awaiting_plate_clear(row.id)
     ]
     # Plate changers with no plate left (#3575), by capacity: a refill resets it.
     plate_changer_empty = {

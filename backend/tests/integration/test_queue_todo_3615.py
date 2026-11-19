@@ -148,9 +148,7 @@ class TestTodoEntries:
         item = await make_item(a.id, name="Waiting")
         with (
             patch("backend.app.api.routes.print_queue.printer_manager.is_awaiting_plate_clear", lambda pid: True),
-            patch(
-                "backend.app.services.print_scheduler.finish_needs_plate_confirmation", lambda override, setting: True
-            ),
+            patch("backend.app.services.plate_clear.applies", lambda pid, setting: True),
         ):
             body = (await async_client.get(URL)).json()
         assert [g["printer_id"] for g in body["groups"]] == [a.id]  # B has nothing waiting
@@ -163,9 +161,7 @@ class TestTodoEntries:
         await make_item(a.id)
         with (
             patch("backend.app.api.routes.print_queue.printer_manager.is_awaiting_plate_clear", lambda pid: True),
-            patch(
-                "backend.app.services.print_scheduler.finish_needs_plate_confirmation", lambda override, setting: False
-            ),
+            patch("backend.app.services.plate_clear.applies", lambda pid, setting: False),
         ):
             assert (await async_client.get(URL)).json()["count"] == 0
 
@@ -175,9 +171,7 @@ class TestTodoEntries:
         item = await make_item(None, target_model="X1C")
         with (
             patch("backend.app.api.routes.print_queue.printer_manager.is_awaiting_plate_clear", lambda pid: True),
-            patch(
-                "backend.app.services.print_scheduler.finish_needs_plate_confirmation", lambda override, setting: True
-            ),
+            patch("backend.app.services.plate_clear.applies", lambda pid, setting: True),
         ):
             body = (await async_client.get(URL)).json()
         assert [g["printer_id"] for g in body["groups"]] == [a.id]
@@ -189,9 +183,7 @@ class TestTodoEntries:
         await make_item(None, target_model="X1C", target_location="Shop")
         with (
             patch("backend.app.api.routes.print_queue.printer_manager.is_awaiting_plate_clear", lambda pid: True),
-            patch(
-                "backend.app.services.print_scheduler.finish_needs_plate_confirmation", lambda override, setting: True
-            ),
+            patch("backend.app.services.plate_clear.applies", lambda pid, setting: True),
         ):
             body = (await async_client.get(URL)).json()
         assert [g["printer_id"] for g in body["groups"]] == [b.id]
@@ -229,9 +221,7 @@ class TestTodoEntries:
                 AsyncMock(return_value={a.id: "Door"}),
             ),
             patch("backend.app.api.routes.print_queue.printer_manager.is_awaiting_plate_clear", lambda pid: True),
-            patch(
-                "backend.app.services.print_scheduler.finish_needs_plate_confirmation", lambda override, setting: True
-            ),
+            patch("backend.app.services.plate_clear.applies", lambda pid, setting: True),
             patch.object(scheduler, "power_on_failed_printers", return_value={a.id}),
         ):
             body = (await async_client.get(URL)).json()
@@ -303,9 +293,7 @@ class TestTodoAccess:
         admin, member = await self._setup(async_client, ["queue:read_all"], printer_ids=[a.id])
         with (
             patch("backend.app.api.routes.print_queue.printer_manager.is_awaiting_plate_clear", lambda pid: True),
-            patch(
-                "backend.app.services.print_scheduler.finish_needs_plate_confirmation", lambda override, setting: True
-            ),
+            patch("backend.app.services.plate_clear.applies", lambda pid, setting: True),
         ):
             body = (await async_client.get(URL, headers=_auth(member))).json()
             admin_body = (await async_client.get(URL, headers=_auth(admin))).json()
@@ -369,9 +357,7 @@ class TestTodoStateEntries:
         with (
             patch("backend.app.api.routes.print_queue.printer_manager.is_connected", MagicMock(return_value=False)),
             patch("backend.app.api.routes.print_queue.printer_manager.is_awaiting_plate_clear", lambda pid: True),
-            patch(
-                "backend.app.services.print_scheduler.finish_needs_plate_confirmation", lambda override, setting: True
-            ),
+            patch("backend.app.services.plate_clear.applies", lambda pid, setting: True),
         ):
             body = (await async_client.get(URL)).json()
         assert _only_entries(body)[0]["kind"] == "plate_clear"
@@ -451,9 +437,7 @@ class TestReadOwn:
         await make_item(b.id, name="Theirs", manual_start=True, created_by_id=helper.member_id + 100)
         with (
             patch("backend.app.api.routes.print_queue.printer_manager.is_awaiting_plate_clear", lambda pid: True),
-            patch(
-                "backend.app.services.print_scheduler.finish_needs_plate_confirmation", lambda override, setting: True
-            ),
+            patch("backend.app.services.plate_clear.applies", lambda pid, setting: True),
         ):
             body = (await async_client.get(URL, headers=_auth(member))).json()
         assert {g["printer_id"] for g in body["groups"]} == {a.id}
@@ -566,9 +550,7 @@ class TestFarmEntries:
         scheduler._filament_holds = {item.id: [FilamentHold(item.id, a.id, None, (RED,))]}
         with (
             patch("backend.app.api.routes.print_queue.printer_manager.is_awaiting_plate_clear", lambda pid: True),
-            patch(
-                "backend.app.services.print_scheduler.finish_needs_plate_confirmation", lambda override, setting: True
-            ),
+            patch("backend.app.services.plate_clear.applies", lambda pid, setting: True),
             patch(
                 "backend.app.api.routes.print_queue.ha_sensor_manager.blocked_printers",
                 AsyncMock(return_value={a.id: "Door"}),
