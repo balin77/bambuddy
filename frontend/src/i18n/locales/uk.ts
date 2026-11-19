@@ -5631,6 +5631,9 @@ export default {
       showAll: "Показати всі кольори",
       showMatching: "Показати лише відповідні",
       allBrand: "Усі кольори {{brand}}",
+      sortBy: "Сортування кольорів каталогу",
+      sortByName: "Сортувати за назвою",
+      sortByColor: "Сортувати за кольором",
     },
     noResults: "Збігів не знайдено",
     // Multi-color gradient + visual effect (#1154)
