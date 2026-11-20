@@ -411,6 +411,8 @@ def build_todo(
                             and (shown := _hint_dict(slot_hints[p["id"]], fils, index_of)) is not None
                         ]
                 entries.append(entry)
+        if not entries:
+            continue
         count += len(entries)
         out_groups.append(
             {
