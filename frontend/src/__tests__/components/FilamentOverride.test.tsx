@@ -1038,3 +1038,73 @@ describe('FilamentOverride inventory group (#3590)', () => {
     expect(screen.queryAllByRole('group')).toHaveLength(0);
   });
 });
+
+describe('FilamentOverride inventory-only panel for several printers (#3649)', () => {
+  const BLUE = {
+    type: 'PLA',
+    color: '#0000FF',
+    tray_info_idx: 'GFA05',
+    subtype: 'Matte',
+    color_name: 'Blue',
+    rgba: '0000FFFF',
+    extra_colors: null,
+    effect_type: null,
+    spool_count: 2,
+    remaining_grams: 1400,
+  };
+  const reqs: FilamentReqsData = {
+    filaments: [
+      { slot_id: 1, type: 'PLA', color: '#FF0000', used_grams: 25, used_meters: 8.5 },
+      { slot_id: 2, type: 'PLA', color: '#FFFFFF', used_grams: 10, used_meters: 3 },
+    ],
+  };
+
+  const renderPanel = (overrides: React.ComponentProps<typeof FilamentOverride>['overrides']) =>
+    render(
+      <FilamentOverride
+        filamentReqs={reqs}
+        availableFilaments={[]}
+        inventoryFilaments={[BLUE]}
+        inventoryEnabled
+        inventoryOnly
+        overrides={overrides}
+        onChange={mockOnChange}
+        forceColorMatch={{ 1: true, 2: false }}
+        onForceColorMatchChange={vi.fn()}
+        pickHint="Waits on each printer."
+      />,
+    );
+
+  it('has no force-colour box: a pick is always forced and the other colours stay automatic', () => {
+    renderPanel({ 1: { type: 'PLA', color: '#0000FF', tray_info_idx: 'GFA05', fromInventory: true } });
+
+    expect(screen.queryByText('Force color match')).not.toBeInTheDocument();
+  });
+
+  it('reads only a colour picked from the inventory as a pick, and says the job waits on each printer', () => {
+    renderPanel({
+      1: { type: 'PLA', color: '#0000FF', tray_info_idx: 'GFA05', fromInventory: true },
+      // A loaded colour carried over from model mode keeps its swap semantics and is not shown here.
+      2: { type: 'PLA', color: '#00FF00' },
+    });
+
+    expect(triggerText(0)).toMatch(/Blue/);
+    expect(triggerText(1)).not.toMatch(/00FF00|Green/i);
+    expect(screen.getAllByText('Waits on each printer.')).toHaveLength(1);
+    // Only the pick has a reset button.
+    expect(screen.getAllByTitle(/reset/i)).toHaveLength(1);
+  });
+
+  it('shows nothing to reset for a carried swap and leaves it alone when another slot picks', () => {
+    renderPanel({ 2: { type: 'PLA', color: '#00FF00' } });
+    expect(screen.queryByTitle(/reset/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Waits on each printer.')).not.toBeInTheDocument();
+
+    const rows = openPicker(0);
+    fireEvent.click(rows.find((r) => r.getAttribute('data-value') === 'PLA|#0000FF|GFA05')!);
+    expect(mockOnChange).toHaveBeenCalledWith({
+      1: expect.objectContaining({ color: '#0000FF', fromInventory: true }),
+      2: { type: 'PLA', color: '#00FF00' },
+    });
+  });
+});

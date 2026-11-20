@@ -124,7 +124,7 @@ export function FilamentOverride({
   const filaments = filamentReqs?.filaments;
   const hasInventory = (inventoryFilaments?.length ?? 0) > 0;
   // A pick stays on screen when the list it came from is gone (the setting was switched off).
-  const hasPick = inventoryOnly && !!filaments?.some((f) => overrides[f.slot_id]);
+  const hasPick = inventoryOnly && !!filaments?.some((f) => overrides[f.slot_id]?.fromInventory);
   if (!filaments || filaments.length === 0 || (availableFilaments.length === 0 && !hasInventory && !hasPick)) {
     return null;
   }
@@ -175,7 +175,10 @@ export function FilamentOverride({
       )}
       <div className="bg-bambu-dark rounded-lg p-3 space-y-2">
         {filaments.map((req, slotIdx) => {
-          const override = overrides[req.slot_id];
+          // The inventory-only panel knows picks only: any other override of the slot (a loaded
+          // colour carried over from model mode) is no pick of this panel and is not shown in it.
+          const stored = overrides[req.slot_id];
+          const override = inventoryOnly && !stored?.fromInventory ? undefined : stored;
           const isOverridden = !!override;
           // Only show filaments of the same type AND compatible nozzle/extruder
           const sameType = filamentsByType[canonicalFilamentType(req.type)] || [];
@@ -240,7 +243,13 @@ export function FilamentOverride({
             ? inventoryDemand?.[inventoryValue(selectedInventory)] ?? req.used_grams * quantity
             : 0;
           const stockWarning = selectedInventory
-            ? inventoryStockWarning(selectedInventory, required, !!forceColorMatch?.[req.slot_id], t, numberFormat)
+            ? inventoryStockWarning(
+                selectedInventory,
+                required,
+                inventoryOnly || !!forceColorMatch?.[req.slot_id],
+                t,
+                numberFormat,
+              )
             : null;
 
           return (
@@ -313,7 +322,7 @@ export function FilamentOverride({
                       inventoryPickerOption(f, req.color, inventoryGroup, filamentPolicies, t, numberFormat),
                     ),
                     ...(syntheticRow
-                      ? [{ ...syntheticRow, key: `stored-${syntheticRow.value}`, hex: displayHex(override.color), group: savedGroup }]
+                      ? [{ ...syntheticRow, key: `stored-${syntheticRow.value}`, hex: displayHex(override?.color ?? ''), group: savedGroup }]
                       : []),
                   ]}
                 />
@@ -331,7 +340,9 @@ export function FilamentOverride({
                   <span className="w-3" />
                 )}
               </div>
-              {/* Force Color Match checkbox — shown below each filament row */}
+              {/* Force Color Match checkbox — shown below each filament row. Not in the inventory-only
+                  panel: a pick there is always forced, and the other colours stay automatic (#3649). */}
+              {!inventoryOnly && (
               <label className="inline-flex items-center gap-1.5 text-xs text-bambu-gray cursor-pointer select-none pl-5">
                 <input
                   type="checkbox"
@@ -342,6 +353,7 @@ export function FilamentOverride({
                 <Palette className="w-3 h-3" />
                 {t('printModal.forceColorMatch')}
               </label>
+              )}
               {pickHint && (selectedInventory || syntheticRow) && (
                 <p className="text-xs text-bambu-gray pl-5">{pickHint}</p>
               )}
