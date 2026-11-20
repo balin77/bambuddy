@@ -215,3 +215,27 @@ def perceptual_color_distance(color1: str | None, color2: str | None) -> float |
     if lab1 is None or lab2 is None:
         return None
     return _ciede2000(lab1, lab2)
+
+
+def _compare_hex(color: str | None) -> str:
+    """Lower-case "rrggbb" of a colour, without "#" or alpha; empty for none."""
+    if not color:
+        return ""
+    return color.replace("#", "").lower()[:6]
+
+
+def colors_are_similar(color1: str | None, color2: str | None, threshold: int = 40) -> bool:
+    """Whether two hex colours are within ``threshold`` in every RGB channel.
+
+    The eligibility rule of the dispatch matcher's "similar colour" bucket;
+    the scheduler and the To do list's slot hints read colours the same way.
+    """
+    hex1, hex2 = _compare_hex(color1), _compare_hex(color2)
+    if len(hex1) < 6 or len(hex2) < 6:
+        return False
+    try:
+        r1, g1, b1 = (int(hex1[i : i + 2], 16) for i in (0, 2, 4))
+        r2, g2, b2 = (int(hex2[i : i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        return False
+    return abs(r1 - r2) <= threshold and abs(g1 - g2) <= threshold and abs(b1 - b2) <= threshold

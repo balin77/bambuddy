@@ -8,7 +8,7 @@ import uuid
 import zipfile
 from collections import deque
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, cast
@@ -65,7 +65,7 @@ from backend.app.services.bambu_ftp import (
     with_ftp_retry,
 )
 from backend.app.services.bambu_mqtt import _RACK_NOZZLE_IDS, HMS_MQTT_VERIFY_FAILED, resolve_rack_plan_mapping
-from backend.app.services.filament_deficit import compute_deficit_for_queue_item
+from backend.app.services.filament_deficit import compute_deficit_for_queue_item, describe_deficit
 from backend.app.services.finance_budget import (
     create_budget_reservation,
     release_budget_reservation,
@@ -106,7 +106,7 @@ from backend.app.services.spool_assignment_notifications import (
 from backend.app.utils.ams_drying import is_countdown_parked
 from backend.app.utils.ams_humidity import ams_humidity_percent
 from backend.app.utils.archive_paths import archive_photos_dir
-from backend.app.utils.color_utils import perceptual_color_distance
+from backend.app.utils.color_utils import colors_are_similar, perceptual_color_distance
 from backend.app.utils.filament_types import canonical_filament_type
 from backend.app.utils.filename import InvalidFilenameError, derive_remote_filename, validate_print_filename
 from backend.app.utils.library_paths import move_library_photos
@@ -2285,7 +2285,14 @@ class PrintScheduler:
                 part = self._classify_slots([c for c in slots if c["extruder_id"] == nozzle], needed)
                 if part is not None:
                     by_nozzle.append(NozzleHint(label, part[0], hint_slots(part[1])))
-        hint = SlotHint(printer_id, overall[0], hint_slots(overall[1]), tuple(unknown_job_ids), tuple(by_nozzle))
+        hint = SlotHint(
+            printer_id,
+            overall[0],
+            hint_slots(overall[1]),
+            tuple(unknown_job_ids),
+            tuple(by_nozzle),
+            hint_slots([c for c in slots if not c["empty"]]),
+        )
         return hint, degraded
 
     def _record_hold(
@@ -6266,21 +6273,7 @@ class PrintScheduler:
 
     def _colors_are_similar(self, color1: str | None, color2: str | None, threshold: int = 40) -> bool:
         """Check if two colors are visually similar within a threshold."""
-        hex1 = self._normalize_color_for_compare(color1)
-        hex2 = self._normalize_color_for_compare(color2)
-        if not hex1 or not hex2 or len(hex1) < 6 or len(hex2) < 6:
-            return False
-
-        try:
-            r1 = int(hex1[0:2], 16)
-            g1 = int(hex1[2:4], 16)
-            b1 = int(hex1[4:6], 16)
-            r2 = int(hex2[0:2], 16)
-            g2 = int(hex2[2:4], 16)
-            b2 = int(hex2[4:6], 16)
-            return abs(r1 - r2) <= threshold and abs(g1 - g2) <= threshold and abs(b1 - b2) <= threshold
-        except ValueError:
-            return False
+        return colors_are_similar(color1, color2, threshold)
 
     async def _build_inventory_remain_overrides(
         self, db: AsyncSession, printer_id: int, loaded: list[dict]
@@ -10171,9 +10164,24 @@ class PrintScheduler:
                 by_slot = {r["slot_id"]: r for r in required if isinstance(r.get("slot_id"), int)}
         except Exception as e:
             logger.debug("Queue item %s: deficit colours unavailable: %s", item.id, e)
-        return [
-            todo_filament_from_requirement({**by_slot.get(d.slot_id, {}), "type": d.filament_type}) for d in deficit
-        ]
+        # Rows that share an AMS Filament Backup pool are one filament that is
+        # short; every other row is its own (#3634).
+        groups: dict[tuple, list] = {}
+        for d in deficit:
+            groups.setdefault(tuple(p[:2] for p in d.pooled) or ("slot", d.slot_id), []).append(d)
+        todo = []
+        for rows in groups.values():
+            base = todo_filament_from_requirement({**by_slot.get(rows[0].slot_id, {}), "type": rows[0].filament_type})
+            facts = describe_deficit(rows, color=base.color, color_name=base.color_name)
+            todo.append(
+                replace(
+                    base,
+                    short=True,
+                    short_trays=facts.trays,
+                    required_grams=facts.required_grams,
+                )
+            )
+        return todo
 
     def _find_color_substitutions(self, required: list[dict], mapping: list, loaded: list[dict]) -> list[dict]:
         """The slots ``mapping`` gives a spool of another colour than they ask for (#3279).

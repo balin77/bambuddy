@@ -571,6 +571,12 @@ class PrintBatchResponse(BaseModel):
         from_attributes = True
 
 
+class QueueTodoShortTray(BaseModel):
+    ams_id: int
+    tray_id: int
+    remaining_grams: float | None = None
+
+
 class QueueTodoFilament(BaseModel):
     """One filament a waiting job needs loaded (#3615). ``color`` is "#RRGGBB" or empty."""
 
@@ -580,6 +586,12 @@ class QueueTodoFilament(BaseModel):
     no_stock: bool = False
     # The nozzle a dual-nozzle file wants it on: 0 right, 1 left, None when it names none.
     nozzle: int | None = None
+    # Loaded, but a spool holds less than the job needs (#3634).
+    short: bool = False
+    # The trays counted for a short filament; empty in an "Any <model>" entry, whose printers' hints name them.
+    short_trays: list[QueueTodoShortTray] = []
+    # What the job prints of it, when known.
+    required_grams: float | None = None
 
 
 class QueueTodoJob(BaseModel):
@@ -610,6 +622,8 @@ class QueueTodoHintSlot(BaseModel):
     tray_info_idx: str = ""
     # What the tray reports as its product line (empty without RFID); names the colour.
     tray_sub_brands: str = ""
+    # In a "replace" hint: what the spool has left, when known.
+    remaining_grams: float | None = None
 
 
 class QueueTodoNozzleHint(BaseModel):
@@ -621,8 +635,9 @@ class QueueTodoNozzleHint(BaseModel):
 class QueueTodoSlotHint(BaseModel):
     """Where the missing filaments of one printer can go (#3634). Names no job."""
 
-    state: Literal["free", "replaceable", "all_needed"]
-    # free: the empty slots; replaceable: the loaded slots no waiting job needs; all_needed: none.
+    state: Literal["free", "replaceable", "all_needed", "replace"]
+    # free: the empty slots; replaceable: the loaded slots no waiting job needs; all_needed: none;
+    # replace: the loaded spools that hold too little for the job.
     slots: list[QueueTodoHintSlot] = []
     # Waiting jobs whose filaments could not be read: they may need a slot.
     unknown_jobs: int = 0

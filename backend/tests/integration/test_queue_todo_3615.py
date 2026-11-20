@@ -126,7 +126,16 @@ class TestTodoEntries:
         assert entry["kind"] == "load_filament"
         assert [j["id"] for j in entry["jobs"]] == [i.id for i in items]
         assert entry["filaments"] == [
-            {"type": "PLA", "color": "#FF0000", "color_name": "Red", "no_stock": False, "nozzle": None}
+            {
+                "type": "PLA",
+                "color": "#FF0000",
+                "color_name": "Red",
+                "no_stock": False,
+                "nozzle": None,
+                "short": False,
+                "short_trays": [],
+                "required_grams": None,
+            }
         ]
 
     async def test_dual_nozzle_filaments_name_their_nozzle(self, async_client, printer_factory, make_item):
@@ -715,6 +724,7 @@ class TestSlotHint:
                     "color": "#00FF00",
                     "tray_info_idx": "",
                     "tray_sub_brands": "",
+                    "remaining_grams": None,
                 }
             ],
             # Job 9999 is not one the caller sees: not counted.
