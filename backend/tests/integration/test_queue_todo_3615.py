@@ -819,7 +819,16 @@ class TestFarmEntries:
         scheduler._filament_holds = {item.id: [FilamentHold(item.id, a.id, None, (gone,))]}
         (entry,) = _only_entries((await async_client.get(URL)).json())
         assert entry["filaments"] == [
-            {"type": "PLA", "color": "#FF0000", "color_name": "Red", "no_stock": True, "nozzle": None}
+            {
+                "type": "PLA",
+                "color": "#FF0000",
+                "color_name": "Red",
+                "no_stock": True,
+                "nozzle": None,
+                "short": False,
+                "short_trays": [],
+                "required_grams": None,
+            }
         ]
 
 

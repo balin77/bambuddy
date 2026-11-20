@@ -238,7 +238,7 @@ class TestPredicateAgreesWithTheMatcher:
     def test_forced_filaments_fit_exactly_when_the_matcher_finds_them(self, fil, tray):
         scheduler = PrintScheduler()
         override = {"type": fil[0], "color": fil[1], "tray_info_idx": fil[2], "force_color_match": True}
-        misses = scheduler._force_color_misses(1, [override], self._raw(tray))
+        misses = scheduler._missing_force_color_pairs(1, [override], self._raw(tray))
         filament = todo_filament_from_requirement(override)
         assert tray_fits_filament(_slot(0, 0, tray[0], tray[1], tray[2]), filament) == (not misses)
 
@@ -269,7 +269,7 @@ class TestBuildTodoKeepsShortAndMissingApart:
     ]
 
     def _build(self, holds, hints=None, jobs=None):
-        return build_todo(jobs or self.JOBS, {1: "Farm A1", 2: "Farm B"}, holds, [], {}, [], hints or {})
+        return build_todo(jobs or self.JOBS, {1: "Farm A1", 2: "Farm B"}, holds, [], {}, [], slot_hints=hints or {})
 
     def test_a_short_and_a_missing_entry_of_one_filament_are_two_entries(self):
         holds = {

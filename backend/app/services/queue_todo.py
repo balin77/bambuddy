@@ -224,7 +224,7 @@ def tray_fits_filament(slot: HintSlot, filament: TodoFilament) -> bool:
     threshold); and when both sides name a filament preset (``tray_info_idx``),
     the same one. A tray that fits is not offered as a place to load that
     filament: the matcher would use it. See ``_match_filaments_to_slots`` and
-    ``_force_color_misses``, which a test holds this against.
+    ``_missing_force_color_pairs``, which a test holds this against.
 
     Intentionally stricter than the matcher, so that it errs towards not
     offering a tray the matcher might still use. Known edge cases: a
