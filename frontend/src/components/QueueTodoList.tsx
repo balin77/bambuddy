@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import i18n from 'i18next';
 import { Palette, Play, ShieldAlert, PowerOff, Loader2 } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import type {
@@ -56,8 +57,10 @@ function slotText(t: TFn, slot: QueueTodoHintSlot): string {
   return `${label} (${filament})`;
 }
 
+// The number in the interface language. The unit is part of the translated
+// strings, behind a non-breaking space, so "30 g" never wraps between the two.
 function formatGrams(grams: number): string {
-  return String(Math.round(grams));
+  return Math.round(grams).toLocaleString(i18n.language);
 }
 
 // The label of a tray of a short filament. The tray's own slot in the entry's

@@ -96,6 +96,7 @@ from backend.app.services.queue_todo import (
     SlotHint,
     TodoFilament,
     todo_filament_from_requirement,
+    unique_filaments,
 )
 from backend.app.services.slot_nozzle import reports_two_nozzles
 from backend.app.services.smart_plug_manager import is_monitor_only, publish_plug_state, smart_plug_manager
@@ -2321,9 +2322,7 @@ class PrintScheduler:
         """
         if self._pass_holds is None or not (previous := self._filament_holds.get(item.id)):
             return False
-        filaments: list[TodoFilament] = []
-        for hold in previous:
-            filaments.extend(f for f in hold.filaments if f not in filaments)
+        filaments = unique_filaments(*(hold.filaments for hold in previous))
         self._pass_holds[item.id] = [FilamentHold(item.id, item.printer_id, item.target_model, tuple(filaments))]
         return True
 
@@ -3288,7 +3287,7 @@ class PrintScheduler:
                         per_model_reasons.append((candidate.target_model, match_reason or ""))
                         for held_pid, held_fils in call_holds.items():
                             known = model_holds.setdefault(held_pid, (candidate.target_model, []))[1]
-                            known.extend(f for f in held_fils if f not in known)
+                            known[:] = unique_filaments(known, held_fils)
 
                     # Nothing is available and nothing has been woken this pass:
                     # switch one matching printer on. Assignment is left to the
