@@ -394,9 +394,10 @@ class TestPinnedHold:
     async def test_model_path_does_not_refire_when_the_reason_was_already_no_stock(self):
         # The model path clears the reason on assignment, so it hands the one the
         # item had before the pass over.
-        scheduler = _pinned_scheduler()
         before = f"Needs PLA Earth Brown{_NO_STOCK_SUFFIX}"
         for previous, fires in ((before, 0), (None, 1)):
+            # A scheduler each: the same job told once is remembered by id (#3649).
+            scheduler = _pinned_scheduler()
             item = _pinned_item(FORCED)
             with (
                 _entries((0, 0.0)),

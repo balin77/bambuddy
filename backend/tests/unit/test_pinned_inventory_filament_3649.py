@@ -156,11 +156,11 @@ class TestPinnedMappingWithAnInventorySlot:
 
 class TestDualNozzle:
     NOZZLE = [{**r, "nozzle_id": 1 if r["slot_id"] == 2 else 0} for r in REQUIREMENTS]
-    LEFT = [{**t, "extruder_id": 0} for t in LOADED]
+    ON_RIGHT_NOZZLE = [{**t, "extruder_id": 0} for t in LOADED]
 
     @pytest.mark.asyncio
     async def test_the_colour_on_the_other_nozzle_does_not_fill_the_slot(self):
-        scheduler = _scheduler([*self.LEFT, {**RED_ON_5, "extruder_id": 0}], self.NOZZLE)
+        scheduler = _scheduler([*self.ON_RIGHT_NOZZLE, {**RED_ON_5, "extruder_id": 0}], self.NOZZLE)
         item = _item([2, -1])
 
         await _settle(scheduler, item)
@@ -169,12 +169,12 @@ class TestDualNozzle:
 
     @pytest.mark.asyncio
     async def test_the_colour_on_the_slots_nozzle_fills_it_and_the_wait_names_the_nozzle(self):
-        scheduler = _scheduler([*self.LEFT, {**RED_ON_5, "extruder_id": 1}], self.NOZZLE)
+        scheduler = _scheduler([*self.ON_RIGHT_NOZZLE, {**RED_ON_5, "extruder_id": 1}], self.NOZZLE)
         item = _item([2, -1])
         await _settle(scheduler, item)
         assert json.loads(item.ams_mapping) == [2, 5]
 
-        waiting = _scheduler(self.LEFT, self.NOZZLE)
+        waiting = _scheduler(self.ON_RIGHT_NOZZLE, self.NOZZLE)
         item = _item([2, -1])
         await _settle(waiting, item)
         with patch("backend.app.services.print_scheduler.printer_manager") as pm:
@@ -281,3 +281,116 @@ class TestQueuePassWithLoadedFilamentFirst:
         )
         assert (await filament_first._get(ctx, item_id)).waiting_reason == "Waiting for filament: PLA Lava Red"
         notify.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_busy_hold_in_between_does_not_tell_again(self, ctx):
+        """The held reason is replaced by "Busy: ..." while another job prints; the same shortage is not new then."""
+        item_id = await self._job(ctx)
+        scheduler = PrintScheduler()
+        notify = AsyncMock()
+        for idle in (True, False, True, False, True):
+            await filament_first._run(
+                ctx,
+                scheduler,
+                real_unmatched=True,
+                idle=lambda pid, idle=idle: idle,
+                extra_patches=self._pass_patches(scheduler, 0, notify),
+            )
+        reason = (await filament_first._get(ctx, item_id)).waiting_reason
+        assert reason == f"Waiting for filament: PLA Lava Red{_NO_STOCK_SUFFIX}"
+        notify.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_stock_refilled_and_gone_again_is_told_again(self, ctx):
+        await self._job(ctx)
+        scheduler = PrintScheduler()
+        notify = AsyncMock()
+        for count in (0, 0, 2, 2, 0, 0):
+            await filament_first._run(
+                ctx, scheduler, real_unmatched=True, extra_patches=self._pass_patches(scheduler, count, notify)
+            )
+        assert notify.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_a_job_that_left_the_queue_is_forgotten(self, ctx):
+        item_id = await self._job(ctx)
+        scheduler = PrintScheduler()
+        notify = AsyncMock()
+        await filament_first._run(
+            ctx, scheduler, real_unmatched=True, extra_patches=self._pass_patches(scheduler, 0, notify)
+        )
+        assert item_id in scheduler._out_of_stock_notified
+
+        async with ctx.session_maker() as db:
+            (await db.get(filament_first.PrintQueueItem, item_id)).status = "cancelled"
+            await db.commit()
+        await filament_first._run(ctx, scheduler)
+
+        assert scheduler._out_of_stock_notified == {}
+
+
+class TestSwitchedOffPrinterDeclinesTheWake:
+    """A pinned job whose switched-off printer cannot supply the colour says so the same way (#3649)."""
+
+    @pytest.mark.asyncio
+    async def test_the_reason_carries_the_suffix_and_the_event_fires_once(self, ctx):
+        await filament_first._mode(ctx, hours="None")
+        await filament_first._set(ctx, "filament_override_inventory", "true")
+        item_id = await filament_first._add_item(
+            ctx, printer_id=1, filament_overrides=json.dumps([PICK]), ams_mapping=json.dumps([-1])
+        )
+        scheduler = PrintScheduler()
+        notify = AsyncMock()
+        reading = {"ams": [{"tray": [{"tray_type": "PLA", "tray_color": "00FF00FF", "tray_info_idx": "GFA00"}]}]}
+        entries = [StockEntry("PLA", "#C0392B", "GFA00", "", "", None, None, None, 0, 0.0)]
+        plug = MagicMock(id=1, name="plug", auto_on=True, enabled=True, printer_id=1, controls_printer_power=True)
+        power_on = AsyncMock(return_value=False)
+        for _ in range(2):
+            await filament_first._run(
+                ctx,
+                scheduler,
+                connected=lambda pid: pid != 1,
+                extra_patches=[
+                    patch.object(scheduler, "_get_smart_plugs", AsyncMock(return_value=[plug])),
+                    patch.object(scheduler, "_power_on_and_wait", power_on),
+                    patch.object(scheduler, "_tray_reading", MagicMock(return_value=reading)),
+                    patch(STOCK, AsyncMock(return_value=entries)),
+                    patch(NOTIFY, notify),
+                ],
+            )
+
+        power_on.assert_not_awaited()
+        reason = (await filament_first._get(ctx, item_id)).waiting_reason
+        assert reason.startswith("Waiting for filament: ")
+        assert reason.endswith(_NO_STOCK_SUFFIX)
+        notify.assert_awaited_once()
+        assert notify.await_args.kwargs["printer_id"] == 1
+
+
+class TestModelPathRace:
+    """The matcher let a printer through but the filament check at dispatch disagrees (#3649)."""
+
+    @pytest.mark.asyncio
+    async def test_the_released_job_says_none_left_and_tells_once(self, ctx):
+        await filament_first._mode(ctx, hours="None")
+        await filament_first._set(ctx, "filament_override_inventory", "true")
+        item_id = await filament_first._add_item(ctx)
+        scheduler = PrintScheduler()
+        notify = AsyncMock()
+        entries = [StockEntry("PLA", "#C0392B", "GFA00", "", "", None, None, None, 0, 0.0)]
+        for _ in range(2):
+            await filament_first._run(
+                ctx,
+                scheduler,
+                extra_patches=[
+                    patch.object(scheduler, "_unmatched_requirements", AsyncMock(return_value=[dict(PICK)])),
+                    patch(STOCK, AsyncMock(return_value=entries)),
+                    patch(NOTIFY, notify),
+                ],
+            )
+
+        item = await filament_first._get(ctx, item_id)
+        assert item.printer_id is None
+        assert item.waiting_reason == f"Waiting for filament: PLA Lava Red{_NO_STOCK_SUFFIX}"
+        notify.assert_awaited_once()
+        assert notify.await_args.kwargs["filament"] == "PLA Lava Red"
