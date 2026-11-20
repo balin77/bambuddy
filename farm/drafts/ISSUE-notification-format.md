@@ -1,6 +1,6 @@
 # Issue drafts – notifications: readable layout, raw reason code, language
 
-**Status:** Drafts, nothing posted. Three parts, the user decides what to post:
+**Status:** All three posted on 20 November 2026: A as maziggy/bambuddy#3641, B as maziggy/bambuddy#3642, C as https://github.com/maziggy/bambuddy/issues/2933#issuecomment-7033784133. Nothing assigned yet, no code yet. Three parts:
 
 - **A. Feature:** readable notifications (structured fields, colour dots), new issue.
 - **B. Bug:** the queue notification shows the raw code `filament_short`, a small separate bug report.

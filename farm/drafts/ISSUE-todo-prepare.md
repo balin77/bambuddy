@@ -1,6 +1,6 @@
 # Issue draft – To do list: prepare the next jobs' filaments, also during a print
 
-**Status:** Draft, nothing posted. Follow-up to #3615 (PR #3622) and #3634. Code is prepared in the fork on `feature/queue-todo-prepare` (on top of `feature/queue-todo-replace-slot`). Searched before: "prepare filament next job", "load filament during print queue", "swap spool while printing".
+**Status:** Posted on 20 November 2026 as maziggy/bambuddy#3640. Not assigned yet. Follow-up to #3615 (PR #3622) and #3634. Code is prepared in the fork on `feature/queue-todo-prepare` (on top of `feature/queue-todo-replace-slot`). Searched before: "prepare filament next job", "load filament during print queue", "swap spool while printing".
 
 ---
 
