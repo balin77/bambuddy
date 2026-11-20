@@ -12,6 +12,9 @@ from __future__ import annotations
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 
+from backend.app.utils.color_utils import colors_are_similar
+from backend.app.utils.filament_types import canonical_filament_type
+
 KIND_PLATE_CLEAR = "plate_clear"
 KIND_PLATE_CHANGER_EMPTY = "plate_changer_empty"
 KIND_SENSOR_INTERLOCK = "sensor_interlock"
@@ -23,6 +26,8 @@ KIND_START_STAGED = "start_staged"
 HINT_FREE = "free"
 HINT_REPLACEABLE = "replaceable"
 HINT_ALL_NEEDED = "all_needed"
+# A spool the job needs holds too little: that spool is the one to replace.
+HINT_REPLACE = "replace"
 
 # Order of the entries inside one group.
 _KIND_ORDER = (
@@ -36,11 +41,31 @@ _KIND_ORDER = (
 
 
 @dataclass(frozen=True)
+class ShortTray:
+    """A tray whose spool has too little filament for the job (#3634).
+
+    ``remaining_grams`` is None when the amount is not known.
+    """
+
+    ams_id: int
+    tray_id: int
+    remaining_grams: float | None = None
+
+
+@dataclass(frozen=True)
 class TodoFilament:
     """One filament a job waits for. ``color`` is "#RRGGBB" or empty.
 
     ``nozzle`` is the extruder a dual-nozzle file wants it on, as the waiting
     text names it: 0 the right nozzle, 1 the left, None when the file names none.
+
+    ``short`` marks a filament that is loaded but in too little amount: it is
+    not missing, a spool holds less than the job needs. ``short_trays`` are the
+    trays counted for it (the mapped one, and with AMS Filament Backup every
+    tray pooled with it) and ``required_grams`` what the job prints of it.
+    ``tray_info_idx`` and ``forced`` (a forced colour match) say which loaded
+    trays count as this filament. None of these five takes part in equality, so
+    a list of filaments compares as it did before they existed (#3634).
     """
 
     type: str
@@ -48,6 +73,9 @@ class TodoFilament:
     color_name: str = ""
     no_stock: bool = False
     nozzle: int | None = None
+    short: bool = field(default=False, compare=False)
+    short_trays: tuple[ShortTray, ...] = field(default=(), compare=False)
+    required_grams: float | None = field(default=None, compare=False)
     # What the stock check of #3590 needs; not part of the response.
     tray_info_idx: str = field(default="", compare=False)
     forced: bool = field(default=False, compare=False)
@@ -86,6 +114,8 @@ class HintSlot:
     color: str = ""
     tray_info_idx: str = ""
     tray_sub_brands: str = ""
+    # Only on a slot of a "replace" hint: what the spool has left, when known.
+    remaining_grams: float | None = None
 
 
 @dataclass(frozen=True)
@@ -115,6 +145,9 @@ class SlotHint:
     slots: tuple[HintSlot, ...] = ()
     unknown_job_ids: tuple[int, ...] = ()
     by_nozzle: tuple[NozzleHint, ...] = ()
+    # Every loaded slot of the printer, whatever a job needs. Not shown as it
+    # is: an entry whose filament is short looks its trays up here.
+    loaded: tuple[HintSlot, ...] = ()
 
     @property
     def unknown_jobs(self) -> int:
@@ -139,11 +172,12 @@ def merge_todo_filaments(into: list[TodoFilament], more: Iterable[TodoFilament])
 
     ``forced`` and ``tray_info_idx`` are not compared, so a filament already
     there stands for its twin; the forced twin wins (the flag is OR-ed), or the
-    stock flag of the forced one would be lost (#3615).
+    stock flag of the forced one would be lost (#3615). A short spool and a
+    missing one of the same filament stay two (#3634).
     """
     for f in more:
         for i, known in enumerate(into):
-            if known == f:
+            if known == f and known.short == f.short:
                 if f.forced and not known.forced:
                     into[i] = replace(known, forced=True, tray_info_idx=f.tray_info_idx or known.tray_info_idx)
                 break
@@ -161,6 +195,27 @@ def _more_urgent(candidate: tuple[str, int | None], current: tuple[str, int | No
     if current is None or current[0] == "priority_in" and candidate[0] == "has_priority":
         return True
     return current[0] == "priority_in" and candidate[0] == "priority_in" and (candidate[1] or 0) < (current[1] or 0)
+
+
+def tray_fits_filament(slot: HintSlot, filament: TodoFilament) -> bool:
+    """Whether a loaded tray is a spool of ``filament``, as the dispatch matcher reads it (#3634).
+
+    The same canonical type, and a colour that is the same (exact when the
+    filament forces the colour match) or similar (the matcher's per-channel
+    threshold); and when both sides name a filament preset (``tray_info_idx``),
+    the same one. A tray that fits is not offered as a place to load that
+    filament: the matcher would use it. See ``_match_filaments_to_slots`` and
+    ``_force_color_misses``, which a test holds this against.
+    """
+    if not slot.type or canonical_filament_type(slot.type.upper()) != canonical_filament_type(filament.type.upper()):
+        return False
+    if filament.tray_info_idx and slot.tray_info_idx and filament.tray_info_idx != slot.tray_info_idx:
+        return False
+    want = filament.color.replace("#", "").lower()[:6]
+    have = slot.color.replace("#", "").lower()[:6]
+    if want == have:
+        return True
+    return not filament.forced and colors_are_similar(slot.color, filament.color)
 
 
 def normalize_hex(value: object) -> str:
@@ -207,7 +262,21 @@ def _sorted(filaments: Iterable[TodoFilament]) -> tuple[TodoFilament, ...]:
 
 
 def _fil_key(filaments: Iterable[TodoFilament]) -> tuple:
-    return tuple((f.type, f.color, f.nozzle) for f in _sorted(filaments))
+    # A short spool and a missing one of the same filament are two things to do.
+    return tuple((f.type, f.color, f.nozzle, f.short) for f in _sorted(filaments))
+
+
+def _merge_short(base: tuple[TodoFilament, ...], more: tuple[TodoFilament, ...]) -> tuple[TodoFilament, ...]:
+    """``base`` with the short trays of ``more`` (the same filaments, in the same order) added."""
+    if len(base) != len(more):
+        return base
+    merged = []
+    for a, b in zip(base, more, strict=True):
+        if a.short and b.short and (extra := [t for t in b.short_trays if t not in a.short_trays]):
+            grams = [g for g in (a.required_grams, b.required_grams) if g is not None]
+            a = replace(a, short_trays=a.short_trays + tuple(extra), required_grams=max(grams) if grams else None)
+        merged.append(a)
+    return tuple(merged)
 
 
 def _slot_dict(slot: HintSlot) -> dict:
@@ -222,14 +291,42 @@ def _slot_dict(slot: HintSlot) -> dict:
         "color": slot.color,
         "tray_info_idx": slot.tray_info_idx,
         "tray_sub_brands": slot.tray_sub_brands,
+        "remaining_grams": slot.remaining_grams,
     }
 
 
 _HINT_RANK = {HINT_FREE: 0, HINT_REPLACEABLE: 1, HINT_ALL_NEEDED: 2}
 
 
+def _replace_slots(hint: SlotHint, filaments: Iterable[TodoFilament]) -> tuple[HintSlot, ...]:
+    """The trays whose spools are too small for the entry, as the printer reports them (#3634).
+
+    Looked up among the printer's loaded slots for what is in them; a tray
+    that is no longer loaded is left out.
+    """
+    loaded = {(slot.ams_id, slot.tray_id): slot for slot in hint.loaded}
+    out: dict[tuple[int, int], HintSlot] = {}
+    for filament in filaments:
+        if not filament.short:
+            continue
+        for tray in filament.short_trays:
+            key = (tray.ams_id, tray.tray_id)
+            if key in loaded and key not in out:
+                out[key] = replace(loaded[key], remaining_grams=tray.remaining_grams)
+    return tuple(out[key] for key in sorted(out))
+
+
 def _hint_dict(hint: SlotHint, filaments: Iterable[TodoFilament], visible_ids: Collection[int]) -> dict | None:
     """A printer's hint as one entry shows it (#3634), or None when it has nothing for the entry.
+
+    A filament that is loaded but too little (``short``) is answered with the
+    spool to replace: state ``replace`` and those trays, with what they have
+    left, whatever the nozzle (and with no alternative, as the spool it needs
+    is already in the printer).
+
+    Otherwise a slot that holds a spool of one of the entry's filaments (see
+    ``tray_fits_filament``) is never offered for replacing: the matcher would
+    use it. When that leaves no slot, nothing is left to replace.
 
     On a dual-nozzle printer without a Filament Track Switch the hint has a
     part per nozzle. An entry whose filaments all name a nozzle is built from
@@ -240,21 +337,38 @@ def _hint_dict(hint: SlotHint, filaments: Iterable[TodoFilament], visible_ids: C
 
     ``unknown_jobs`` counts only the waiting jobs in ``visible_ids``.
     """
-    state, slots, parts = hint.state, hint.slots, ()
-    if hint.by_nozzle:
+    filaments = tuple(filaments)
+    unknown_jobs = sum(1 for job_id in hint.unknown_job_ids if job_id in visible_ids)
+    if replace_slots := _replace_slots(hint, filaments):
+        return {
+            "state": HINT_REPLACE,
+            "slots": [_slot_dict(slot) for slot in replace_slots],
+            "unknown_jobs": unknown_jobs,
+            "by_nozzle": [],
+        }
+
+    def settle(state: str, slots: tuple[HintSlot, ...]) -> tuple[str, tuple[HintSlot, ...]]:
+        kept = tuple(s for s in slots if not any(tray_fits_filament(s, f) for f in filaments))
+        return (HINT_ALL_NEEDED, ()) if state == HINT_REPLACEABLE and not kept else (state, kept)
+
+    state, slots = settle(hint.state, hint.slots)
+    parts = tuple(NozzleHint(p.nozzle, *settle(p.state, p.slots)) for p in hint.by_nozzle)
+    shown: tuple[NozzleHint, ...] = ()
+    if parts:
         nozzles = {f.nozzle for f in filaments}
         if None not in nozzles:
             labels = {"left" if n == 1 else "right" for n in nozzles}
-            parts = tuple(p for p in hint.by_nozzle if p.nozzle in labels)
+            parts = tuple(p for p in parts if p.nozzle in labels)
             if not parts:
                 return None
             state = min((p.state for p in parts), key=_HINT_RANK.__getitem__)
             slots = tuple(slot for p in parts if p.state == state for slot in p.slots)
+            shown = parts
     return {
         "state": state,
         "slots": [_slot_dict(slot) for slot in slots],
-        "unknown_jobs": sum(1 for job_id in hint.unknown_job_ids if job_id in visible_ids),
-        "by_nozzle": [{"nozzle": p.nozzle, "state": p.state, "slots": [_slot_dict(x) for x in p.slots]} for p in parts],
+        "unknown_jobs": unknown_jobs,
+        "by_nozzle": [{"nozzle": p.nozzle, "state": p.state, "slots": [_slot_dict(x) for x in p.slots]} for p in shown],
     }
 
 
@@ -295,9 +409,9 @@ def build_todo(
         return group
 
     def add(group: _Group, kind: str, subkey: tuple, job: TodoJob, **extra) -> None:
-        entry = group.entries.setdefault(
-            (kind, subkey),
-            {
+        entry = group.entries.get((kind, subkey))
+        if entry is None:
+            entry = group.entries[(kind, subkey)] = {
                 "kind": kind,
                 "jobs": [],
                 "detail": None,
@@ -306,8 +420,13 @@ def build_todo(
                 "priority_hours": None,
                 "plate_capacity": None,
                 **extra,
-            },
-        )
+            }
+        else:
+            # Another job waits for the same: its short trays count too (#3634).
+            if "_filaments" in extra:
+                entry["_filaments"] = _merge_short(entry["_filaments"], extra["_filaments"])
+            for pid, fils in extra.get("_by_printer", {}).items():
+                entry["_by_printer"][pid] = _merge_short(entry["_by_printer"].get(pid, fils), fils)
         if kind == KIND_LOAD_FILAMENT and priorities and job.id in priorities:
             state = priorities[job.id]
             if _more_urgent(state, (entry["priority"], entry["priority_hours"]) if entry["priority"] else None):
@@ -352,11 +471,14 @@ def build_todo(
             if visible:
                 fewest = min(len(h.filaments) for h in visible)
                 by_set: dict[tuple, tuple[tuple[TodoFilament, ...], set[int]]] = {}
+                own: dict[tuple, dict[int, tuple[TodoFilament, ...]]] = {}
                 for hold in visible:
                     if len(hold.filaments) == fewest:
                         sets = by_set.setdefault(_fil_key(hold.filaments), (_sorted(hold.filaments), set()))
                         assert hold.printer_id is not None
                         sets[1].add(hold.printer_id)
+                        # A short spool is a tray of that printer.
+                        own.setdefault(_fil_key(hold.filaments), {})[hold.printer_id] = _sorted(hold.filaments)
                 for key, (fils, ids) in by_set.items():
                     add(
                         group_for(None, job.model_key, job.model_label, index),
@@ -364,6 +486,7 @@ def build_todo(
                         (key, tuple(sorted(ids))),
                         job,
                         _filaments=fils,
+                        _by_printer=own[key],
                         printers=[{"id": pid, "name": printers[pid]} for pid in sorted(ids)],
                     )
             else:
@@ -389,6 +512,10 @@ def build_todo(
                 if k != kind:
                     continue
                 fils = entry.pop("_filaments", ())
+                by_printer = entry.pop("_by_printer", {})
+                # The trays of a short spool are named for a printer: an entry
+                # for an "Any <model>" group says "short", its printers' hints
+                # say where.
                 entry["filaments"] = [
                     {
                         "type": f.type,
@@ -396,6 +523,14 @@ def build_todo(
                         "color_name": f.color_name,
                         "no_stock": f.no_stock,
                         "nozzle": f.nozzle,
+                        "short": f.short,
+                        "short_trays": []
+                        if group.printer_id is None
+                        else [
+                            {"ams_id": t.ams_id, "tray_id": t.tray_id, "remaining_grams": t.remaining_grams}
+                            for t in f.short_trays
+                        ],
+                        "required_grams": f.required_grams,
                     }
                     for f in fils
                 ]
@@ -408,7 +543,8 @@ def build_todo(
                             {"printer_id": p["id"], **shown}
                             for p in entry["printers"]
                             if p["id"] in slot_hints
-                            and (shown := _hint_dict(slot_hints[p["id"]], fils, index_of)) is not None
+                            and (shown := _hint_dict(slot_hints[p["id"]], by_printer.get(p["id"], fils), index_of))
+                            is not None
                         ]
                 entries.append(entry)
         if not entries:

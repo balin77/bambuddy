@@ -31,7 +31,8 @@ from __future__ import annotations
 import json
 import logging
 from collections import defaultdict
-from dataclasses import dataclass
+from collections.abc import Iterable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from sqlalchemy import select
@@ -45,6 +46,7 @@ from backend.app.models.spool_assignment import SpoolAssignment
 from backend.app.models.spoolman_slot_assignment import SpoolmanSlotAssignment
 from backend.app.services.filament_requirements import extract_filament_requirements
 from backend.app.services.printer_manager import printer_tray_layout
+from backend.app.services.queue_todo import ShortTray
 from backend.app.utils.filament_ids import normalize_slicer_filament
 from backend.app.utils.tray_ids import TrayLayout
 
@@ -61,6 +63,10 @@ class FilamentDeficit:
     filament_type: str
     required_grams: float
     remaining_grams: float | None  # None = could not determine
+    # With AMS Filament Backup: every (ams_id, tray_id, remaining_grams) the pool
+    # of this slot's material counted, its own tray included. Empty without
+    # backup. Not part of ``to_dict`` or of equality (#3634).
+    pooled: tuple[tuple[int, int, float], ...] = field(default=(), compare=False)
 
     def to_dict(self) -> dict:
         return {
@@ -881,8 +887,10 @@ async def compute_deficit_for_queue_item(
     pool_by_key: dict[tuple[str, int], float] = defaultdict(float)
     required_by_key: dict[tuple[str, int], float] = defaultdict(float)
 
+    members_by_key: dict[tuple[str, int], list[tuple[int, int, float]]] = defaultdict(list)
     for slot in await build_slot_materials(db, printer_id, live_keys=live_keys):
         pool_by_key[(slot.material_key, slot.extruder)] += slot.remaining_grams
+        members_by_key[(slot.material_key, slot.extruder)].append((slot.ams_id, slot.tray_id, slot.remaining_grams))
 
     for row in resolved:
         required_by_key[(row.identity, row.extruder)] += row.required
@@ -902,14 +910,69 @@ async def compute_deficit_for_queue_item(
                     filament_type=row.filament_type,
                     required_grams=row.required,
                     remaining_grams=row.remaining,
+                    pooled=tuple(sorted(members_by_key[key])),
                 )
             )
 
     return unknown + deficits
 
 
+@dataclass(frozen=True)
+class DeficitDescription:
+    """What a deficit says about one filament, as facts rather than words (#3634).
+
+    ``trays`` are the trays the check counted (the mapped one, and with AMS
+    Filament Backup every tray pooled with it) with what each has left, and
+    ``required_grams`` what the job prints of this filament. ``color`` is
+    "#RRGGBB" or empty. The To do list is built from this; the notification
+    about a short spool (#3642) can word the same facts.
+    """
+
+    filament_type: str
+    color: str
+    color_name: str
+    trays: tuple[ShortTray, ...]
+    required_grams: float | None
+
+    @property
+    def remaining_grams(self) -> float | None:
+        """What all the trays have left together; None when any amount is unknown."""
+        if not self.trays or any(t.remaining_grams is None for t in self.trays):
+            return None
+        return sum(t.remaining_grams or 0.0 for t in self.trays)
+
+
+def describe_deficit(rows: Iterable[FilamentDeficit], *, color: str = "", color_name: str = "") -> DeficitDescription:
+    """The facts of the deficit rows of one filament (rows that share a pool, or a single row).
+
+    A row names its own tray, and with backup the whole pool; the trays are
+    the union, each once, in slot order. The required grams add up: the pool
+    has to cover the print's total of that material.
+    """
+    rows = list(rows)
+    trays: dict[tuple[int, int], ShortTray] = {}
+    for row in rows:
+        members = row.pooled or (
+            ((row.ams_id, row.tray_id, row.remaining_grams),)
+            if row.ams_id is not None and row.tray_id is not None
+            else ()
+        )
+        for ams_id, tray_id, remaining in members:
+            trays.setdefault((ams_id, tray_id), ShortTray(ams_id, tray_id, remaining))
+    required = [row.required_grams for row in rows if row.required_grams is not None]
+    return DeficitDescription(
+        filament_type=rows[0].filament_type if rows else "",
+        color=color,
+        color_name=color_name,
+        trays=tuple(trays[key] for key in sorted(trays)),
+        required_grams=sum(required) if required else None,
+    )
+
+
 # Re-export the most useful pieces for callers that just want the data.
 __all__ = [
+    "DeficitDescription",
     "FilamentDeficit",
     "compute_deficit_for_queue_item",
+    "describe_deficit",
 ]
