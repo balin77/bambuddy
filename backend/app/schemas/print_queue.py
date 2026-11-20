@@ -594,13 +594,52 @@ class QueueTodoPrinter(BaseModel):
     name: str
 
 
+class QueueTodoPausedSlot(BaseModel):
+    """A slot a paused print names (#3648), with the fields of the filament hints' slots."""
+
+    ams_id: int
+    tray_id: int
+    is_ht: bool = False
+    is_external: bool = False
+    ams_type: int | None = None
+    # What the slot's tray reports now; empty for an empty slot.
+    type: str = ""
+    color: str = ""
+    tray_info_idx: str = ""
+    tray_sub_brands: str = ""
+
+
+class QueueTodoPausedError(BaseModel):
+    # The code as the printer screen writes it, e.g. "0500-0300-0002-000E".
+    code: str
+    description: str | None = None
+
+
+class QueueTodoPaused(BaseModel):
+    """A print that is paused and waits for a person (#3648)."""
+
+    # The paused file; None when the caller may not read printers.
+    job_name: str | None = None
+    progress: int | None = None
+    remaining_minutes: int | None = None
+    cause: Literal["runout_ams", "runout_external", "error", "paused"] = "paused"
+    # The slot that ran out and the slot the printer now expects, when they can be told.
+    ran_out: QueueTodoPausedSlot | None = None
+    expected: QueueTodoPausedSlot | None = None
+    error: QueueTodoPausedError | None = None
+    # Other faults that stop or pause the task, besides the one named.
+    more_errors: int = 0
+
+
 class QueueTodoEntry(BaseModel):
-    kind: Literal["plate_clear", "load_filament", "start_staged", "sensor_interlock", "power_on_failed"]
+    kind: Literal["print_paused", "plate_clear", "load_filament", "start_staged", "sensor_interlock", "power_on_failed"]
     jobs: list[QueueTodoJob]
     filaments: list[QueueTodoFilament] = []
     # Printers where loading ``filaments`` lets a model job start; empty for other kinds.
     printers: list[QueueTodoPrinter] = []
     detail: str | None = None
+    # Only on a "print_paused" entry.
+    paused: QueueTodoPaused | None = None
 
 
 class QueueTodoGroup(BaseModel):

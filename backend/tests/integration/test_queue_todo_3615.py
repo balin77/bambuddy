@@ -95,6 +95,7 @@ class TestTodoEntries:
                 "printers": [],
                 "filaments": [],
                 "detail": None,
+                "paused": None,
             }
         ]
 
