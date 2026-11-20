@@ -1,4 +1,5 @@
-import type { PrintQueueItem, Printer, CalibrationMode } from '../../api/client';
+import type { PrintQueueItem, Printer, CalibrationMode, InventoryFilament } from '../../api/client';
+import type { FilamentOverrideEntry } from './inventoryOptions';
 import type { VariantCandidate } from './VariantCandidates';
 import type { SeparateJobsProgress, SeparateJobsResume } from './separateJobs';
 
@@ -335,6 +336,19 @@ export interface FilamentMappingProps {
   nozzleRackChoice?: Record<number, number>;
   /** Called when a rack position is picked for a group. */
   onNozzleRackChoiceChange?: (choice: Record<number, number>) => void;
+  /** The printer's name, for the hint under a slot that waits for filament (#3649). */
+  printerName?: string;
+  /** The inventory's stock, offered as a second group "From inventory (not
+   *  loaded)" under the loaded slots (#3649). Omitted or empty = no group. */
+  inventoryFilaments?: InventoryFilament[];
+  /** The colours picked from the inventory, by slot (#3649). A slot with a pick takes
+   *  no tray: the job waits for that colour to be loaded on the printer. `filamentReqs`
+   *  keeps the file's own colour for such a slot. */
+  inventoryPicks?: Record<number, FilamentOverrideEntry>;
+  /** A colour from the inventory was picked for a slot, or (null) the pick was given up (#3649). */
+  onInventoryPick?: (slotId: number, pick: FilamentOverrideEntry | null) => void;
+  /** Total grams the whole job needs per inventory entry, for the stock warning (#3590). */
+  inventoryDemand?: Record<string, number>;
 }
 
 /**

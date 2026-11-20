@@ -1,14 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Circle, Check, AlertTriangle, RefreshCw, ChevronDown, ChevronUp, Palette } from 'lucide-react';
+import { Circle, Check, AlertTriangle, RefreshCw, ChevronDown, ChevronUp, Palette, Clock } from 'lucide-react';
 import { api } from '../../api/client';
-import type { SlotSpoolIdentity } from '../../api/client';
+import type { InventoryFilament, SlotSpoolIdentity } from '../../api/client';
 import { useFilamentMapping } from '../../hooks/useFilamentMapping';
 import { effectivePreferLowest, FTS_INLET_SIDE, normalizeColorForCompare } from '../../utils/amsHelpers';
 import { disambiguateColorNames, getColorName } from '../../utils/colors';
 import { SlotPicker } from './SlotPicker';
 import { displayHex } from './displayHex';
+import { findStoredMatch } from './inventoryMatch';
+import {
+  inventoryEntriesByType,
+  inventoryPickerOption,
+  inventoryStockWarning,
+  inventoryValue,
+  inventoryWaitHint,
+  notLoadedInventory,
+  overrideFromPickerValue,
+} from './inventoryOptions';
 import { useFilamentLabels } from './useFilamentLabels';
 import { autoAssignRackPositions, rackOptionsForGroup } from '../../utils/nozzleRack';
 import type { FilamentMappingProps, RackGroupInfo } from './types';
@@ -38,8 +48,13 @@ export function FilamentMapping({
   archiveAmsMapping,
   nozzleRackChoice,
   onNozzleRackChoiceChange,
+  printerName,
+  inventoryFilaments,
+  inventoryPicks,
+  onInventoryPick,
+  inventoryDemand,
 }: FilamentMappingProps & { defaultExpanded?: boolean }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
@@ -148,6 +163,22 @@ export function FilamentMapping({
     printerStatus?.ams_filament_backup,
   );
 
+  // Slots that wait for a colour from the inventory instead of a tray (#3649).
+  const inventorySlots = useMemo(() => {
+    const slots = new Set<number>();
+    for (const f of filamentReqs?.filaments ?? []) {
+      if (inventoryPicks?.[f.slot_id]) slots.add(f.slot_id);
+    }
+    return slots;
+  }, [filamentReqs, inventoryPicks]);
+  const inventoryByType = useMemo(() => inventoryEntriesByType(inventoryFilaments), [inventoryFilaments]);
+  // The group is offered only with a handler to take the pick and a list to pick from.
+  const inventoryOffered = !!onInventoryPick && (inventoryFilaments?.length ?? 0) > 0;
+  const numberFormat = useMemo(
+    () => new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 1 }),
+    [i18n.language],
+  );
+
   const { loadedFilaments, filamentComparison, hasTypeMismatch, hasColorMismatch } =
     useFilamentMapping(
       filamentReqs,
@@ -157,7 +188,9 @@ export function FilamentMapping({
       inventoryByTrayId,
       slotSpools,
       filamentPolicies,
+      inventorySlots,
     );
+  const hasWaitingSlot = filamentComparison.some((f) => f.status === 'inventory');
 
   // Filaments this file needs that the user's group may not print with
   // (#3522). The server refuses such a job; this says so before submitting.
@@ -219,6 +252,8 @@ export function FilamentMapping({
     onEstimatedCostChangeRef.current?.(totalCost > 0 ? totalCost : null);
   }, [totalCost]);
 
+  // The estimate prices the loaded slots only: a slot waiting for a colour from
+  // the inventory has no spool to price yet (#3649).
   const hasAnyCost = useMemo(
     () => Array.from(trayCostMap.values()).some((v) => v != null && v > 0),
     [trayCostMap]
@@ -317,10 +352,25 @@ export function FilamentMapping({
     ? '#f97316' // orange
     : hasColorMismatch
     ? '#facc15' // yellow
+    : hasWaitingSlot
+    ? '#60a5fa' // blue: waits for a colour from the inventory (#3649)
     : '#00ae42'; // green
 
-  const handleSlotChange = (slotId: number, value: string) => {
+  const handleSlotChange = (slotId: number, value: string, inventoryEntry?: InventoryFilament) => {
     if (slotId > 0) {
+      if (inventoryEntry) {
+        // A colour from the inventory takes no tray: a tray picked by hand for the slot is dropped (#3649).
+        const next = { ...manualMappings };
+        delete next[slotId];
+        onManualMappingChange(next);
+        onInventoryPick?.(slotId, overrideFromPickerValue(value, inventoryEntry));
+        return;
+      }
+      if (inventorySlots.has(slotId)) {
+        // Back from the inventory pick (the saved row picked again changes nothing).
+        if (value !== '' && !/^\d+$/.test(value)) return;
+        onInventoryPick?.(slotId, null);
+      }
       if (value === '') {
         // Clear manual override
         const next = { ...manualMappings };
@@ -363,6 +413,8 @@ export function FilamentMapping({
           <span className="text-xs text-orange-700 dark:text-orange-400">({t('printModal.statusTypeNotFound')})</span>
         ) : hasColorMismatch ? (
           <span className="text-xs text-yellow-700 dark:text-yellow-400">({t('printModal.statusColorMismatch')})</span>
+        ) : hasWaitingSlot ? (
+          <span className="text-xs text-blue-700 dark:text-blue-400">({t('printModal.statusWaitsForFilament', 'Waits for filament')})</span>
         ) : (
           <span className="text-xs text-bambu-green">({t('printModal.statusReady')})</span>
         )}
@@ -438,6 +490,37 @@ export function FilamentMapping({
               { name: colorLabel, hex: item.color },
               { name: item.loaded?.colorName, hex: item.loaded?.color },
             );
+            // A colour from the inventory that is not loaded (#3649): the entry
+            // the slot waits for, or its saved colour when the list no longer has it.
+            const pick = inventorySlots.has(slotId) ? inventoryPicks?.[slotId] : undefined;
+            const inventoryRows = inventoryOffered ? notLoadedInventory(inventoryByType, item.type, loadedFilaments) : [];
+            const selectedInventory = pick ? findStoredMatch(inventoryRows, pick) : undefined;
+            const savedRow =
+              pick && !selectedInventory
+                ? {
+                    value: inventoryValue(pick),
+                    key: `stored-${inventoryValue(pick)}`,
+                    label: `${pick.type} (${pick.colorName || getColorName(pick.color)})`,
+                    rgba: pick.color.replace('#', ''),
+                    hex: displayHex(pick.color),
+                    group: t('printModal.overrideGroupSaved', 'Saved with this job'),
+                  }
+                : undefined;
+            const grouped = inventoryRows.length > 0 || !!savedRow;
+            const pickerValue = pick
+              ? inventoryValue(selectedInventory ?? pick)
+              : item.loaded?.globalTrayId != null
+              ? String(item.loaded.globalTrayId)
+              : '';
+            const stockWarning = selectedInventory
+              ? inventoryStockWarning(
+                  selectedInventory,
+                  inventoryDemand?.[inventoryValue(selectedInventory)] ?? item.used_grams * Math.max(1, quantity),
+                  !!forceColorMatch?.[slotId],
+                  t,
+                  numberFormat,
+                )
+              : null;
             return (
             <div key={idx} className="space-y-1">
               {/*
@@ -530,20 +613,35 @@ export function FilamentMapping({
                   not silent.
                 */}
                 <SlotPicker
-                  value={item.loaded?.globalTrayId != null ? String(item.loaded.globalTrayId) : ''}
-                  onChange={(next) => handleSlotChange(slotId, next)}
+                  value={pickerValue}
+                  onChange={(next) =>
+                    handleSlotChange(
+                      slotId,
+                      next,
+                      inventoryRows.find((f) => inventoryValue(f) === next),
+                    )
+                  }
                   placeholder={`-- ${t('printModal.selectSlot')} --`}
                   ariaLabel={t('printModal.slotForFilament', { name: resolvedName })}
                   exactMatchLabel={t('printModal.exactColorMatch')}
                   className={`${
-                    item.status === 'match'
+                    item.status === 'inventory'
+                      ? 'border-blue-500/50 dark:border-blue-400/50 text-blue-700 dark:text-blue-400'
+                      : item.status === 'match'
                       ? 'border-bambu-green/50 text-bambu-green'
                       : item.status === 'type_only'
                       ? 'border-yellow-500 dark:border-yellow-400/50 text-yellow-700 dark:text-yellow-400'
                       : 'border-orange-500 dark:border-orange-400/50 text-orange-700 dark:text-orange-400'
                   } ${item.isManual ? 'ring-1 ring-blue-400/50' : ''}`}
-                  title={item.isManual ? t('printModal.manuallySelected') : t('printModal.autoMatched')}
-                  options={loadedFilaments.map((f) => {
+                  title={
+                    item.status === 'inventory'
+                      ? t('printModal.statusWaitsForFilament', 'Waits for filament')
+                      : item.isManual
+                      ? t('printModal.manuallySelected')
+                      : t('printModal.autoMatched')
+                  }
+                  options={[
+                    ...loadedFilaments.map((f) => {
                       const remainingWeight = trayRemainingWeightMap.get(f.globalTrayId);
                       const remainingLabel = remainingWeight != null
                         ? t('printModal.slotRemainingShort', {
@@ -578,8 +676,21 @@ export function FilamentMapping({
                         // Listed but not selectable: the group may not use it (#3522).
                         disabled: f.blocked,
                         disabledReason: f.blocked ? blockedSlotReason(f) : undefined,
+                        group: grouped ? t('printModal.overrideGroupLoaded', 'Loaded now') : undefined,
                       };
-                  })}
+                    }),
+                    ...inventoryRows.map((f) =>
+                      inventoryPickerOption(
+                        f,
+                        item.color,
+                        t('printModal.slotGroupInventory', 'From inventory (not loaded)'),
+                        filamentPolicies,
+                        t,
+                        numberFormat,
+                      ),
+                    ),
+                    ...(savedRow ? [savedRow] : []),
+                  ]}
                 />
                 {/* Status icon. A blocked tray outranks the match status: it
                     can still be the chosen one through a manual pick (an older
@@ -588,6 +699,10 @@ export function FilamentMapping({
                 {item.loaded?.blocked ? (
                   <span role="img" title={blockedSlotReason(item.loaded)} aria-label={blockedSlotReason(item.loaded)}>
                     <AlertTriangle className="w-3 h-3 text-red-600 dark:text-red-400" />
+                  </span>
+                ) : item.status === 'inventory' ? (
+                  <span role="img" title={t('printModal.statusWaitsForFilament', 'Waits for filament')} aria-label={t('printModal.statusWaitsForFilament', 'Waits for filament')}>
+                    <Clock className="w-3 h-3 text-blue-600 dark:text-blue-400" />
                   </span>
                 ) : item.status === 'match' ? (
                   <Check className="w-3 h-3 text-bambu-green" />
@@ -610,6 +725,15 @@ export function FilamentMapping({
                   </span>
                 )}
               </div>
+              {pick && (
+                <p className="text-xs text-bambu-gray pl-5">
+                  {inventoryWaitHint(t, {
+                    printer: printerName,
+                    loadedFirst: settings?.queue_loaded_filament_first,
+                    nozzle: isDualNozzle ? item.nozzle_id : null,
+                  })}
+                </p>
+              )}
               {/* Force Color Match checkbox — matches FilamentOverride's layout. */}
               {canForceMatch && (
                 <label className="inline-flex items-center gap-1.5 text-xs text-bambu-gray cursor-pointer select-none pl-5">
@@ -622,6 +746,12 @@ export function FilamentMapping({
                   <Palette className="w-3 h-3" />
                   {t('printModal.forceColorMatch')}
                 </label>
+              )}
+              {stockWarning && (
+                <p className="flex items-start gap-1.5 text-xs text-yellow-600 dark:text-yellow-400 pl-5" role="alert">
+                  <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+                  {stockWarning}
+                </p>
               )}
             </div>
             );
@@ -639,6 +769,11 @@ export function FilamentMapping({
               </span>
             )}
           </div>
+          {hasWaitingSlot && (
+            <p className="text-xs text-bambu-gray">
+              {t('printModal.totalCostPartial', 'Estimate without the filaments still to load.')}
+            </p>
+          )}
           {isBudgetInsufficient && (
             <p className="text-xs text-red-400 mt-2">
               {t('printModal.insufficientBudget', 'Insufficient budget for this cost center.')}

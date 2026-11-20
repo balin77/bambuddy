@@ -240,9 +240,11 @@ export interface FilamentRequirement {
 }
 
 /**
- * Status of filament comparison between required and loaded.
+ * Status of filament comparison between required and loaded. `inventory` is a
+ * slot that waits for a colour from the inventory that is not loaded yet
+ * (#3649): it has no tray, on purpose, and is not a mismatch.
  */
-export type FilamentStatus = 'match' | 'type_only' | 'mismatch' | 'empty';
+export type FilamentStatus = 'match' | 'type_only' | 'mismatch' | 'empty' | 'inventory';
 
 /**
  * Result of comparing a required filament with loaded filaments.
@@ -324,15 +326,36 @@ export function buildFilamentComparison(
   preferLowest?: boolean,
   inventoryByTrayId?: Map<number, number>,
   ftsActive = false,
+  inventorySlots?: ReadonlySet<number>,
 ): FilamentComparison[] {
   if (!filamentReqs?.filaments || filamentReqs.filaments.length === 0) return [];
 
   // Track which trays have been assigned to avoid duplicates
-  // First, mark all manually assigned trays as used
-  const usedTrayIds = new Set<number>(Object.values(manualMappings));
+  // First, mark all manually assigned trays as used. A slot waiting for an
+  // inventory colour takes no tray, so a tray left over from before is free.
+  const usedTrayIds = new Set<number>(
+    Object.entries(manualMappings)
+      .filter(([slot]) => !inventorySlots?.has(Number(slot)))
+      .map(([, tray]) => tray),
+  );
 
   return filamentReqs.filaments.map((req) => {
     const slotId = req.slot_id || 0;
+
+    // A colour from the inventory that is not loaded (#3649): no tray, not even
+    // an auto-matched stand-in, so the mapping carries -1 for the slot and the
+    // job waits for the colour on the printer.
+    if (slotId > 0 && inventorySlots?.has(slotId)) {
+      return {
+        ...req,
+        loaded: undefined,
+        hasFilament: false,
+        typeMatch: false,
+        colorMatch: false,
+        status: 'inventory' as const,
+        isManual: false,
+      };
+    }
 
     // Check if there's a manual override for this slot
     if (slotId > 0 && manualMappings[slotId] !== undefined) {
@@ -540,6 +563,8 @@ export function useFilamentMapping(
   slotSpools?: SlotSpoolIdentities,
   /** The signed-in user's filament rules (#3522), from `useFilamentPolicies` */
   policies?: FilamentPolicy[] | null,
+  /** Slots that wait for a colour from the inventory instead of a tray (#3649) */
+  inventorySlots?: ReadonlySet<number>,
 ): UseFilamentMappingResult {
   const loadedFilaments = useLoadedFilaments(printerStatus, slotSpools, policies);
 
@@ -556,8 +581,9 @@ export function useFilamentMapping(
         preferLowest,
         inventoryByTrayId,
         ftsActive,
+        inventorySlots,
       ),
-    [filamentReqs, loadedFilaments, manualMappings, preferLowest, ftsActive, inventoryByTrayId],
+    [filamentReqs, loadedFilaments, manualMappings, preferLowest, ftsActive, inventoryByTrayId, inventorySlots],
   );
 
   // Don't emit a mapping until the printer's trays are known. With no loaded
