@@ -24,7 +24,7 @@ Verbindlich ist `CLAUDE.md` auf `farm` von `balin77/bambuddy`, Abschnitte 1, 1a,
 - **„Prepare“ (Vorbereiten der nächsten Filamente):**
   - Das Issue ist noch nicht gepostet.
   - Der Code ist fertig, reviewt und getestet: 5 Commits auf `feature/queue-todo-prepare`, Basis `feature/queue-todo-replace-slot` (#3634).
-  - **Er ist nur lokal in der Cloud-Sitzung, nicht gepusht.** Die Commits tragen den Platzhalter `#PREPARE`.
+  - Als Sicherung gepusht nach `origin/feature/queue-todo-prepare`. Noch kein PR. Die Commits tragen den Platzhalter `#PREPARE`.
 - **farm-HEAD:** `07e94001c` oder neuer.
 
 ## 1. Issues posten (nur mit Freigabe des Nutzers)
@@ -44,11 +44,11 @@ Danach im jeweiligen Entwurf die Status-Zeile aktualisieren: „Posted on … as
 
 ## 2. „Prepare“ fertigstellen (sobald die Issue-Nummer da ist)
 
-Der Code liegt **nur in der Cloud-Sitzung**. Gib dem Nutzer die Nummer und diesen Satz zum Weiterleiten an die Cloud-Sitzung:
+Der Code liegt auf `origin/feature/queue-todo-prepare`, ohne PR und mit dem Platzhalter `#PREPARE`. Gib dem Nutzer die Nummer und diesen Satz zum Weiterleiten an die Cloud-Sitzung:
 
-> „Das Prepare-Issue ist #NNNN. Ersetze `#PREPARE` in den Commits von `feature/queue-todo-prepare` durch `#NNNN`, pushe, starte die CI und übernimm es auf farm.“
+> „Das Prepare-Issue ist #NNNN. Ersetze `#PREPARE` in den Commits von `feature/queue-todo-prepare` durch `#NNNN`. Der Branch hat keinen PR, deshalb ist dafür ein einmaliger `--force-with-lease` erlaubt. Danach pushen, die CI starten und auf farm übernehmen.“
 
-Die Cloud-Sitzung erledigt dann:
+Ist die Cloud-Sitzung nicht mehr da, kann das auch eine lokale Sitzung erledigen. Die Cloud-Sitzung bzw. die lokale Sitzung erledigt dann:
 - Rewording, Push und CI;
 - Cherry-Pick auf farm ohne den Changelog-Commit;
 - Entwürfe `PR-NNNN.md` und `WIKI-NNNN.md`;
