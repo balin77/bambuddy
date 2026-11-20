@@ -4,7 +4,7 @@ import json
 import logging
 import re
 import zipfile
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -74,11 +74,18 @@ from backend.app.services.print_batch import (
     refresh_batches_after,
 )
 from backend.app.services.print_cost_estimate import estimate_queue_source_cost
-from backend.app.services.printer_manager import printer_manager
+from backend.app.services.printer_manager import printer_manager, printer_state_to_dict, printer_tray_layout
 from backend.app.services.queue_announcements import announce_queue_jobs_added
 from backend.app.services.queue_item_printer import PRINTER_RESOLVED_DEFAULTS, drop_printer_resolved
 from backend.app.services.queue_position import lock_queue_positions, max_queue_position
-from backend.app.services.queue_todo import SlotHint, TodoJob, build_todo
+from backend.app.services.queue_todo import (
+    PausedInfo,
+    PauseEpisodes,
+    SlotHint,
+    TodoJob,
+    build_todo,
+    paused_info_from_status,
+)
 from backend.app.utils.printer_models import (
     is_gcode_compatible,
     normalize_printer_model,
@@ -910,6 +917,38 @@ def visible_slot_hints(hints: Mapping[int, SlotHint], printer_names: Mapping[int
     return {pid: hint for pid, hint in hints.items() if pid in printer_names}
 
 
+# The cause of each printer's current pause, kept while its faults are rebuilt (#3648).
+_pause_episodes = PauseEpisodes()
+
+
+def _paused_prints(
+    printer_ids: Iterable[int], actor: User | ApiKeyActor | None, models: Mapping[int, str | None]
+) -> dict[int, PausedInfo]:
+    """The paused prints among ``printer_ids``, as the To do list shows them (#3648)."""
+
+    def is_paused(printer_id: int) -> bool:
+        state = printer_manager.get_status(printer_id)
+        return state is not None and state.connected and state.state == "PAUSE"
+
+    # The file's name is the printer card's information, so it follows printers:read.
+    may_name = actor is None or actor.has_permission(Permission.PRINTERS_READ.value)
+    paused: dict[int, PausedInfo] = {}
+    for pid in printer_ids:
+        state = printer_manager.get_status(pid)
+        if state is None or not (state.connected and state.state == "PAUSE"):
+            continue
+        status = printer_state_to_dict(state, pid, models.get(pid))
+        episode = str(state.subtask_id or state.subtask_name or "")
+        paused[pid] = paused_info_from_status(
+            status,
+            printer_tray_layout(pid, printer_manager),
+            (state.subtask_name or None) if may_name else None,
+            lambda cause, pid=pid, episode=episode: _pause_episodes.resolve(pid, episode, cause),
+        )
+    _pause_episodes.prune(is_paused)
+    return paused
+
+
 @router.get("/todo", response_model=QueueTodoResponse)
 async def queue_todo(
     db: AsyncSession = Depends(get_db, scope="function"),
@@ -1036,6 +1075,8 @@ async def queue_todo(
         interlock = {}
     power_failed = [pid for pid in _scheduler.power_on_failed_printers() if pid in printer_names]
 
+    paused = _paused_prints(printer_names, actor, {row.id: row.model for row in printer_rows})
+
     return build_todo(
         jobs,
         printer_names,
@@ -1047,6 +1088,7 @@ async def queue_todo(
         _scheduler.filament_priorities_snapshot(),
         visible_slot_hints(_scheduler.slot_hints_snapshot(), printer_names),
         _scheduler.prepare_snapshot(),
+        paused=paused,
     )
 
 

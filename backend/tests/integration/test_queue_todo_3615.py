@@ -113,6 +113,7 @@ class TestTodoEntries:
                 "plate_capacity": None,
                 "slot_hint": None,
                 "slot_hints": [],
+                "paused": None,
             }
         ]
 

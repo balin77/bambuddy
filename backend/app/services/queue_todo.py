@@ -9,12 +9,14 @@ records and the pure part of the list; the route gathers the inputs.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 
 from backend.app.utils.color_utils import colors_are_similar
 from backend.app.utils.filament_types import canonical_filament_type
+from backend.app.utils.tray_ids import TrayLayout, external_slot_index, is_ams_ht_id
 
+KIND_PRINT_PAUSED = "print_paused"
 KIND_PLATE_CLEAR = "plate_clear"
 KIND_PLATE_CHANGER_EMPTY = "plate_changer_empty"
 KIND_SENSOR_INTERLOCK = "sensor_interlock"
@@ -31,6 +33,7 @@ HINT_REPLACE = "replace"
 
 # Order of the entries inside one group.
 _KIND_ORDER = (
+    KIND_PRINT_PAUSED,
     KIND_PLATE_CLEAR,
     KIND_PLATE_CHANGER_EMPTY,
     KIND_SENSOR_INTERLOCK,
@@ -275,6 +278,193 @@ class TodoJob:
     can_start: bool = False
 
 
+CAUSE_RUNOUT_AMS = "runout_ams"
+CAUSE_RUNOUT_EXTERNAL = "runout_external"
+CAUSE_ERROR = "error"
+CAUSE_PAUSED = "paused"
+
+# AMS per-slot runout (07XX_8011, units 0-7 and the 07FF placeholder) and the
+# external spool's runout, as the printer card's runout guidance reads them (#2587).
+_AMS_RUNOUT_CODES = frozenset({f"07{unit:02X}_8011" for unit in (*range(8), 0xFF)})
+_EXTERNAL_RUNOUT_CODE = "0300_8004"
+
+
+@dataclass(frozen=True)
+class PausedSlot:
+    """A slot a paused print names, with the field names of the filament hints' slots (#3634).
+
+    ``type`` and ``color`` are what the slot's tray reports now; empty for an empty slot.
+    """
+
+    ams_id: int
+    tray_id: int
+    is_ht: bool
+    is_external: bool
+    ams_type: int | None
+    type: str = ""
+    color: str = ""
+    tray_info_idx: str = ""
+    tray_sub_brands: str = ""
+
+
+@dataclass(frozen=True)
+class PauseCause:
+    """Why a printer sits paused, as far as its faults and slots say."""
+
+    cause: str = CAUSE_PAUSED
+    ran_out: PausedSlot | None = None
+    expected: PausedSlot | None = None
+    error_code: str | None = None
+    error_description: str | None = None
+    more_errors: int = 0
+
+
+@dataclass(frozen=True)
+class PausedInfo:
+    """A paused print as the list shows it (#3648)."""
+
+    job_name: str | None
+    progress: int | None
+    remaining_minutes: int | None
+    cause: PauseCause = field(default_factory=PauseCause)
+
+
+def _fault_short_code(fault: Mapping) -> str:
+    attr = fault.get("attr")
+    code = fault.get("code")
+    try:
+        number = int(code.replace("0x", "") or "0", 16) if isinstance(code, str) else int(code or 0)
+        module = (int(attr or 0) >> 16) & 0xFFFF
+    except (TypeError, ValueError):
+        return ""
+    return f"{module:04X}_{number & 0xFFFF:04X}"
+
+
+def _fault_display_code(fault: Mapping) -> str:
+    """The code as the printer screen writes it: four groups for an hms[] fault, two for a print_error."""
+    full = fault.get("full_code")
+    if isinstance(full, str) and len(full) == 16:
+        return "-".join(full[i : i + 4] for i in range(0, 16, 4))
+    return _fault_short_code(fault).replace("_", "-")
+
+
+def _counts_as_fault(fault: Mapping) -> bool:
+    """A fault the printer card lists as a problem: stops or pauses the task and has text or actions."""
+    if fault.get("severity") not in (1, 2):
+        return False
+    return bool(fault.get("description")) or bool(fault.get("actions"))
+
+
+def pause_cause(
+    faults: Iterable[Mapping],
+    expected: PausedSlot | None = None,
+    ran_out: PausedSlot | None = None,
+) -> PauseCause:
+    """Why a PAUSE-state printer waits: a runout, another fault, or no reason.
+
+    A runout wins over any other fault. ``more_errors`` counts the other faults
+    that stop or pause the task.
+    """
+    listed = [f for f in faults if isinstance(f, Mapping)]
+    codes = [_fault_short_code(f) for f in listed]
+    if any(code in _AMS_RUNOUT_CODES for code in codes):
+        others = sum(
+            1 for f, c in zip(listed, codes, strict=True) if c not in _AMS_RUNOUT_CODES and _counts_as_fault(f)
+        )
+        return PauseCause(CAUSE_RUNOUT_AMS, ran_out=ran_out, expected=expected, more_errors=others)
+    if _EXTERNAL_RUNOUT_CODE in codes:
+        others = sum(
+            1 for f, c in zip(listed, codes, strict=True) if c != _EXTERNAL_RUNOUT_CODE and _counts_as_fault(f)
+        )
+        return PauseCause(CAUSE_RUNOUT_EXTERNAL, more_errors=others)
+    severe = [f for f in listed if _counts_as_fault(f)]
+    if not severe:
+        return PauseCause()
+    # Severity 1 (error) before 2 (warning); the first reported wins a tie.
+    top = min(severe, key=lambda f: f["severity"])
+    return PauseCause(
+        CAUSE_ERROR,
+        error_code=_fault_display_code(top),
+        error_description=top.get("description") or None,
+        more_errors=len(severe) - 1,
+    )
+
+
+def paused_slot(status: Mapping, tray_id: int | None, layout: TrayLayout) -> PausedSlot | None:
+    """The slot of global tray ``tray_id`` with what its tray reports, from a printer status dict."""
+    if tray_id is None:
+        return None
+    vt_trays = [vt for vt in status.get("vt_tray") or [] if isinstance(vt, Mapping)]
+    tray: Mapping | None
+    if layout.is_external(tray_id):
+        tray = next((vt for vt in vt_trays if vt.get("id") == tray_id), None)
+        ams_id, slot_id, is_ht, is_external, ams_type = -1, external_slot_index(tray_id), False, True, None
+    else:
+        ams_id, slot_id = layout.slot_key(tray_id)
+        tray = None
+        for unit in status.get("ams") or []:
+            if isinstance(unit, Mapping) and unit.get("id") == ams_id:
+                tray = next((t for t in unit.get("tray") or [] if t.get("id") == slot_id), None)
+                break
+        is_ht, is_external, ams_type = is_ams_ht_id(ams_id), False, int(layout.ams_type(ams_id))
+    kind = str((tray or {}).get("tray_type") or "")
+    return PausedSlot(
+        ams_id=ams_id,
+        tray_id=slot_id,
+        is_ht=is_ht,
+        is_external=is_external,
+        ams_type=ams_type,
+        type=kind,
+        color=normalize_hex((tray or {}).get("tray_color")) if kind else "",
+        tray_info_idx=str((tray or {}).get("tray_info_idx") or ""),
+        tray_sub_brands=str((tray or {}).get("tray_sub_brands") or ""),
+    )
+
+
+def paused_info_from_status(
+    status: Mapping, layout: TrayLayout, job_name: str | None, cause: Callable[[PauseCause], PauseCause] | None = None
+) -> PausedInfo:
+    """A PAUSE-state printer's status dict (``printer_state_to_dict``) as the list's record."""
+    detected = pause_cause(
+        status.get("hms_errors") or [],
+        expected=paused_slot(status, status.get("expected_tray"), layout),
+        ran_out=paused_slot(status, status.get("previous_tray"), layout),
+    )
+    progress = status.get("progress")
+    remaining = status.get("remaining_time")
+    return PausedInfo(
+        job_name=job_name,
+        progress=int(progress) if isinstance(progress, (int, float)) else None,
+        remaining_minutes=int(remaining) if isinstance(remaining, (int, float)) and remaining >= 0 else None,
+        cause=cause(detected) if cause is not None else detected,
+    )
+
+
+class PauseEpisodes:
+    """Keeps the cause of each printer's current pause while its faults are rebuilt.
+
+    The printer rebuilds its fault list with every status payload, so a runout
+    can read as "no reason" for a moment. The list entry depends only on the
+    printer being paused; this keeps the last cause found within the same
+    episode (the printer and its job) so the text does not flicker.
+    """
+
+    def __init__(self) -> None:
+        self._seen: dict[int, tuple[str, PauseCause]] = {}
+
+    def resolve(self, printer_id: int, episode: str, current: PauseCause) -> PauseCause:
+        stored = self._seen.get(printer_id)
+        if current.cause == CAUSE_PAUSED and stored is not None and stored[0] == episode:
+            return stored[1]
+        self._seen[printer_id] = (episode, current)
+        return current
+
+    def prune(self, still_paused: Callable[[int], bool]) -> None:
+        """Forget printers that are not paused any more."""
+        for printer_id in [pid for pid in self._seen if not still_paused(pid)]:
+            del self._seen[printer_id]
+
+
 @dataclass
 class _Group:
     printer_id: int | None
@@ -441,6 +631,26 @@ def _hint_dict(hint: SlotHint, filaments: Iterable[TodoFilament], visible_ids: C
     }
 
 
+def _paused_slot_dict(slot: PausedSlot | None) -> dict | None:
+    return None if slot is None else {f: getattr(slot, f) for f in PausedSlot.__dataclass_fields__}
+
+
+def _paused_dict(info: PausedInfo) -> dict:
+    cause = info.cause
+    return {
+        "job_name": info.job_name,
+        "progress": info.progress,
+        "remaining_minutes": info.remaining_minutes,
+        "cause": cause.cause,
+        "ran_out": _paused_slot_dict(cause.ran_out),
+        "expected": _paused_slot_dict(cause.expected),
+        "error": (
+            {"code": cause.error_code, "description": cause.error_description} if cause.cause == CAUSE_ERROR else None
+        ),
+        "more_errors": cause.more_errors,
+    }
+
+
 def build_todo(
     jobs: list[TodoJob],
     printers: Mapping[int, str],
@@ -452,6 +662,8 @@ def build_todo(
     priorities: Mapping[int, tuple[str, int | None]] | None = None,
     slot_hints: Mapping[int, SlotHint] | None = None,
     prepare: Mapping[int, Iterable[PrepareEntry]] | None = None,
+    *,
+    paused: Mapping[int, PausedInfo] | None = None,
 ) -> dict:
     """The response of GET /queue/todo.
 
@@ -467,7 +679,8 @@ def build_todo(
     the printer, for the jobs and printers in ``jobs`` and ``printers`` only,
     and not counted (#3640). Their positions are renumbered for what the
     caller sees, so the first visible line is always position 1. A group with
-    neither entries nor lines is left out.
+    neither entries nor lines is left out. A paused print is listed whether or
+    not a job waits (#3648); ``paused`` maps a printer id to it.
     """
     slot_hints = slot_hints or {}
     groups: dict[tuple, _Group] = {}
@@ -510,6 +723,20 @@ def build_todo(
             entry["jobs"].append(
                 {"id": job.id, "name": job.name, "can_start": kind == KIND_START_STAGED and job.can_start}
             )
+
+    # A paused print waits for a person whatever is queued, so its group needs no
+    # job; without one it sorts to the top.
+    for pid, info in (paused or {}).items():
+        if pid not in printers:
+            continue
+        waiting = [job for job in jobs if pid in job.printer_ids]
+        group = group_for(pid, None, None, index_of[waiting[0].id] if waiting else -1)
+        group.entries.setdefault(
+            (KIND_PRINT_PAUSED, ()),
+            {"kind": KIND_PRINT_PAUSED, "jobs": [], "detail": None, "printers": [], "paused": _paused_dict(info)},
+        )
+        for job in waiting:
+            add(group, KIND_PRINT_PAUSED, (), job)
 
     # Printer-state entries, one per printer, listing the jobs that could go there.
     printer_kinds: list[tuple[str, int, str | None]] = []

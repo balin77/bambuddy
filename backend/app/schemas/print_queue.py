@@ -655,8 +655,46 @@ class QueueTodoPrinterSlotHint(QueueTodoSlotHint):
     printer_id: int
 
 
+class QueueTodoPausedSlot(BaseModel):
+    """A slot a paused print names (#3648), with the fields of the filament hints' slots."""
+
+    ams_id: int
+    tray_id: int
+    is_ht: bool = False
+    is_external: bool = False
+    ams_type: int | None = None
+    # What the slot's tray reports now; empty for an empty slot.
+    type: str = ""
+    color: str = ""
+    tray_info_idx: str = ""
+    tray_sub_brands: str = ""
+
+
+class QueueTodoPausedError(BaseModel):
+    # The code as the printer screen writes it, e.g. "0500-0300-0002-000E".
+    code: str
+    description: str | None = None
+
+
+class QueueTodoPaused(BaseModel):
+    """A print that is paused and waits for a person (#3648)."""
+
+    # The paused file; None when the caller may not read printers.
+    job_name: str | None = None
+    progress: int | None = None
+    remaining_minutes: int | None = None
+    cause: Literal["runout_ams", "runout_external", "error", "paused"] = "paused"
+    # The slot that ran out and the slot the printer now expects, when they can be told.
+    ran_out: QueueTodoPausedSlot | None = None
+    expected: QueueTodoPausedSlot | None = None
+    error: QueueTodoPausedError | None = None
+    # Other faults that stop or pause the task, besides the one named.
+    more_errors: int = 0
+
+
 class QueueTodoEntry(BaseModel):
     kind: Literal[
+        "print_paused",
         "plate_clear",
         "plate_changer_empty",
         "load_filament",
@@ -678,6 +716,8 @@ class QueueTodoEntry(BaseModel):
     slot_hint: QueueTodoSlotHint | None = None
     # load_filament of an "Any <model>" group: the same, per printer of ``printers`` that has one.
     slot_hints: list[QueueTodoPrinterSlotHint] = []
+    # Only on a "print_paused" entry.
+    paused: QueueTodoPaused | None = None
 
 
 class QueueTodoPrepareJob(BaseModel):
