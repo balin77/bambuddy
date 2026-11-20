@@ -29,6 +29,7 @@ import { resolveSlicerAmsMapping } from './archiveAmsMapping';
 import { FilamentMapping } from './FilamentMapping';
 import { FilamentOverride, type FilamentOverrideEntry } from './FilamentOverride';
 import { findStoredMatch } from './inventoryMatch';
+import { inventoryWaitHint } from './inventoryOptions';
 import { PlateSelector } from './PlateSelector';
 import { PrinterSelector } from './PrinterSelector';
 import { PrintOptionsPanel } from './PrintOptions';
@@ -353,11 +354,21 @@ export function PrintModal({
       const overrides: Record<number, FilamentOverrideEntry> = {};
       for (const o of queueItem.filament_overrides) {
         // The variant id and the colour name are kept so an inventory pick survives an edit (#3590).
+        // A forced colour of a pinned job whose stored mapping leaves the slot unresolved is a
+        // colour the printer waits for: it comes back as an inventory pick, and the -1 is
+        // written again on save (#3649).
+        const waiting =
+          o.force_color_match === true &&
+          !!queueItem.printer_id &&
+          !queueItem.target_model &&
+          Array.isArray(queueItem.ams_mapping) &&
+          queueItem.ams_mapping[o.slot_id - 1] === -1;
         overrides[o.slot_id] = {
           type: o.type,
           color: o.color,
           ...(o.tray_info_idx ? { tray_info_idx: o.tray_info_idx } : {}),
           ...(o.color_name ? { colorName: o.color_name } : {}),
+          ...(waiting ? { fromInventory: true } : {}),
         };
       }
       return overrides;
@@ -389,6 +400,31 @@ export function PrintModal({
   const releaseAutoForceColor = (slotId: number) => {
     if (!autoForcedSlots.current.delete(slotId)) return;
     setForceColorMatch((prev) => ({ ...prev, [slotId]: false }));
+  };
+
+  // A specific printer's slot picks a colour from the inventory, or gives the pick up (#3649).
+  // The pick is the slot's override, the same entry model mode keeps (forced by default, as there).
+  const handleInventoryPick = (slotId: number, pick: FilamentOverrideEntry | null) => {
+    setFilamentOverrides((prev) => {
+      const next = { ...prev };
+      if (pick) next[slotId] = pick;
+      else delete next[slotId];
+      return next;
+    });
+    if (!pick) {
+      releaseAutoForceColor(slotId);
+      return;
+    }
+    if (!forceColorMatch[slotId]) handleForceColorMatchChange(slotId, true, true);
+    // The slot takes no tray, in any plate: the slot ids are the file's.
+    const without = (mappings: Record<number, number>) => {
+      if (!(slotId in mappings)) return mappings;
+      const next = { ...mappings };
+      delete next[slotId];
+      return next;
+    };
+    setManualMappings(without);
+    setManualMappingsByPlate((prev) => Object.fromEntries(Object.entries(prev).map(([plate, m]) => [plate, without(m)])));
   };
 
   // Track initial values for clearing mappings on change (edit mode only)
@@ -643,10 +679,37 @@ export function PrintModal({
   // printer's trays are matched against the requested filament rather than the
   // one the 3MF was sliced with. The override panel keeps the original list —
   // it shows "sliced brown, print Bone White".
+  //
+  // A colour picked from the inventory for a specific printer (#3649) is no swap
+  // for the tray matching: the slot takes no tray and waits for that colour on the
+  // printer, so it keeps the file's own colour here and is left out of the match.
+  // The same state as model mode's picks: switching between the two keeps them.
+  const inventoryPicks = useMemo(() => {
+    const picks: Record<number, FilamentOverrideEntry> = {};
+    if (assignmentMode !== 'printer' || isSeparateJobs) return picks;
+    for (const [slotId, entry] of Object.entries(filamentOverrides)) {
+      if (entry.fromInventory) picks[Number(slotId)] = entry;
+    }
+    return picks;
+  }, [assignmentMode, isSeparateJobs, filamentOverrides]);
+  const inventorySlotIds = useMemo(() => new Set(Object.keys(inventoryPicks).map(Number)), [inventoryPicks]);
+  const hasInventoryPick = inventorySlotIds.size > 0;
+  const swapOverrides = useMemo(() => {
+    if (!hasInventoryPick) return filamentOverrides;
+    return Object.fromEntries(Object.entries(filamentOverrides).filter(([id]) => !inventorySlotIds.has(Number(id))));
+  }, [filamentOverrides, hasInventoryPick, inventorySlotIds]);
   const mappingFilamentReqs = useMemo(
-    () => withFilamentOverrides(effectiveFilamentReqs, filamentOverrides),
-    [effectiveFilamentReqs, filamentOverrides],
+    () => withFilamentOverrides(effectiveFilamentReqs, swapOverrides),
+    [effectiveFilamentReqs, swapOverrides],
   );
+  // What the printers' own matching works from: without the slots that wait for the inventory.
+  const matchFilamentReqs = useMemo(() => {
+    if (!hasInventoryPick || !mappingFilamentReqs) return mappingFilamentReqs;
+    return {
+      ...mappingFilamentReqs,
+      filaments: mappingFilamentReqs.filaments.filter((f) => !inventorySlotIds.has(f.slot_id)),
+    };
+  }, [mappingFilamentReqs, hasInventoryPick, inventorySlotIds]);
 
   // Fetch available filaments for model-based assignment (for filament override UI)
   // Preset id -> name, to store a colour name within its product line (SN-C9)
@@ -702,10 +765,13 @@ export function PrintModal({
   const spoolmanMode = !!settings?.spoolman_enabled;
   const canReadInventory = hasPermission('inventory:read');
   const inventoryEnabled = !!settings?.filament_override_inventory && !spoolmanMode && canReadInventory;
+  // For a specific printer the list is for a job that waits for the colour (#3649): only
+  // when it is queued or scheduled. "Now" can only use what is loaded.
+  const inventoryForPrinters = assignmentMode === 'printer' && !isSeparateJobs && scheduleOptions.scheduleType !== 'asap';
   const { data: inventoryFilamentsData } = useQuery({
     queryKey: ['inventory-filaments'],
     queryFn: () => api.getInventoryFilaments(),
-    enabled: assignmentMode === 'model' && inventoryEnabled,
+    enabled: (assignmentMode === 'model' || inventoryForPrinters || hasInventoryPick) && inventoryEnabled,
   });
   const inventoryFilaments = useMemo(
     () => (inventoryEnabled && inventoryFilamentsData?.inventory_available ? inventoryFilamentsData.filaments : []),
@@ -795,6 +861,7 @@ export function PrintModal({
     effectivePrinterId ? inventoryByTrayIdPerPrinter.get(effectivePrinterId) : undefined,
     undefined,
     filamentPolicies,
+    inventorySlotIds,
   );
 
   // --- Per-plate filament mapping (multi-plate submissions) ---------------
@@ -852,10 +919,10 @@ export function PrintModal({
   const mappingPerPlateReqs = useMemo(() => {
     const byPlate = new Map<number, FilamentReqsData>();
     for (const [plateId, reqs] of perPlateReqs) {
-      byPlate.set(plateId, withFilamentOverrides(reqs, filamentOverrides) ?? reqs);
+      byPlate.set(plateId, withFilamentOverrides(reqs, swapOverrides) ?? reqs);
     }
     return byPlate;
-  }, [perPlateReqs, filamentOverrides]);
+  }, [perPlateReqs, swapOverrides]);
 
   // Manual slot overrides are per plate: slot 3 of plate 1 and slot 3 of plate 2
   // are different prints and may want different trays.
@@ -898,6 +965,7 @@ export function PrintModal({
         singlePrinterPreferLowest,
         inventoryByTrayId,
         ftsActive,
+        inventorySlotIds,
       );
       byPlate.set(plateId, buildAmsMapping(comparison));
     }
@@ -913,13 +981,14 @@ export function PrintModal({
     singlePrinterPreferLowest,
     selectedPrinters.length,
     filamentPolicies,
+    inventorySlotIds,
   ]);
 
   // Multi-printer filament mapping (for per-printer configuration)
   const multiPrinterMapping = useMultiPrinterFilamentMapping(
     selectedPrinters,
     printers,
-    mappingFilamentReqs,
+    matchFilamentReqs,
     manualMappings,
     perPrinterConfigs,
     setPerPrinterConfigs,
@@ -1016,6 +1085,15 @@ export function PrintModal({
   // model, and the override is the job's filament, not a tray on some printer —
   // it survives the switch and is matched against the chosen printer (#3133).
   // Going P2S -> (none) -> X1C still compares P2S with X1C and clears.
+  // "Now" starts at once, so it cannot wait for a colour that is not loaded (#3649). The option
+  // is disabled while a pick stands; a pick carried over from model mode under "Now" moves the
+  // job to the queue instead of leaving a disabled option selected.
+  useEffect(() => {
+    if (hasInventoryPick && scheduleOptions.scheduleType === 'asap') {
+      setScheduleOptions((prev) => ({ ...prev, scheduleType: 'queue' }));
+    }
+  }, [hasInventoryPick, scheduleOptions.scheduleType]);
+
   const [prevTargetModel, setPrevTargetModel] = useState(targetModel);
   const [prevPlateForOverrides, setPrevPlateForOverrides] = useState(selectedPlate);
   useEffect(() => {
@@ -1147,7 +1225,7 @@ export function PrintModal({
   // Without a per-plate mapping we send none at all and let the scheduler
   // compute one at dispatch, which it already does per plate; a union mapping
   // would be used verbatim and could feed a slot from the wrong tray.
-  const getMappingForPrinter = (printerId: number, plateId: number | null): number[] | undefined => {
+  const mappingForPrinter = (printerId: number, plateId: number | null): number[] | undefined => {
     if (isMultiPlateSelection) {
       // Fanning several plates across several printers would be a mapping per
       // plate *per printer*; those items go out without one and the scheduler
@@ -1182,6 +1260,23 @@ export function PrintModal({
       return multiPrinterMapping.getFinalMapping(printerId);
     }
     return amsMapping;
+  };
+
+  const getMappingForPrinter = (printerId: number, plateId: number | null): number[] | undefined => {
+    const mapping = mappingForPrinter(printerId, plateId);
+    if (!mapping || !hasInventoryPick) return mapping;
+    // A slot that waits for a colour from the inventory is -1 whatever the printer's own
+    // matching made of it (#3649): a tray of another colour there would be a conflict the
+    // scheduler answers by dropping the whole mapping. Padded when the matching never saw
+    // the slot, as the scheduler reads a mapping shorter than the file's slots as a conflict.
+    const reqs = isMultiPlateSelection && plateId !== null ? perPlateReqs.get(plateId) : effectiveFilamentReqs;
+    const next = [...mapping];
+    for (const f of reqs?.filaments ?? []) {
+      if (f.slot_id <= 0 || !inventorySlotIds.has(f.slot_id)) continue;
+      while (next.length < f.slot_id) next.push(-1);
+      next[f.slot_id - 1] = -1;
+    }
+    return next;
   };
 
   // Whether `mapping` sends a slot to a tray of another material (#2799). Only
@@ -2246,6 +2341,29 @@ export function PrintModal({
     && (isCrossModel || !!targetModel)
     && (((effectiveAvailableFilaments?.length ?? 0) > 0) || (inventoryEnabled && inventoryFilaments.length > 0));
 
+  // Several selected printers have no slot dropdowns, and each holds different filament, so what
+  // they offer is the model panel reduced to the inventory: a colour that none of them has to
+  // have loaded yet (#3649). Queued or scheduled only; the colours left alone stay automatic.
+  const showPinnedInventoryPanel =
+    assignmentMode === 'printer'
+    && !isSeparateJobs
+    && !archiveDataMissing
+    && selectedPrinters.length > 1
+    && ((inventoryForPrinters && inventoryFilaments.length > 0) || hasInventoryPick);
+  const showOverridePanel = showFilamentOverride || showPinnedInventoryPanel;
+  const overrideForPrinters = assignmentMode === 'printer';
+  const overridePanelProps = overrideForPrinters
+    ? {
+        inventoryOnly: true,
+        title: t('printModal.inventoryPanelTitle', 'Filament from inventory'),
+        hint: t(
+          'printModal.inventoryPanelHint',
+          'Pick a colour from the inventory that is not loaded yet. Colours you leave alone stay automatic.',
+        ),
+        pickHint: inventoryWaitHint(t, { loadedFirst: settings?.queue_loaded_filament_first }),
+      }
+    : {};
+
   // Only once the settings are known: before that the box would flash unchecked and enabled
   // (and show up for a Spoolman install). Not for a user who may not read the
   // inventory: the box would offer colours the dialog cannot list for them.
@@ -2264,7 +2382,7 @@ export function PrintModal({
   // over all slots that picked the same entry, so two slots (or plates) drawing
   // on one stock are warned about together (#3590).
   const inventoryDemand: Record<string, number> = {};
-  if (showFilamentOverride) {
+  if (showOverridePanel || hasInventoryPick) {
     const sources: Array<{ reqs: FilamentReqsData | undefined; copies: number }> = isMultiPlateSelection
       ? selectedPlateIds.map((plateId) => ({ reqs: perPlateReqs.get(plateId), copies: quantityForPlate(plateId) }))
       : [{ reqs: effectiveFilamentReqs, copies: effectiveQuantity }];
@@ -2454,7 +2572,7 @@ export function PrintModal({
                 // collecting tray choices it then throws away. Withhold its input.
                 // Separate jobs alike: those are the first file's filaments, and
                 // every job ships without a mapping.
-                filamentReqs={isMultiPlateSelection || isSeparateJobs ? undefined : mappingFilamentReqs}
+                filamentReqs={isMultiPlateSelection || isSeparateJobs ? undefined : matchFilamentReqs}
                 onAutoConfigurePrinter={multiPrinterMapping.autoConfigurePrinter}
                 onUpdatePrinterConfig={multiPrinterMapping.updatePrinterConfig}
                 assignmentMode={assignmentMode}
@@ -2482,15 +2600,16 @@ export function PrintModal({
             )}
 
             {/* Filament override - shown in model mode when filament requirements are available */}
-            {showFilamentOverride && !isMultiPlateSelection && effectiveFilamentReqs && (
+            {showOverridePanel && !isMultiPlateSelection && effectiveFilamentReqs && (
               <FilamentOverride
+                {...overridePanelProps}
                 filamentReqs={effectiveFilamentReqs}
-                availableFilaments={effectiveAvailableFilaments ?? []}
+                availableFilaments={overrideForPrinters ? [] : effectiveAvailableFilaments ?? []}
                 inventoryFilaments={inventoryFilaments}
                 quantity={effectiveQuantity}
                 inventoryDemand={inventoryDemand}
                 inventoryEnabled={inventoryEnabled}
-                inventoryOption={inventoryOption}
+                inventoryOption={overrideForPrinters ? undefined : inventoryOption}
                 overrides={filamentOverrides}
                 onChange={setFilamentOverrides}
                 forceColorMatch={forceColorMatch}
@@ -2506,7 +2625,7 @@ export function PrintModal({
                 plate's filaments, or nothing at all once the plates query was warm and
                 the whole-file query therefore never ran, which is why the section
                 vanished on the second open of the dialog (#2552). */}
-            {showFilamentOverride && isMultiPlateSelection && selectedPlateIds.map((plateId) => {
+            {showOverridePanel && isMultiPlateSelection && selectedPlateIds.map((plateId) => {
               const plate = plates.find((p) => p.index === plateId);
               const plateReqs = perPlateReqs.get(plateId);
               if (!plateReqs) return null;
@@ -2514,17 +2633,18 @@ export function PrintModal({
               const isFirstPanel = selectedPlateIds.find((id) => perPlateReqs.has(id)) === plateId;
               return (
                 <FilamentOverride
+                  {...overridePanelProps}
                   key={plateId}
                   plateLabel={plate?.name || t('printModal.plateN', 'Plate {{n}}', { n: plateId })}
                   showHint={isFirstPanel}
                   filamentReqs={plateReqs}
                   // `?? []` is deliberate: the list can be undefined while the panel shows from inventory alone.
-                  availableFilaments={effectiveAvailableFilaments ?? []}
+                  availableFilaments={overrideForPrinters ? [] : effectiveAvailableFilaments ?? []}
                   inventoryFilaments={inventoryFilaments}
                   quantity={quantityForPlate(plateId)}
                   inventoryDemand={inventoryDemand}
                   inventoryEnabled={inventoryEnabled}
-                  inventoryOption={inventoryOption}
+                  inventoryOption={overrideForPrinters ? undefined : inventoryOption}
                   overrides={filamentOverrides}
                   onChange={setFilamentOverrides}
                   forceColorMatch={forceColorMatch}
@@ -2630,6 +2750,11 @@ export function PrintModal({
                 archiveAmsMapping={archiveSlicerAmsMapping}
                 nozzleRackChoice={nozzleRackChoice}
                 onNozzleRackChoiceChange={setNozzleRackChoice}
+                printerName={printers?.find((p) => p.id === effectivePrinterId)?.name}
+                inventoryFilaments={inventoryForPrinters ? inventoryFilaments : []}
+                inventoryPicks={inventoryPicks}
+                onInventoryPick={handleInventoryPick}
+                inventoryDemand={inventoryDemand}
               />
             )}
 
@@ -2665,6 +2790,11 @@ export function PrintModal({
                   onNozzleRackChoiceChange={(choice) =>
                     setNozzleRackChoiceByPlate((prev) => ({ ...prev, [plateId]: choice }))
                   }
+                  printerName={printers?.find((p) => p.id === effectivePrinterId)?.name}
+                  inventoryFilaments={inventoryForPrinters ? inventoryFilaments : []}
+                  inventoryPicks={inventoryPicks}
+                  onInventoryPick={handleInventoryPick}
+                  inventoryDemand={inventoryDemand}
                 />
               );
             })}
@@ -2736,6 +2866,14 @@ export function PrintModal({
               printerCount={selectedPrinters.length}
               hasGcodeSnippets={hasGcodeSnippets(settings)}
               needsReview={needsReview}
+              asapDisabledReason={
+                hasInventoryPick
+                  ? t(
+                      'printModal.asapBlockedInventory',
+                      'A colour from the inventory is not loaded yet. Queue or schedule the job, or pick a loaded slot.',
+                    )
+                  : undefined
+              }
             />
 
             {/* Outcome prompt (#1898) sits outside the collapsed Print Options
