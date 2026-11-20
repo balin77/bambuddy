@@ -8907,7 +8907,9 @@ export default {
       runoutUnknown: "Se acabó el filamento. Mira en la pantalla de la impresora qué ranura espera.",
       runoutExternal: "Se acabó el filamento de la bobina externa. Carga una bobina nueva y luego reanuda.",
       errorCode: "Código de error {{code}}",
-      moreErrors: "(+{{more}} más)",
+      moreErrors: "(+{{count}} más)",
+      moreErrors_one: "(+{{count}} más)",
+      moreErrors_other: "(+{{count}} más)",
     },
   },
 };

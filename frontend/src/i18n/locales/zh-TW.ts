@@ -8882,7 +8882,9 @@ export default {
       runoutUnknown: "耗材已用完。請在列印機螢幕上查看它需要的料槽。",
       runoutExternal: "外掛料盤的耗材已用完。請裝入新的料盤，然後繼續列印。",
       errorCode: "錯誤 {{code}}",
-      moreErrors: "（另有 {{more}} 項）",
+      moreErrors: "（另有 {{count}} 項）",
+      moreErrors_one: "（另有 {{count}} 項）",
+      moreErrors_other: "（另有 {{count}} 項）",
     },
   },
 };

@@ -8952,7 +8952,9 @@ export default {
       runoutUnknown: "Filament ran out. Check the printer screen for the slot it expects.",
       runoutExternal: "Filament ran out on the external spool. Load a new spool, then resume.",
       errorCode: "Error {{code}}",
-      moreErrors: "(+{{more}} more)",
+      moreErrors: "(+{{count}} more)",
+      moreErrors_one: "(+{{count}} more)",
+      moreErrors_other: "(+{{count}} more)",
     },
   },
 };

@@ -242,8 +242,9 @@ function pausedCauseText(paused: QueueTodoPaused, t: (key: string, options?: Rec
   switch (paused.cause) {
     case 'runout_ams': {
       const { ran_out: ranOut, expected } = paused;
-      // What to load is what ran out; an empty slot falls back to what the expected one still reports.
-      const filament = slotFilament(ranOut) ?? slotFilament(expected) ?? t('queueTodo.printPaused.anyFilament');
+      // What to load is what ran out. A slot that reports no type says nothing about it, and the
+      // expected slot's own filament is not what ran out, so that case reads as "matching filament".
+      const filament = slotFilament(ranOut) ?? t('queueTodo.printPaused.anyFilament');
       if (ranOut && expected) {
         return t('queueTodo.printPaused.runoutBoth', { ranOut: slotLabel(ranOut), filament, expected: slotLabel(expected) });
       }
@@ -255,7 +256,7 @@ function pausedCauseText(paused: QueueTodoPaused, t: (key: string, options?: Rec
       return t('queueTodo.printPaused.runoutExternal');
     case 'error': {
       const base = paused.error?.description || t('queueTodo.printPaused.errorCode', { code: paused.error?.code ?? '' });
-      return paused.more_errors > 0 ? `${base} ${t('queueTodo.printPaused.moreErrors', { more: paused.more_errors })}` : base;
+      return paused.more_errors > 0 ? `${base} ${t('queueTodo.printPaused.moreErrors', { count: paused.more_errors })}` : base;
     }
     default:
       return null;

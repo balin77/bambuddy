@@ -2,7 +2,7 @@
  * "To do" list of what the queue waits on (#3615): list rendering per kind,
  * merged entries, empty state, nav badge, actions and their permissions.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
 import { screen, waitFor, fireEvent, render as rtlRender, renderHook } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
@@ -11,7 +11,7 @@ import { http, HttpResponse } from 'msw';
 import { render } from '../utils';
 import { server } from '../mocks/server';
 import i18n from '../../i18n';
-import { setColorCatalog, __resetColorCatalogForTests } from '../../utils/colors';
+import { getColorName, setColorCatalog, __resetColorCatalogForTests } from '../../utils/colors';
 import type { QueueTodo, QueueTodoEntry, QueueTodoHintSlot, QueueTodoPaused, QueueTodoPausedSlot, QueueTodoPrepare, QueueTodoSlotHint } from '../../api/client';
 
 const perms = { granted: new Set<string>() };
@@ -1079,7 +1079,18 @@ describe('QueueTodoList paused prints (#3648)', () => {
 
   it('names only the slot to refill when the one that ran out is unknown', () => {
     renderPaused(paused({ cause: 'runout_ams', expected: slot({ tray_id: 2, ams_id: 128, is_ht: true, ams_type: 1 }) }));
-    expect(screen.getByTestId('todo-paused-cause')).toHaveTextContent(`Load ${filament} into HT-A, then resume.`);
+    expect(screen.getByTestId('todo-paused-cause')).toHaveTextContent('Load matching filament into HT-A, then resume.');
+  });
+
+  it('does not take the expected slot filament for the one that ran out', () => {
+    renderPaused(paused({
+      cause: 'runout_ams',
+      ran_out: slot({ type: '', color: '' }),
+      expected: slot({ tray_id: 1, type: 'PETG', color: '#0000FF' }),
+    }));
+    const text = screen.getByTestId('todo-paused-cause').textContent ?? '';
+    expect(text).toBe('Filament ran out in A1. Load matching filament into A2, then resume.');
+    expect(text).not.toContain('PETG');
   });
 
   it('asks to check the printer when no slot can be told', () => {
@@ -1129,5 +1140,28 @@ describe('QueueTodoList paused prints (#3648)', () => {
     expect(screen.getByTestId('todo-paused-progress').className).toContain('break-words');
     expect(screen.getByTestId('todo-paused-cause').className).toContain('break-words');
     expect(screen.getByTestId('todo-entry-print_paused').querySelector('.min-w-0')).not.toBeNull();
+  });
+});
+
+describe('the paused print more-errors text follows the language plurals (#3648)', () => {
+  beforeAll(() => i18n.loadLanguages(['de', 'fr', 'it', 'pt-BR', 'ru']));
+  const more = (lng: string, count: number) => i18n.t('queueTodo.printPaused.moreErrors', { lng, count });
+
+  it('reads right for 1 and 3 in languages with plural forms', () => {
+    expect(more('en', 1)).toBe('(+1 more)');
+    expect(more('fr', 1)).toBe('(+1 autre)');
+    expect(more('fr', 3)).toBe('(+3 autres)');
+    expect(more('it', 1)).toBe('(+1 altro)');
+    expect(more('it', 3)).toBe('(+3 altri)');
+    expect(more('de', 1)).toBe('(+1 weiterer Fehler)');
+    expect(more('de', 3)).toBe('(+3 weitere Fehler)');
+    expect(more('pt-BR', 1)).toBe('(+1 outro)');
+    expect(more('pt-BR', 3)).toBe('(+3 outros)');
+  });
+
+  it('keeps a usable text for the Slavic few and many forms', () => {
+    expect(more('ru', 1)).toBe('(и ещё 1)');
+    expect(more('ru', 3)).toBe('(и другие: 3)');
+    expect(more('ru', 5)).toBe('(и другие: 5)');
   });
 });

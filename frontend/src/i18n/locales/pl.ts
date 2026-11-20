@@ -8952,7 +8952,9 @@ export default {
       runoutUnknown: "Skończył się filament. Sprawdź na ekranie drukarki, jakiego slotu oczekuje.",
       runoutExternal: "Na zewnętrznej szpuli skończył się filament. Załaduj nową szpulę, a następnie wznów wydruk.",
       errorCode: "Błąd {{code}}",
-      moreErrors: "(i inne: {{more}})",
+      moreErrors: "(i inne: {{count}})",
+      moreErrors_one: "(i inne: {{count}})",
+      moreErrors_other: "(i inne: {{count}})",
     },
   },
 };

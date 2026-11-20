@@ -8940,7 +8940,9 @@ export default {
       runoutUnknown: "Філамент закінчився. Потрібний слот вказано на екрані принтера.",
       runoutExternal: "Філамент на зовнішній котушці закінчився. Встановіть нову котушку і потім відновіть друк.",
       errorCode: "Помилка {{code}}",
-      moreErrors: "(та інші: {{more}})",
+      moreErrors: "(та інші: {{count}})",
+      moreErrors_one: "(та ще {{count}})",
+      moreErrors_other: "(та інші: {{count}})",
     },
   },
 };

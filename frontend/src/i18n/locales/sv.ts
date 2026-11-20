@@ -8981,7 +8981,9 @@ errors: {
       runoutUnknown: "Filamentet har tagit slut. Se på skrivarens skärm vilken plats den väntar på.",
       runoutExternal: "Filamentet på den externa spolen har tagit slut. Sätt i en ny spole och återuppta sedan.",
       errorCode: "Fel {{code}}",
-      moreErrors: "(+{{more}} till)",
+      moreErrors: "(+{{count}} till)",
+      moreErrors_one: "(+{{count}} till)",
+      moreErrors_other: "(+{{count}} till)",
     },
   },
 };

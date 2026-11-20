@@ -8522,7 +8522,9 @@ export default {
       runoutUnknown: "필라멘트가 떨어졌습니다. 프린터 화면에서 필요한 슬롯을 확인하세요.",
       runoutExternal: "외부 스풀의 필라멘트가 떨어졌습니다. 새 스풀을 넣은 다음 재개하세요.",
       errorCode: "오류 {{code}}",
-      moreErrors: "(외 {{more}}건)",
+      moreErrors: "(외 {{count}}건)",
+      moreErrors_one: "(외 {{count}}건)",
+      moreErrors_other: "(외 {{count}}건)",
     },
   },
 };

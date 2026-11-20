@@ -8950,7 +8950,9 @@ export default {
       runoutUnknown: "Het filament is op. Kijk op het scherm van de printer welke sleuf hij verwacht.",
       runoutExternal: "Het filament op de externe spoel is op. Plaats een nieuwe spoel en hervat daarna.",
       errorCode: "Fout {{code}}",
-      moreErrors: "(+{{more}} meer)",
+      moreErrors: "(+{{count}} meer)",
+      moreErrors_one: "(+{{count}} meer)",
+      moreErrors_other: "(+{{count}} meer)",
     },
   },
 };

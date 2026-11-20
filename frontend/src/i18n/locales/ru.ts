@@ -8504,7 +8504,9 @@ export default {
       runoutUnknown: "Филамент закончился. Нужный слот указан на экране принтера.",
       runoutExternal: "Филамент на внешней катушке закончился. Установите новую катушку и затем возобновите печать.",
       errorCode: "Ошибка {{code}}",
-      moreErrors: "(и другие: {{more}})",
+      moreErrors: "(и другие: {{count}})",
+      moreErrors_one: "(и ещё {{count}})",
+      moreErrors_other: "(и другие: {{count}})",
     },
   },
 };

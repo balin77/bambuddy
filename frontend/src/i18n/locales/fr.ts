@@ -8885,7 +8885,9 @@ export default {
       runoutUnknown: "Le filament est épuisé. Consultez l'écran de l'imprimante pour voir l'emplacement attendu.",
       runoutExternal: "Le filament de la bobine externe est épuisé. Chargez une nouvelle bobine, puis reprenez.",
       errorCode: "Erreur {{code}}",
-      moreErrors: "(+{{more}} autres)",
+      moreErrors: "(+{{count}} autre(s))",
+      moreErrors_one: "(+{{count}} autre)",
+      moreErrors_other: "(+{{count}} autres)",
     },
   },
 };
