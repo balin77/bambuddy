@@ -2,6 +2,7 @@
 
 from backend.app.services.queue_todo import (
     CAUSE_ERROR,
+    CAUSE_HOLD_SECONDS,
     CAUSE_PAUSED,
     CAUSE_RUNOUT_AMS,
     CAUSE_RUNOUT_EXTERNAL,
@@ -39,7 +40,8 @@ RUNOUT = _fault(0x07000000, "0x8011", description="AMS A filament ran out", full
 EXTERNAL_RUNOUT = _fault(0x03000000, "0x8004", description="Filament ran out", full_code="03008004")
 DOOR = _fault(0x05000100, "0x0006", severity=1, description="The door is open", full_code="0500010000010006")
 HEATBED = _fault(0x05000200, "0x0007", severity=2, description="Heatbed temperature", full_code="0500020000020007")
-NOTICE = _fault(0x05000300, "0x0008", severity=3, description="Just so you know")
+NOTICE = _fault(0x05000300, "0x0008", severity=3, description="Just so you know", full_code="0500030000020008")
+PROMPT = _fault(0x03000000, "0xC001", severity=3, description="Unable to start drying", full_code="0300C001")
 
 A1 = PausedSlot(0, 0, False, False, 0, "PLA", "#FF0000")
 
@@ -80,6 +82,18 @@ class TestBuildTodo:
         paused = body["groups"][0]["entries"][0]
         assert [j["name"] for j in paused["jobs"]] == ["Waiting"]
 
+    def test_a_paused_group_sorts_above_a_group_whose_job_is_earlier_even_with_waiting_jobs(self):
+        jobs = [_job(10, 1, "First"), _job(11, 2, "Second")]
+        body = build_todo(jobs, {1: "Alpha", 2: "Beta"}, {}, [1], {}, [], paused={2: PausedInfo("B", 1, 1)})
+        assert [g["printer_id"] for g in body["groups"]] == [2, 1]
+        assert [j["name"] for j in body["groups"][0]["entries"][0]["jobs"]] == ["Second"]
+
+    def test_paused_and_plate_clear_share_one_group_and_both_count(self):
+        body = build_todo([_job(10, 1)], {1: "Alpha"}, {}, [1], {}, [], paused={1: PausedInfo("B", 1, 1)})
+        assert len(body["groups"]) == 1
+        assert [e["kind"] for e in body["groups"][0]["entries"]] == [KIND_PRINT_PAUSED, KIND_PLATE_CLEAR]
+        assert body["count"] == 2
+
     def test_a_paused_printer_outside_the_scope_is_left_out(self):
         body = _build([], {9: PausedInfo("Secret", 1, 1)}, {1: "Alpha"})
         assert body == {"count": 0, "groups": []}
@@ -117,6 +131,19 @@ class TestPauseCause:
     def test_no_faults_is_a_plain_pause(self):
         assert pause_cause([]).cause == CAUSE_PAUSED
         assert pause_cause([NOTICE]).cause == CAUSE_PAUSED
+
+    def test_a_level_3_print_error_prompt_is_the_error_when_nothing_is_more_severe(self):
+        cause = pause_cause([NOTICE, PROMPT])
+        assert (cause.cause, cause.error_description, cause.error_code) == (
+            CAUSE_ERROR,
+            "Unable to start drying",
+            "0300-C001",
+        )
+        assert cause.more_errors == 0
+
+    def test_a_more_severe_fault_wins_over_a_print_error_prompt(self):
+        cause = pause_cause([PROMPT, HEATBED])
+        assert (cause.error_description, cause.more_errors) == ("Heatbed temperature", 1)
 
     def test_an_ams_runout_keeps_both_slots(self):
         expected = PausedSlot(0, 1, False, False, 0)
@@ -215,6 +242,14 @@ class TestPausedInfo:
         assert (info.cause.ran_out.type, info.cause.expected.tray_id) == ("PLA", 1)
 
 
+class _Clock:
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
 class TestEpisodes:
     RUNOUT_CAUSE = PauseCause(CAUSE_RUNOUT_AMS, ran_out=A1)
 
@@ -222,6 +257,48 @@ class TestEpisodes:
         episodes = PauseEpisodes()
         episodes.resolve(1, "job-1", self.RUNOUT_CAUSE)
         assert episodes.resolve(1, "job-1", PauseCause()) is self.RUNOUT_CAUSE
+
+    def test_a_momentary_empty_rebuild_within_the_window_keeps_the_runout(self):
+        clock = _Clock()
+        episodes = PauseEpisodes(clock)
+        episodes.resolve(1, "job-1", self.RUNOUT_CAUSE)
+        clock.now += CAUSE_HOLD_SECONDS - 1
+        assert episodes.resolve(1, "job-1", PauseCause()) is self.RUNOUT_CAUSE
+
+    def test_a_runout_cleared_while_still_paused_for_longer_than_the_window_reads_as_paused(self):
+        clock = _Clock()
+        episodes = PauseEpisodes(clock)
+        episodes.resolve(1, "job-1", self.RUNOUT_CAUSE)
+        clock.now += CAUSE_HOLD_SECONDS + 1
+        assert episodes.resolve(1, "job-1", PauseCause()).cause == CAUSE_PAUSED
+        assert episodes.resolve(1, "job-1", PauseCause()).cause == CAUSE_PAUSED
+
+    def test_seeing_the_cause_again_renews_the_window(self):
+        clock = _Clock()
+        episodes = PauseEpisodes(clock)
+        episodes.resolve(1, "job-1", self.RUNOUT_CAUSE)
+        for _ in range(3):
+            clock.now += CAUSE_HOLD_SECONDS - 1
+            episodes.resolve(1, "job-1", self.RUNOUT_CAUSE)
+        clock.now += CAUSE_HOLD_SECONDS - 1
+        assert episodes.resolve(1, "job-1", PauseCause()) is self.RUNOUT_CAUSE
+
+    def test_a_second_pause_of_the_same_job_does_not_inherit_the_runout(self):
+        clock = _Clock()
+        episodes = PauseEpisodes(clock)
+        episodes.resolve(1, "job-1", self.RUNOUT_CAUSE)
+        # Resumed and paused again with no request in between: the runout is long gone.
+        clock.now += 300
+        assert episodes.resolve(1, "job-1", PauseCause()).cause == CAUSE_PAUSED
+
+    def test_a_pause_after_the_printer_was_seen_running_does_not_inherit_the_runout(self):
+        clock = _Clock()
+        episodes = PauseEpisodes(clock)
+        episodes.resolve(1, "job-1", self.RUNOUT_CAUSE)
+        clock.now += 2
+        episodes.observe_not_paused(1)
+        clock.now += 2
+        assert episodes.resolve(1, "job-1", PauseCause()).cause == CAUSE_PAUSED
 
     def test_another_job_is_another_episode(self):
         episodes = PauseEpisodes()
