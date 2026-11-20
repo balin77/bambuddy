@@ -116,4 +116,17 @@ function applyApplianceLocale() {
 
 applyApplianceLocale();
 
+/**
+ * Keep `<html lang>` on the language in use. It stays "en" otherwise, and a
+ * browser then offers to machine-translate a page that is already in the
+ * reader's language (index.html opts out of that translation as well).
+ */
+function syncDocumentLanguage(lng: string | undefined) {
+  if (typeof document === 'undefined' || !lng) return;
+  document.documentElement.lang = lng;
+}
+
+i18n.on('languageChanged', syncDocumentLanguage);
+syncDocumentLanguage(i18n.resolvedLanguage ?? i18n.language);
+
 export default i18n;
