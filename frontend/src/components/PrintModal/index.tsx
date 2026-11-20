@@ -22,7 +22,7 @@ import { isGcodeCompatible, isPrinterCurrentlyDispatchable } from '../../utils/p
 import { getCurrencySymbol } from '../../utils/currency';
 import { getBedTypeInfo } from '../../utils/bedType';
 import { toDateTimeLocalValue, parseUTCDate } from '../../utils/date';
-import { isPlaceholderDate, effectivePreferLowest, filamentTypesCompatible } from '../../utils/amsHelpers';
+import { isPlaceholderDate, effectivePreferLowest, filamentTypesCompatible, canonicalFilamentType, normalizeColorForCompare } from '../../utils/amsHelpers';
 import { resolveArchiveSlicerAmsMapping } from './archiveAmsMapping';
 import { FilamentMapping } from './FilamentMapping';
 import { FilamentOverride, type FilamentOverrideEntry } from './FilamentOverride';
@@ -699,6 +699,56 @@ export function PrintModal({
   // Combine filament requirements from either source
   const effectiveFilamentReqs = isLibraryFile ? libraryFilamentReqs : archiveFilamentReqs;
 
+  // --- Per-plate filament mapping (multi-plate submissions) ---------------
+  // Each plate prints its own subset of the file's slots and needs its own AMS
+  // mapping. `effectiveFilamentReqs` above is keyed on `selectedPlate`, which is
+  // null the moment two plates are picked, so it holds the union of every plate's
+  // filaments — matching against that union lets two plates that share a colour
+  // on different slots compete for the same tray, and sends the loser to a worse
+  // tray or to none. So when several plates are selected we fetch each plate's
+  // requirements and map them separately (#2551 follow-up).
+  const selectedPlateIds = useMemo(() => [...selectedPlates].sort((a, b) => a - b), [selectedPlates]);
+  const isMultiPlateSelection = selectedPlates.size > 1;
+
+  const perPlateReqQueries = useQueries({
+    queries: (isMultiPlateSelection ? selectedPlateIds : []).map((plateId) => ({
+      queryKey: isLibraryFile
+        ? ['library-file-filaments', libraryFileId, plateId]
+        : ['archive-filaments', archiveId, plateId],
+      queryFn: () =>
+        isLibraryFile
+          ? api.getLibraryFileFilamentRequirements(libraryFileId!, plateId)
+          : api.getArchiveFilamentRequirements(archiveId!, plateId),
+      enabled: isLibraryFile ? !!libraryFileId : !!archiveId,
+      // Same policy as the single-plate query above: these keys are shared, and a
+      // retrying observer would leave the plate looking merely slow for seconds.
+      retry: false,
+    })),
+  });
+
+  // A plate that has not answered yet and a plate whose 3MF cannot be read look
+  // identical from here — both are simply absent from `perPlateReqs`. Neither may
+  // be treated as "this plate needs no filament": that would queue it with no
+  // mapping and no force-colour overrides, and it would print in whatever happens
+  // to be loaded. Both states gate submission instead (see `canSubmit`).
+  // `isPending` is "no data yet", not "a request is in flight" — a background
+  // refetch of a plate we already have must not disable the button under the user.
+  const perPlateReqsPending = perPlateReqQueries.some((q) => q.isPending);
+  const perPlateReqsFailed = perPlateReqQueries.some((q) => q.isError);
+
+  const perPlateReqs = useMemo(() => {
+    const byPlate = new Map<number, FilamentReqsData>();
+    selectedPlateIds.forEach((plateId, i) => {
+      const data = perPlateReqQueries[i]?.data;
+      if (data) byPlate.set(plateId, data);
+    });
+    return byPlate;
+    // Keyed on each query's last update stamp, not on the query objects (fresh every
+    // render) and not on a spread of their data (a dep array whose *length* changes
+    // with the plate count, which React treats as always-changed and warns about).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPlateIds, perPlateReqQueries.map((q) => q.dataUpdatedAt).join('|')]);
+
   // What the tray matching works from. An override chosen in model mode stays
   // in force when the job is moved to a specific printer (#3133), so that
   // printer's trays are matched against the requested filament rather than the
@@ -712,11 +762,16 @@ export function PrintModal({
   const inventoryPicks = useMemo(() => {
     const picks: Record<number, FilamentOverrideEntry> = {};
     if (assignmentMode !== 'printer' || isSeparateJobs) return picks;
+    // Only a slot the file (the selected plates) prints counts: a pick left over from another
+    // plate or file is not on screen and must not block "Print now" or reach the request.
+    const printedSlots = new Set<number>();
+    const sources = isMultiPlateSelection ? [...perPlateReqs.values()] : [effectiveFilamentReqs];
+    for (const reqs of sources) for (const f of reqs?.filaments ?? []) printedSlots.add(f.slot_id);
     for (const [slotId, entry] of Object.entries(filamentOverrides)) {
-      if (entry.fromInventory) picks[Number(slotId)] = entry;
+      if (entry.fromInventory && printedSlots.has(Number(slotId))) picks[Number(slotId)] = entry;
     }
     return picks;
-  }, [assignmentMode, isSeparateJobs, filamentOverrides]);
+  }, [assignmentMode, isSeparateJobs, filamentOverrides, isMultiPlateSelection, perPlateReqs, effectiveFilamentReqs]);
   const inventorySlotIds = useMemo(() => new Set(Object.keys(inventoryPicks).map(Number)), [inventoryPicks]);
   const hasInventoryPick = inventorySlotIds.size > 0;
   const swapOverrides = useMemo(() => {
@@ -887,56 +942,6 @@ export function PrintModal({
     undefined,
     inventorySlotIds,
   );
-
-  // --- Per-plate filament mapping (multi-plate submissions) ---------------
-  // Each plate prints its own subset of the file's slots and needs its own AMS
-  // mapping. `effectiveFilamentReqs` above is keyed on `selectedPlate`, which is
-  // null the moment two plates are picked, so it holds the union of every plate's
-  // filaments — matching against that union lets two plates that share a colour
-  // on different slots compete for the same tray, and sends the loser to a worse
-  // tray or to none. So when several plates are selected we fetch each plate's
-  // requirements and map them separately (#2551 follow-up).
-  const selectedPlateIds = useMemo(() => [...selectedPlates].sort((a, b) => a - b), [selectedPlates]);
-  const isMultiPlateSelection = selectedPlates.size > 1;
-
-  const perPlateReqQueries = useQueries({
-    queries: (isMultiPlateSelection ? selectedPlateIds : []).map((plateId) => ({
-      queryKey: isLibraryFile
-        ? ['library-file-filaments', libraryFileId, plateId]
-        : ['archive-filaments', archiveId, plateId],
-      queryFn: () =>
-        isLibraryFile
-          ? api.getLibraryFileFilamentRequirements(libraryFileId!, plateId)
-          : api.getArchiveFilamentRequirements(archiveId!, plateId),
-      enabled: isLibraryFile ? !!libraryFileId : !!archiveId,
-      // Same policy as the single-plate query above: these keys are shared, and a
-      // retrying observer would leave the plate looking merely slow for seconds.
-      retry: false,
-    })),
-  });
-
-  // A plate that has not answered yet and a plate whose 3MF cannot be read look
-  // identical from here — both are simply absent from `perPlateReqs`. Neither may
-  // be treated as "this plate needs no filament": that would queue it with no
-  // mapping and no force-colour overrides, and it would print in whatever happens
-  // to be loaded. Both states gate submission instead (see `canSubmit`).
-  // `isPending` is "no data yet", not "a request is in flight" — a background
-  // refetch of a plate we already have must not disable the button under the user.
-  const perPlateReqsPending = perPlateReqQueries.some((q) => q.isPending);
-  const perPlateReqsFailed = perPlateReqQueries.some((q) => q.isError);
-
-  const perPlateReqs = useMemo(() => {
-    const byPlate = new Map<number, FilamentReqsData>();
-    selectedPlateIds.forEach((plateId, i) => {
-      const data = perPlateReqQueries[i]?.data;
-      if (data) byPlate.set(plateId, data);
-    });
-    return byPlate;
-    // Keyed on each query's last update stamp, not on the query objects (fresh every
-    // render) and not on a spread of their data (a dep array whose *length* changes
-    // with the plate count, which React treats as always-changed and warns about).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPlateIds, perPlateReqQueries.map((q) => q.dataUpdatedAt).join('|')]);
 
   // Per-plate twin of `mappingFilamentReqs`: slot ids are global to the file, so
   // one override applies to every plate that prints that slot (#3133).
@@ -1115,6 +1120,27 @@ export function PrintModal({
       setScheduleOptions((prev) => ({ ...prev, scheduleType: 'queue' }));
     }
   }, [hasInventoryPick, scheduleOptions.scheduleType]);
+
+  // A pick carried over from model mode whose colour is loaded on the one selected printer is
+  // no wait at all: it becomes that tray's colour, as if picked from the "loaded" rows (the
+  // slot dropdown's own rule: type and colour), so "Print now" is not blocked for nothing (#3649).
+  useEffect(() => {
+    if (!hasInventoryPick || selectedPrinters.length !== 1 || !printerStatus) return;
+    const key = (f: { type: string; color: string }) =>
+      `${canonicalFilamentType(f.type)}|${normalizeColorForCompare(f.color)}`;
+    const loadedKeys = new Set(buildLoadedFilaments(printerStatus, undefined, filamentPolicies).map(key));
+    const nowLoaded = Object.entries(inventoryPicks).filter(([, entry]) => loadedKeys.has(key(entry)));
+    if (nowLoaded.length === 0) return;
+    setFilamentOverrides((prev) => {
+      const next = { ...prev };
+      for (const [slotId, entry] of nowLoaded) {
+        const rest = { ...entry };
+        delete rest.fromInventory;
+        next[Number(slotId)] = rest;
+      }
+      return next;
+    });
+  }, [hasInventoryPick, inventoryPicks, selectedPrinters.length, printerStatus, filamentPolicies]);
 
   const [prevTargetModel, setPrevTargetModel] = useState(targetModel);
   const [prevPlateForOverrides, setPrevPlateForOverrides] = useState(selectedPlate);
@@ -1645,6 +1671,9 @@ export function PrintModal({
         ?.flatMap((o) => {
           const changed = !!filamentOverrides[o.slot_id];
           if (!changed && !(o.force_color_match && ticksShown)) return [];
+          // A colour picked from the inventory is always forced: unforced, the scheduler would take
+          // any spool of the type (or none) instead of waiting for the colour (#3649).
+          if (inventorySlotIds.has(o.slot_id)) return [{ ...o, force_color_match: true }];
           const tray = o.force_color_match && printerId != null ? chosenTray(printerId, plateId, o.slot_id) : undefined;
           if (tray == null) return [o];
           const filament = loaded.find((f) => f.globalTrayId === tray);
@@ -1979,6 +2008,8 @@ export function PrintModal({
       clears_plate: clearsPlatePayload,
       project_id: projectId ?? undefined,
       cost_center_id: billingEnabled ? selectedCostCenterId : undefined,
+      // Partial for a job with a slot waiting for an inventory colour (#3649): that slot has no
+      // spool to price yet, so the estimate leaves it out.
       estimated_cost: billingEnabled && selectedCostCenterId != null ? plateEstimatedCost : undefined,
       batch_id: autoBatchId ?? undefined,
       cleanup_library_after_dispatch: cleanupLibraryAfterDispatch,

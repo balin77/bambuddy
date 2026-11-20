@@ -490,7 +490,7 @@ export function FilamentMapping({
               ? inventoryStockWarning(
                   selectedInventory,
                   inventoryDemand?.[inventoryValue(selectedInventory)] ?? item.used_grams * Math.max(1, quantity),
-                  !!forceColorMatch?.[slotId],
+                  !!forceColorMatch?.[slotId] || !!pick,
                   t,
                   numberFormat,
                 )
@@ -701,8 +701,9 @@ export function FilamentMapping({
                   })}
                 </p>
               )}
-              {/* Force Color Match checkbox — matches FilamentOverride's layout. */}
-              {canForceMatch && (
+              {/* Force Color Match checkbox — matches FilamentOverride's layout. Not for a colour
+                  from the inventory: that pick is always forced, there is nothing to opt out of (#3649). */}
+              {canForceMatch && !pick && (
                 <label className="inline-flex items-center gap-1.5 text-xs text-bambu-gray cursor-pointer select-none pl-5">
                   <input
                     type="checkbox"
