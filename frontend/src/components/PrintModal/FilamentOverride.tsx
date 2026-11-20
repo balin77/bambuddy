@@ -56,6 +56,15 @@ interface FilamentOverrideProps {
   /** Whether to print the explanatory hint. A stack of per-plate panels only needs
    *  it once, above the first one. Defaults to true. */
   showHint?: boolean;
+  /** The panel of several selected printers (#3649): no loaded rows, as the printers
+   *  hold different filament. Only a colour from the inventory can be picked, and the job
+   *  waits for it on each printer; every colour left alone stays automatic. */
+  inventoryOnly?: boolean;
+  /** Replaces the panel's title and hint (they speak of model-based assignment). */
+  title?: string;
+  hint?: string;
+  /** Said under a slot that picked an inventory colour: what happens to the job (#3649). */
+  pickHint?: string;
 }
 
 /**
@@ -78,6 +87,10 @@ export function FilamentOverride({
   onAutoForceColorRelease,
   plateLabel,
   showHint = true,
+  inventoryOnly = false,
+  title,
+  hint,
+  pickHint,
 }: FilamentOverrideProps) {
   const { t, i18n } = useTranslation();
   const numberFormat = useMemo(
@@ -107,7 +120,9 @@ export function FilamentOverride({
 
   const filaments = filamentReqs?.filaments;
   const hasInventory = (inventoryFilaments?.length ?? 0) > 0;
-  if (!filaments || filaments.length === 0 || (availableFilaments.length === 0 && !hasInventory)) {
+  // A pick stays on screen when the list it came from is gone (the setting was switched off).
+  const hasPick = inventoryOnly && !!filaments?.some((f) => overrides[f.slot_id]);
+  if (!filaments || filaments.length === 0 || (availableFilaments.length === 0 && !hasInventory && !hasPick)) {
     return null;
   }
 
@@ -134,12 +149,10 @@ export function FilamentOverride({
     <div className="mb-4">
       <div className="flex items-center gap-2 text-sm text-bambu-gray mb-2">
         <span>
-          {plateLabel
-            ? `${t('printModal.filamentOverride')} — ${plateLabel}`
-            : t('printModal.filamentOverride')}
+          {plateLabel ? `${title ?? t('printModal.filamentOverride')} — ${plateLabel}` : title ?? t('printModal.filamentOverride')}
         </span>
       </div>
-      {showHint && <p className="text-xs text-bambu-gray mb-2">{t('printModal.filamentOverrideHint')}</p>}
+      {showHint && <p className="text-xs text-bambu-gray mb-2">{hint ?? t('printModal.filamentOverrideHint')}</p>}
       {/* Asked for in #3590; the Settings card (Queue & Dispatch) is the other way to
           switch it, so this checkbox can be removed without losing the setting. */}
       {showHint && inventoryOption && (
@@ -166,7 +179,9 @@ export function FilamentOverride({
           // On dual-nozzle printers (H2D), filter to filaments on the correct extruder.
           // nozzle_id from 3MF maps to extruder_id from AMS. If nozzle_id is undefined
           // (single-nozzle) or extruder_id is null, no nozzle filtering is needed.
-          const compatible = req.nozzle_id != null
+          const compatible = inventoryOnly
+            ? []
+            : req.nozzle_id != null
             ? sameType.filter((f) => f.extruder_id == null || f.extruder_id === req.nozzle_id)
             : sameType;
 
@@ -181,7 +196,9 @@ export function FilamentOverride({
           // Inventory group (#3590): entries of this slot's type that are not
           // already loaded (type + colour; the variant is ignored for that).
           const inventoryRows = inventoryEnabled ? notLoadedInventory(inventoryByType, req.type, compatible) : [];
-          const inventoryGroup = t('printModal.overrideGroupInventory', 'In inventory, not loaded');
+          const inventoryGroup = inventoryOnly
+            ? t('printModal.slotGroupInventory', 'From inventory (not loaded)')
+            : t('printModal.overrideGroupInventory', 'In inventory, not loaded');
 
           // Which row the stored override is. A loaded row wins (exact value, else
           // same canonical type and colour, so an 8-digit #RRGGBBAA or another
@@ -312,6 +329,9 @@ export function FilamentOverride({
                 <Palette className="w-3 h-3" />
                 {t('printModal.forceColorMatch')}
               </label>
+              {pickHint && (selectedInventory || syntheticRow) && (
+                <p className="text-xs text-bambu-gray pl-5">{pickHint}</p>
+              )}
               {stockWarning && (
                 <p className="flex items-start gap-1.5 text-xs text-yellow-600 dark:text-yellow-400 pl-5" role="alert">
                   <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />

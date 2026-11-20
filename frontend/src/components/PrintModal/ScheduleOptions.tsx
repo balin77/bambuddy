@@ -30,6 +30,7 @@ export function ScheduleOptionsPanel({
   printerCount = 0,
   hasGcodeSnippets = false,
   needsReview = false,
+  asapDisabledReason,
 }: ScheduleOptionsProps) {
   const { t } = useTranslation();
   const [dateValue, setDateValue] = useState('');
@@ -136,8 +137,10 @@ export function ScheduleOptionsPanel({
               options.scheduleType === 'asap'
                 ? 'bg-bambu-green border-bambu-green text-white'
                 : 'bg-bambu-dark border-bambu-dark-tertiary text-bambu-gray hover:text-white'
-            }`}
+            } ${asapDisabledReason ? 'opacity-50 cursor-not-allowed hover:text-bambu-gray' : ''}`}
             onClick={() => handleScheduleTypeChange('asap')}
+            disabled={!!asapDisabledReason}
+            aria-describedby={asapDisabledReason ? 'asap-disabled-reason' : undefined}
           >
             <Clock className="w-4 h-4" />
             {t('printModal.asap')}
@@ -167,6 +170,11 @@ export function ScheduleOptionsPanel({
             {t('printModal.schedule')}
           </button>
         </div>
+        {asapDisabledReason && (
+          <p id="asap-disabled-reason" className="mt-2 text-xs text-bambu-gray">
+            {asapDisabledReason}
+          </p>
+        )}
       </div>
 
       {/* Scheduled time input */}
