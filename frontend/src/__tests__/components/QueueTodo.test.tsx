@@ -569,7 +569,17 @@ describe('QueueTodoList slot hints (#3634)', () => {
 
     it('leaves out what the job needs when that is not known', () => {
       render(<QueueTodoList todo={shortEntry({ short_trays: [{ ams_id: 0, tray_id: 1, remaining_grams: 12 }], required_grams: null }, null)} />);
-      expect(screen.getByTestId('todo-short').textContent).toBe('Not enough PLA Lava Red: A2 has 12 g');
+      expect(screen.getByTestId('todo-short').textContent).toBe('Not enough PLA Lava Red: A2 has 12\u00a0g');
+    });
+
+    it('keeps the number and its unit together and formats the number', () => {
+      render(<QueueTodoList todo={shortEntry(
+        { short_trays: [{ ams_id: 0, tray_id: 1, remaining_grams: 1234 }], required_grams: 2500 },
+        null,
+      )} />);
+      expect(screen.getByTestId('todo-short').textContent).toBe(
+        'Not enough PLA Lava Red: A2 has 1,234\u00a0g, the job needs 2,500\u00a0g',
+      );
     });
 
     it('names no tray for an entry of an "Any <model>" group', () => {
@@ -582,12 +592,12 @@ describe('QueueTodoList slot hints (#3634)', () => {
         { short_trays: [{ ams_id: 128, tray_id: 0, remaining_grams: 5 }], required_grams: 30 },
         replace(slot(0, 'PLA', '#C12E1F', { ams_id: 128, is_ht: true, ams_type: 4, remaining_grams: 5 })),
       )} />);
-      expect(screen.getByTestId('todo-short').textContent).toContain('HT-A has 5 g');
+      expect(screen.getByTestId('todo-short').textContent).toContain('HT-A has 5\u00a0g');
     });
 
     it('shows the replace hint with what is left, or without when unknown', () => {
       const { unmount } = render(<QueueTodoList todo={shortEntry({}, replace(slot(1, 'PLA', '#C12E1F', { remaining_grams: 12 })))} />);
-      expect(screen.getByTestId('todo-slot-hint').textContent).toMatch(/^Replace: A2 \(PLA .+, 12 g left\)$/);
+      expect(screen.getByTestId('todo-slot-hint').textContent).toMatch(/^Replace: A2 \(PLA .+, 12\u00a0g left\)$/);
       unmount();
       render(<QueueTodoList todo={shortEntry({}, replace(slot(1, 'PLA', '#C12E1F', { remaining_grams: null })))} />);
       expect(screen.getByTestId('todo-slot-hint').textContent).toMatch(/^Replace: A2 \(PLA [^,]+\)$/);
@@ -604,7 +614,7 @@ describe('QueueTodoList slot hints (#3634)', () => {
       await i18n.changeLanguage('de');
       try {
         render(<QueueTodoList todo={shortEntry({ short_trays: [{ ams_id: 0, tray_id: 1, remaining_grams: 12 }], required_grams: 30 }, null)} />);
-        expect(screen.getByTestId('todo-short').textContent).toBe('Nicht genug PLA Lava Red: A2 hat noch 12 g, der Auftrag braucht 30 g');
+        expect(screen.getByTestId('todo-short').textContent).toBe('Nicht genug PLA Lava Red: A2 hat noch 12\u00a0g, der Auftrag braucht 30\u00a0g');
       } finally {
         await i18n.changeLanguage('en');
       }

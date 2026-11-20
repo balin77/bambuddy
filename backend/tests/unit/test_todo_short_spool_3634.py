@@ -21,9 +21,11 @@ from backend.app.services.queue_todo import (
     TodoFilament,
     TodoJob,
     _hint_dict,
+    _merge_short,
     build_todo,
     todo_filament_from_requirement,
     tray_fits_filament,
+    unique_filaments,
 )
 from backend.tests.unit.services.test_filament_deficit import (
     TestFilamentDeficitBackupAware,
@@ -97,6 +99,27 @@ class TestShortSpoolHint:
     def test_unknown_grams_are_null(self):
         shown = _hint_dict(_farm_hint(), (_short([ShortTray(0, 1, None)], required=None),), {})
         assert shown["slots"][0]["remaining_grams"] is None
+
+    def test_a_tray_now_holding_another_filament_is_not_named(self):
+        # A2 was swapped for a fresh PETG spool since the hold was written.
+        swapped = (FARM[0], _slot(0, 1, "PETG", "#000000"), *FARM[2:])
+        hint = SlotHint(1, HINT_REPLACEABLE, swapped, loaded=swapped)
+        shown = _hint_dict(hint, (_short([ShortTray(0, 1, 12.0)]),), {})
+        assert shown["state"] != HINT_REPLACE
+        # The normal hint: the tray of the new spool is a place to load.
+        assert (0, 1) in _ids(shown)
+
+    def test_only_the_swapped_tray_of_a_pool_is_dropped(self):
+        swapped = (FARM[0], FARM[1], _slot(0, 2, "PETG", "#000000"), FARM[3])
+        hint = SlotHint(1, HINT_REPLACEABLE, swapped, loaded=swapped)
+        trays = [ShortTray(0, 1, 12.0), ShortTray(0, 2, 13.0)]
+        shown = _hint_dict(hint, (_short(trays),), {})
+        assert shown["state"] == HINT_REPLACE
+        assert _ids(shown) == [(0, 1)]
+
+    def test_a_tray_that_still_fits_keeps_its_counted_grams(self):
+        shown = _hint_dict(_farm_hint(), (_short([ShortTray(0, 1, 12.0)]),), {})
+        assert shown["slots"][0]["remaining_grams"] == 12.0
 
     def test_a_tray_that_is_no_longer_loaded_is_not_named(self):
         hint = SlotHint(1, HINT_REPLACEABLE, FARM[:1], loaded=FARM[:1])
@@ -181,7 +204,14 @@ class TestMissingFilamentNeverOffersItsOwnColour:
 
 
 class TestPredicateAgreesWithTheMatcher:
-    """``tray_fits_filament`` is the matcher's own reading of "this tray is that filament"."""
+    """``tray_fits_filament`` is the matcher's own reading of "this tray is that filament".
+
+    The check runs one way on purpose: a tray the predicate calls fitting must
+    be one the matcher takes (or, forced, finds). The converse does not hold:
+    the predicate is stricter than the matcher, which also takes a tray the
+    list still offers (a different type through a fallback, the other nozzle's
+    tray), and offering a tray the matcher might use is the lesser harm.
+    """
 
     CASES = [
         # (filament type, colour, idx, forced), (tray type, colour, idx)
@@ -292,6 +322,46 @@ class TestBuildTodoKeepsShortAndMissingApart:
         # The same two jobs held on a missing filament: one entry, as before.
         holds = {i: [FilamentHold(i, 1, None, (TodoFilament("PLA", LAVA, "Lava Red"),))] for i in (1, 2)}
         assert self._build(holds)["count"] == 1
+
+
+class TestShortRowsStayApart:
+    def test_a_carried_hold_keeps_two_short_rows_of_one_filament(self):
+        a2 = _short([ShortTray(0, 1, 12.0)])
+        a3 = _short([ShortTray(0, 2, 13.0)])
+        scheduler = PrintScheduler()
+        scheduler._pass_holds = {}
+        scheduler._filament_holds = {5: [FilamentHold(5, 1, None, (a2, a3))]}
+        item = MagicMock(id=5, printer_id=1, target_model=None)
+        assert scheduler._carry_filament_hold(item)
+        (hold,) = scheduler._pass_holds[5]
+        assert [f.short_trays for f in hold.filaments] == [a2.short_trays, a3.short_trays]
+
+    def test_a_short_and_a_missing_row_stay_separate_when_carried(self):
+        short = _short([ShortTray(0, 1, 12.0)])
+        missing = TodoFilament("PLA", LAVA, "Lava Red")
+        scheduler = PrintScheduler()
+        scheduler._pass_holds = {}
+        scheduler._filament_holds = {
+            5: [FilamentHold(5, 1, None, (short,)), FilamentHold(5, 1, None, (missing, short))]
+        }
+        scheduler._carry_filament_hold(MagicMock(id=5, printer_id=1, target_model=None))
+        (hold,) = scheduler._pass_holds[5]
+        assert [f.short for f in hold.filaments] == [True, False]
+
+    def test_the_same_row_twice_is_one(self):
+        short = _short([ShortTray(0, 1, 12.0)])
+        assert unique_filaments([short], [replace(short, required_grams=40.0)]) == [short]
+
+    def test_merging_takes_the_larger_requirement_whether_or_not_trays_are_added(self):
+        base = (_short([ShortTray(0, 1, 12.0)], required=30.0),)
+        same_tray = (_short([ShortTray(0, 1, 12.0)], required=50.0),)
+        assert _merge_short(base, same_tray)[0].required_grams == 50.0
+        assert _merge_short(same_tray, base)[0].required_grams == 50.0
+        new_tray = (_short([ShortTray(0, 2, 9.0)], required=20.0),)
+        merged = _merge_short(base, new_tray)[0]
+        assert (merged.required_grams, len(merged.short_trays)) == (30.0, 2)
+        unknown = (_short([ShortTray(0, 1, 12.0)], required=None),)
+        assert _merge_short(base, unknown)[0].required_grams == 30.0
 
 
 class TestFromTheDeficit:

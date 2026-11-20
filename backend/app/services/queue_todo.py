@@ -172,12 +172,13 @@ def merge_todo_filaments(into: list[TodoFilament], more: Iterable[TodoFilament])
 
     ``forced`` and ``tray_info_idx`` are not compared, so a filament already
     there stands for its twin; the forced twin wins (the flag is OR-ed), or the
-    stock flag of the forced one would be lost (#3615). A short spool and a
-    missing one of the same filament stay two (#3634).
+    stock flag of the forced one would be lost (#3615). A repeat is the same
+    filament on the same short trays; a short spool and a missing one of the
+    same filament stay two (#3634).
     """
     for f in more:
         for i, known in enumerate(into):
-            if known == f and known.short == f.short:
+            if known == f and _identity(known) == _identity(f):
                 if f.forced and not known.forced:
                     into[i] = replace(known, forced=True, tray_info_idx=f.tray_info_idx or known.tray_info_idx)
                 break
@@ -206,6 +207,15 @@ def tray_fits_filament(slot: HintSlot, filament: TodoFilament) -> bool:
     the same one. A tray that fits is not offered as a place to load that
     filament: the matcher would use it. See ``_match_filaments_to_slots`` and
     ``_force_color_misses``, which a test holds this against.
+
+    Intentionally stricter than the matcher, so that it errs towards not
+    offering a tray the matcher might still use. Known edge cases: a
+    non-forced preference override is counted by
+    ``_count_override_color_matches`` as an exact match only, while this treats
+    a similar colour as fitting; limits that come from the job's creator
+    (filaments they may not use) are not known here; and in an entry that names
+    nozzles, a same-type tray on the other nozzle is judged by type and colour
+    alone, as the nozzle is not part of the test.
     """
     if not slot.type or canonical_filament_type(slot.type.upper()) != canonical_filament_type(filament.type.upper()):
         return False
@@ -266,6 +276,24 @@ def _fil_key(filaments: Iterable[TodoFilament]) -> tuple:
     return tuple((f.type, f.color, f.nozzle, f.short) for f in _sorted(filaments))
 
 
+def _identity(f: TodoFilament) -> tuple:
+    # Equality ignores the short fields; two short rows of one filament on
+    # different trays are still two rows.
+    return (f.type, f.color, f.nozzle, f.short, tuple(sorted((t.ams_id, t.tray_id) for t in f.short_trays)))
+
+
+def unique_filaments(*groups: Iterable[TodoFilament]) -> list[TodoFilament]:
+    """The filaments of all ``groups`` without repeats, a repeat being the same filament on the same trays (#3634)."""
+    seen: set[tuple] = set()
+    out: list[TodoFilament] = []
+    for group in groups:
+        for f in group:
+            if (key := _identity(f)) not in seen:
+                seen.add(key)
+                out.append(f)
+    return out
+
+
 def _merge_short(base: tuple[TodoFilament, ...], more: tuple[TodoFilament, ...]) -> tuple[TodoFilament, ...]:
     """``base`` with the short trays of ``more`` (the same filaments, in the same order) added."""
     if len(base) != len(more):
@@ -273,8 +301,11 @@ def _merge_short(base: tuple[TodoFilament, ...], more: tuple[TodoFilament, ...])
     merged = []
     for a, b in zip(base, more, strict=True):
         if a.short and b.short and (extra := [t for t in b.short_trays if t not in a.short_trays]):
+            a = replace(a, short_trays=a.short_trays + tuple(extra))
+        if a.short and b.short:
+            # The most any of the jobs needs, whether or not trays were added.
             grams = [g for g in (a.required_grams, b.required_grams) if g is not None]
-            a = replace(a, short_trays=a.short_trays + tuple(extra), required_grams=max(grams) if grams else None)
+            a = replace(a, required_grams=max(grams) if grams else None)
         merged.append(a)
     return tuple(merged)
 
@@ -302,7 +333,11 @@ def _replace_slots(hint: SlotHint, filaments: Iterable[TodoFilament]) -> tuple[H
     """The trays whose spools are too small for the entry, as the printer reports them (#3634).
 
     Looked up among the printer's loaded slots for what is in them; a tray
-    that is no longer loaded is left out.
+    that is no longer loaded is left out, and so is one that no longer holds
+    the filament (a fresh spool of another one was put in). A tray that still
+    fits but whose grams have gone stale is kept, with the grams it was counted
+    with: a staged job's hold is not re-validated while it stays staged
+    (#3615), so the next pass's hold corrects them.
     """
     loaded = {(slot.ams_id, slot.tray_id): slot for slot in hint.loaded}
     out: dict[tuple[int, int], HintSlot] = {}
@@ -311,7 +346,7 @@ def _replace_slots(hint: SlotHint, filaments: Iterable[TodoFilament]) -> tuple[H
             continue
         for tray in filament.short_trays:
             key = (tray.ams_id, tray.tray_id)
-            if key in loaded and key not in out:
+            if key in loaded and key not in out and tray_fits_filament(loaded[key], filament):
                 out[key] = replace(loaded[key], remaining_grams=tray.remaining_grams)
     return tuple(out[key] for key in sorted(out))
 
