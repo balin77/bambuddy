@@ -383,4 +383,6 @@ export interface ScheduleOptionsProps {
   hasGcodeSnippets?: boolean;
   /** The user's jobs wait for someone to start them (#1620) */
   needsReview?: boolean;
+  /** Set = the "ASAP" option is disabled, with this as the explanation (#3649). */
+  asapDisabledReason?: string;
 }
