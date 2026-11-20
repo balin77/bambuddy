@@ -2886,7 +2886,7 @@ export interface DiscoveredTasmotaDevice {
 
 // Print Queue types
 // "To do" list of everything the queue waits on (#3615).
-export type QueueTodoKind = 'plate_clear' | 'plate_changer_empty' | 'load_filament' | 'start_staged' | 'sensor_interlock' | 'power_on_failed';
+export type QueueTodoKind = 'print_paused' | 'plate_clear' | 'plate_changer_empty' | 'load_filament' | 'start_staged' | 'sensor_interlock' | 'power_on_failed';
 export interface QueueTodoFilament {
   type: string;
   color: string;
@@ -2929,6 +2929,31 @@ export interface QueueTodoSlotHint {
   // One part per nozzle of the entry on a dual-nozzle printer without a Filament Track Switch.
   by_nozzle: { nozzle: 'left' | 'right'; state: QueueTodoHintState; slots: QueueTodoHintSlot[] }[];
 }
+// A slot a paused print names; same fields as the filament hints' slots.
+export interface QueueTodoPausedSlot {
+  ams_id: number;
+  tray_id: number;
+  is_ht: boolean;
+  is_external: boolean;
+  ams_type: number | null;
+  // What the slot's tray reports now; empty for an empty slot.
+  type: string;
+  color: string;
+  tray_info_idx: string;
+  tray_sub_brands: string;
+}
+// A print that is paused and waits for a person (#3648).
+export interface QueueTodoPaused {
+  // null when the caller may not read printers.
+  job_name: string | null;
+  progress: number | null;
+  remaining_minutes: number | null;
+  cause: 'runout_ams' | 'runout_external' | 'error' | 'paused';
+  ran_out: QueueTodoPausedSlot | null;
+  expected: QueueTodoPausedSlot | null;
+  error: { code: string; description: string | null } | null;
+  more_errors: number;
+}
 export interface QueueTodoEntry {
   kind: QueueTodoKind;
   jobs: { id: number; name: string; can_start: boolean }[];
@@ -2945,6 +2970,8 @@ export interface QueueTodoEntry {
   slot_hint?: QueueTodoSlotHint | null;
   // load_filament of an "Any <model>" group: the same, per listed printer that has one.
   slot_hints?: (QueueTodoSlotHint & { printer_id: number })[];
+  // Only on a print_paused entry.
+  paused?: QueueTodoPaused | null;
 }
 // What to prepare for one of a printer's next jobs (#3640). Not a to do the queue waits on, and not counted.
 export interface QueueTodoPrepare {

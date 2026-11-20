@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import i18n from 'i18next';
-import { Palette, Play, ShieldAlert, PowerOff, Loader2, Layers } from 'lucide-react';
+import { Palette, Pause, Play, ShieldAlert, PowerOff, Loader2, Layers } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import type {
   QueueTodo,
@@ -12,6 +12,8 @@ import type {
   QueueTodoGroup,
   QueueTodoHintSlot,
   QueueTodoKind,
+  QueueTodoPaused,
+  QueueTodoPausedSlot,
   QueueTodoPrepare,
   QueueTodoSlotHint,
 } from '../api/client';
@@ -23,8 +25,10 @@ import { QUEUE_TODO_KEY } from '../hooks/useQueueTodo';
 import { useStartQueueItem } from '../hooks/useStartQueueItem';
 import { formatSlotLabel } from '../utils/amsHelpers';
 import { getColorName } from '../utils/colors';
+import { formatDuration } from '../utils/date';
 
 const KIND_ICON: Record<QueueTodoKind, React.ComponentType<{ className?: string }>> = {
+  print_paused: Pause,
   plate_clear: PlateClearedIcon,
   plate_changer_empty: Layers,
   load_filament: Palette,
@@ -34,6 +38,7 @@ const KIND_ICON: Record<QueueTodoKind, React.ComponentType<{ className?: string 
 };
 
 const KIND_TEXT_KEY: Record<QueueTodoKind, string> = {
+  print_paused: 'queueTodo.kind.printPaused',
   plate_clear: 'queueTodo.kind.plateClear',
   plate_changer_empty: 'queueTodo.kind.plateChangerEmpty',
   load_filament: 'queueTodo.kind.loadFilament',
@@ -214,6 +219,49 @@ function SlotHints({ entry }: { entry: QueueTodoEntry }) {
   );
 }
 
+const slotLabel = (slot: QueueTodoPausedSlot) =>
+  formatSlotLabel(slot.ams_id, slot.tray_id, slot.is_ht, slot.is_external, slot.ams_type);
+
+// "PLA Lava Red" for what a slot's tray reports; null for an empty slot.
+const slotFilament = (slot: QueueTodoPausedSlot | null) =>
+  slot?.type
+    ? [slot.type, slot.color ? getColorName(slot.color, slot.tray_sub_brands || null, slot.tray_info_idx) : ''].filter(Boolean).join(' ')
+    : null;
+
+// The file, how far it got and how long it still has; parts the printer did not report are left out.
+function pausedProgressLine(paused: QueueTodoPaused, t: (key: string, options?: Record<string, unknown>) => string): string {
+  return [
+    paused.job_name,
+    paused.progress != null ? `${Math.round(paused.progress)}%` : null,
+    paused.remaining_minutes != null ? t('queueTodo.printPaused.remaining', { time: formatDuration(paused.remaining_minutes * 60) }) : null,
+  ].filter(Boolean).join(' \u00b7 ');
+}
+
+// What the paused print waits for, in a sentence; null when the printer gave no reason.
+function pausedCauseText(paused: QueueTodoPaused, t: (key: string, options?: Record<string, unknown>) => string): string | null {
+  switch (paused.cause) {
+    case 'runout_ams': {
+      const { ran_out: ranOut, expected } = paused;
+      // What to load is what ran out; an empty slot falls back to what the expected one still reports.
+      const filament = slotFilament(ranOut) ?? slotFilament(expected) ?? t('queueTodo.printPaused.anyFilament');
+      if (ranOut && expected) {
+        return t('queueTodo.printPaused.runoutBoth', { ranOut: slotLabel(ranOut), filament, expected: slotLabel(expected) });
+      }
+      if (expected) return t('queueTodo.printPaused.runoutExpected', { filament, expected: slotLabel(expected) });
+      if (ranOut) return t('queueTodo.printPaused.runoutRanOut', { ranOut: slotLabel(ranOut) });
+      return t('queueTodo.printPaused.runoutUnknown');
+    }
+    case 'runout_external':
+      return t('queueTodo.printPaused.runoutExternal');
+    case 'error': {
+      const base = paused.error?.description || t('queueTodo.printPaused.errorCode', { code: paused.error?.code ?? '' });
+      return paused.more_errors > 0 ? `${base} ${t('queueTodo.printPaused.moreErrors', { more: paused.more_errors })}` : base;
+    }
+    default:
+      return null;
+  }
+}
+
 function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZIndex }: {
   group: QueueTodoGroup;
   entry: QueueTodoEntry;
@@ -374,6 +422,20 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZInd
             t(KIND_TEXT_KEY[entry.kind])
           )}
         </div>
+        {entry.kind === 'print_paused' && entry.paused && (
+          <>
+            {pausedProgressLine(entry.paused, t) && (
+              <div data-testid="todo-paused-progress" className="text-xs text-bambu-gray-light break-words">
+                {pausedProgressLine(entry.paused, t)}
+              </div>
+            )}
+            {pausedCauseText(entry.paused, t) && (
+              <div data-testid="todo-paused-cause" className="text-xs text-bambu-gray-light break-words">
+                {pausedCauseText(entry.paused, t)}
+              </div>
+            )}
+          </>
+        )}
         {entry.kind === 'sensor_interlock' && entry.detail && (
           <div className="text-xs text-bambu-gray-light">{entry.detail}</div>
         )}
@@ -418,9 +480,11 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZInd
           </ul>
         )}
         {entry.kind === 'load_filament' && <SlotHints entry={entry} />}
-        <div className="text-xs text-bambu-gray truncate max-w-full" title={jobs.map((j) => j.name).join(', ')}>
-          {jobLabel}
-        </div>
+        {entry.kind !== 'print_paused' && (
+          <div className="text-xs text-bambu-gray truncate max-w-full" title={jobs.map((j) => j.name).join(', ')}>
+            {jobLabel}
+          </div>
+        )}
         {action}
       </div>
       {showRefillConfirm && entry.plate_capacity != null && (

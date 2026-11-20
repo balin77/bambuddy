@@ -378,6 +378,53 @@ describe('useWebSocket hook', () => {
       vi.unstubAllGlobals();
     });
 
+    it('invalidates the queue to-do list when a print is paused, resumed or its fault changes (#3648)', async () => {
+      vi.useFakeTimers();
+      const { useWebSocket } = await import('../../hooks/useWebSocket');
+      const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+      // The shared client collects a query with no observer at once; the printer cards hold this one.
+      queryClient.setQueryDefaults(['printerStatus'], { gcTime: Infinity });
+      renderHook(() => useWebSocket(), { wrapper: createWrapper(queryClient) });
+      const ws = await waitForWs();
+      act(() => {
+        ws.open();
+      });
+      const push = async (data: Record<string, unknown>) => {
+        act(() => {
+          ws.simulateMessage({ type: 'printer_status', printer_id: 1, data });
+        });
+        // Past the coalescing window.
+        await act(async () => {
+          vi.advanceTimersByTime(200);
+        });
+      };
+      const fault = (full_code: string) => ({ full_code, code: '0x8011', attr: 0 });
+      const todoCalls = () => invalidateSpy.mock.calls.filter(([f]) => JSON.stringify(f) === '{"queryKey":["queue-todo"]}').length;
+
+      await push({ state: 'RUNNING', progress: 10 });
+      expect(todoCalls()).toBe(0);
+      await push({ state: 'PAUSE' });
+      expect(todoCalls()).toBe(1);
+      // Progress ticks while paused change nothing for the list.
+      await push({ progress: 11 });
+      expect(todoCalls()).toBe(1);
+      await push({ hms_errors: [fault('0700000000018011')] });
+      expect(todoCalls()).toBe(2);
+      // The same fault again is no change.
+      await push({ hms_errors: [fault('0700000000018011')] });
+      expect(todoCalls()).toBe(2);
+      await push({ expected_tray: 1 });
+      expect(todoCalls()).toBe(3);
+      await push({ state: 'RUNNING' });
+      expect(todoCalls()).toBe(4);
+      // Faults of a printer that is not paused are not the list's business.
+      await push({ hms_errors: [] });
+      expect(todoCalls()).toBe(4);
+
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    });
+
     it('invalidates archives on archive_created message', async () => {
       vi.useFakeTimers();
       const { useWebSocket } = await import('../../hooks/useWebSocket');
