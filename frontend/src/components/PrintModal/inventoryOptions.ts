@@ -144,3 +144,25 @@ export function inventoryPickerOption(
     exactMatch: normalizeColorForCompare(reqColor) !== '' && normalizeColorForCompare(f.color) === normalizeColorForCompare(reqColor),
   };
 }
+
+/** What a colour from the inventory that is not loaded means for the job (#3649): it waits on the printer.
+ *  `printer` absent = several printers, each of which waits. `loadedFirst` is the "Loaded filament first"
+ *  setting; with it off the job is staged and Start is pressed by hand, and unknown (the dialog may not
+ *  read that setting) says so conditionally. `nozzle` is the slot's nozzle on a dual-nozzle file. */
+export function inventoryWaitHint(
+  t: TFunction,
+  opts: { printer?: string; loadedFirst?: boolean; nozzle?: number | null },
+): string {
+  const parts = [
+    opts.printer
+      ? t('printModal.inventoryWaitHint', 'The job waits until this filament is loaded on {{printer}}.', { printer: opts.printer })
+      : t('printModal.inventoryWaitHintEach', 'The job waits until this filament is loaded on each selected printer.'),
+  ];
+  if (opts.loadedFirst === false) parts.push(t('printModal.inventoryWaitStart', 'Press Start once it is loaded.'));
+  else if (opts.loadedFirst === undefined) {
+    parts.push(t('printModal.inventoryWaitStartUnknown', 'With "Loaded filament first" off, press Start once it is loaded.'));
+  }
+  if (opts.nozzle === 0) parts.push(t('printModal.inventoryWaitNozzleRight', 'Load it into the AMS of the right nozzle.'));
+  else if (opts.nozzle === 1) parts.push(t('printModal.inventoryWaitNozzleLeft', 'Load it into the AMS of the left nozzle.'));
+  return parts.join(' ');
+}
