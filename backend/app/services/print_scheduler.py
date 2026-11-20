@@ -831,11 +831,6 @@ def _is_filament_wait(reason: str | None) -> bool:
     return bool(reason) and (_FILAMENT_WAIT_PREFIX in reason or _NO_MATCH_PREFIX in reason)
 
 
-def _describe_unmatched(unmatched: list[dict]) -> str:
-    """The unmatched requirements as the queue row names them ("PLA #FFFFFF")."""
-    return ", ".join(_describe_filament(r, "nozzle_id") for r in unmatched)
-
-
 def _describe_deficit(deficits: list[FilamentDeficit]) -> str:
     """The short spools as the queue row names them ("PLA (20 g left, needs 300 g)")."""
     parts = []
@@ -1749,6 +1744,11 @@ class PrintScheduler:
         # Install-wide opt-in (#3590): when False the whole inventory hint
         # (stock read, suffix, out-of-stock event) is skipped. Set per pass.
         self._inventory_hints: bool = False
+        # Jobs already told about an out-of-stock filament, with the filaments
+        # told about (#3649). The reason alone cannot say: a held job's reason
+        # is overwritten ("Busy: ...") while another job prints, and the suffix
+        # then looks new again.
+        self._out_of_stock_notified: dict[int, frozenset[str]] = {}
         # When each "any model" job held for low filament last looked for
         # another printer (#3137), by queue item id.
         self._short_hold_checked_at: dict[int, float] = {}
@@ -2087,6 +2087,7 @@ class PrintScheduler:
                 await self._check_filament_low(db)
                 await self._check_stock_forecast(db)
                 self._filament_wait_notified.clear()
+                self._out_of_stock_notified.clear()
                 return bool(self._inflight)
 
             logger.info(
@@ -2101,6 +2102,11 @@ class PrintScheduler:
             }
             self._filament_wait_notified = {
                 item_id: state for item_id, state in self._filament_wait_notified.items() if item_id in pending_ids
+            }
+            # Same for the out-of-stock events, so a job that was dispatched or
+            # cancelled is told afresh should its shortage come back (#3649).
+            self._out_of_stock_notified = {
+                item_id: shortage for item_id, shortage in self._out_of_stock_notified.items() if item_id in pending_ids
             }
 
             # Seed busy_printers with printers that already have an item in 'printing'
@@ -2540,17 +2546,26 @@ class PrintScheduler:
                         # print (#3522) is not waiting for a spool: it goes on
                         # as with the mode off and is held for that below.
                         missing_here = (
-                            self._wake_declined_for_filament(item)
+                            await self._wake_declined_for_filament(db, item)
                             if filament_first and auto_on_plugs and not await self._filament_scope_violation(db, item)
                             else None
                         )
                         if missing_here is not None:
+                            missing_text, missing_out_of_stock = missing_here
                             suffix, has_priority = filament_wait_suffix(item)
-                            wake_reason = f"{_FILAMENT_WAIT_PREFIX}{missing_here}{suffix}"
+                            wake_reason = f"{_FILAMENT_WAIT_PREFIX}{missing_text}{suffix}"
                             previous_reason = item.waiting_reason
                             await hold_item(item, wake_reason, notify=False)
                             if has_priority:
                                 reserve_for_filament_wait(item.printer_id)
+                            await self._notify_out_of_stock_once(
+                                db,
+                                item,
+                                previous_reason,
+                                missing_out_of_stock,
+                                item.printer_id,
+                                pinned_printers.get(item.printer_id, ("", ""))[1],
+                            )
                             await self._notify_filament_wait_once(
                                 db,
                                 item,
@@ -9983,8 +9998,11 @@ class PrintScheduler:
         """Read-only: the slots whose spool cannot finish ``item``, [] when nothing to say (#3587)."""
         return await self._filament_deficit_verdict(db, item) or []
 
-    def _wake_declined_for_filament(self, item: PrintQueueItem) -> str | None:
+    async def _wake_declined_for_filament(self, db: AsyncSession, item: PrintQueueItem) -> tuple[str, list[str]] | None:
         """What a pinned job lacks on its switched-off printer, None to switch it on (#3587).
+
+        ``(text, out_of_stock)`` as ``_filament_wait_wanted`` has it: a forced
+        colour the inventory has none left of carries ``_NO_STOCK_SUFFIX`` (#3649).
 
         Declines only on positive evidence: the trays this printer last
         reported (#2876) cannot run this job as it is now. Never for a job the
@@ -10007,8 +10025,19 @@ class PrintScheduler:
         # the model matcher's), which would keep the printer off for a job it
         # would print, and its trays would never refresh while it is off.
         forced = [o for o in overrides or [] if o.get("force_color_match")]
-        shortfall = self._cached_filament_shortfall(item.printer_id, required_types, forced or None)
-        return ", ".join(shortfall) if shortfall else None
+        entry_overrides: dict[str, list[dict]] = {}
+
+        def note_entry(text: str, override: dict) -> None:
+            known = entry_overrides.setdefault(text, [])
+            if not any(o is override for o in known):
+                known.append(override)
+
+        shortfall = self._cached_filament_shortfall(item.printer_id, required_types, forced or None, note_entry)
+        if not shortfall:
+            return None
+        out_of_stock: list[str] = []
+        marked = await self._mark_out_of_stock(db, shortfall, entry_overrides, out_of_stock)
+        return ", ".join(marked), out_of_stock
 
     async def _filament_wait_wanted(self, db: AsyncSession, item: PrintQueueItem) -> tuple[str, list[str]] | None:
         """What ``item`` waits for on its printer, worded for the queue row (#3587).
@@ -10052,8 +10081,22 @@ class PrintScheduler:
         printer_id: int | None,
         target_model: str,
     ) -> None:
-        """Once per job, when its reason first names a filament the inventory has none left of (#3590, #3649)."""
-        if not out_of_stock or _NO_STOCK_SUFFIX in (previous_reason or ""):
+        """Once per job and shortage, when it names a filament the inventory has none left of (#3590, #3649).
+
+        Remembered per queue item, not read off the reason alone: a held job's
+        reason is replaced while another job prints, and the same shortage
+        would look new when it comes back. A shortage that ends (the filament
+        is in stock again, the job no longer needs it) is forgotten, so the
+        next one is told.
+        """
+        if not out_of_stock:
+            self._out_of_stock_notified.pop(item.id, None)
+            return
+        shortage = frozenset(out_of_stock)
+        if self._out_of_stock_notified.get(item.id) == shortage:
+            return
+        self._out_of_stock_notified[item.id] = shortage
+        if _NO_STOCK_SUFFIX in (previous_reason or ""):
             return
         try:
             await notification_service.on_filament_out_of_stock(
