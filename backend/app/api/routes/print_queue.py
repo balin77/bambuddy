@@ -915,11 +915,16 @@ def _paused_prints(
         return state is not None and state.connected and state.state == "PAUSE"
 
     # The file's name is the printer card's information, so it follows printers:read.
+    # A caller with only QUEUE_READ_OWN still sees the paused entries of the printers
+    # in their scope (a paused printer waits for a person whatever is queued); without
+    # printers:read they get no job name.
     may_name = actor is None or actor.has_permission(Permission.PRINTERS_READ.value)
     paused: dict[int, PausedInfo] = {}
     for pid in printer_ids:
         state = printer_manager.get_status(pid)
         if state is None or not (state.connected and state.state == "PAUSE"):
+            # Seen outside PAUSE: a cause kept from an earlier pause must not carry over.
+            _pause_episodes.observe_not_paused(pid)
             continue
         status = printer_state_to_dict(state, pid, models.get(pid))
         episode = str(state.subtask_id or state.subtask_name or "")
@@ -1043,7 +1048,7 @@ async def queue_todo(
     paused = _paused_prints(printer_names, actor, {row.id: row.model for row in printer_rows})
 
     return build_todo(
-        jobs, printer_names, _scheduler.filament_holds_snapshot(), plate_ids, interlock, power_failed, paused
+        jobs, printer_names, _scheduler.filament_holds_snapshot(), plate_ids, interlock, power_failed, paused=paused
     )
 
 

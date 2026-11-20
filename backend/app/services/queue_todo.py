@@ -9,6 +9,7 @@ records and the pure part of the list; the route gathers the inputs.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 
@@ -172,10 +173,18 @@ def _fault_display_code(fault: Mapping) -> str:
 
 
 def _counts_as_fault(fault: Mapping) -> bool:
-    """A fault the printer card lists as a problem: stops or pauses the task and has text or actions."""
-    if fault.get("severity") not in (1, 2):
+    """A fault the printer card counts as a problem (``hms_fault_counts``, on a status dict).
+
+    Text or actions at a real level; an hms[] notice (level 3, 16-character
+    code) without actions does not count, a print_error prompt at that level does.
+    """
+    severity = fault.get("severity")
+    if not isinstance(severity, int) or severity < 1:
         return False
-    return bool(fault.get("description")) or bool(fault.get("actions"))
+    if fault.get("actions"):
+        return True
+    is_hms_notice = len(fault.get("full_code") or "") == 16 and severity == 3
+    return bool(fault.get("description")) and not is_hms_notice
 
 
 def pause_cause(
@@ -186,7 +195,7 @@ def pause_cause(
     """Why a PAUSE-state printer waits: a runout, another fault, or no reason.
 
     A runout wins over any other fault. ``more_errors`` counts the other faults
-    that stop or pause the task.
+    that count as problems.
     """
     listed = [f for f in faults if isinstance(f, Mapping)]
     codes = [_fault_short_code(f) for f in listed]
@@ -203,7 +212,7 @@ def pause_cause(
     severe = [f for f in listed if _counts_as_fault(f)]
     if not severe:
         return PauseCause()
-    # Severity 1 (error) before 2 (warning); the first reported wins a tie.
+    # Severity 1 (error) before 2 (warning) before a level-3 print_error prompt; the first reported wins a tie.
     top = min(severe, key=lambda f: f["severity"])
     return PauseCause(
         CAUSE_ERROR,
@@ -263,29 +272,47 @@ def paused_info_from_status(
     )
 
 
+# How long a stored cause outlives the last time the status yielded it. It covers
+# the HMS list being rebuilt momentarily empty by a status payload; a cause that
+# stays gone longer was cleared on the printer, so the current one wins.
+CAUSE_HOLD_SECONDS = 20.0
+
+
 class PauseEpisodes:
     """Keeps the cause of each printer's current pause while its faults are rebuilt.
 
     The printer rebuilds its fault list with every status payload, so a runout
     can read as "no reason" for a moment. The list entry depends only on the
-    printer being paused; this keeps the last cause found within the same
-    episode (the printer and its job) so the text does not flicker.
+    printer being paused; this keeps the last real cause of the same episode
+    (the printer and its job) for ``CAUSE_HOLD_SECONDS`` after it was last seen,
+    and drops it as soon as the printer is seen out of PAUSE, so a later pause
+    of the same job never inherits it.
     """
 
-    def __init__(self) -> None:
-        self._seen: dict[int, tuple[str, PauseCause]] = {}
+    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
+        self._clock = clock
+        # printer id -> (episode, cause, when the status last yielded that cause)
+        self._seen: dict[int, tuple[str, PauseCause, float]] = {}
 
     def resolve(self, printer_id: int, episode: str, current: PauseCause) -> PauseCause:
+        now = self._clock()
         stored = self._seen.get(printer_id)
-        if current.cause == CAUSE_PAUSED and stored is not None and stored[0] == episode:
+        if current.cause != CAUSE_PAUSED:
+            self._seen[printer_id] = (episode, current, now)
+            return current
+        if stored is not None and stored[0] == episode and now - stored[2] <= CAUSE_HOLD_SECONDS:
             return stored[1]
-        self._seen[printer_id] = (episode, current)
+        self._seen.pop(printer_id, None)
         return current
+
+    def observe_not_paused(self, printer_id: int) -> None:
+        """The printer was seen outside PAUSE: whatever it stored belonged to an earlier pause."""
+        self._seen.pop(printer_id, None)
 
     def prune(self, still_paused: Callable[[int], bool]) -> None:
         """Forget printers that are not paused any more."""
         for printer_id in [pid for pid in self._seen if not still_paused(pid)]:
-            del self._seen[printer_id]
+            self.observe_not_paused(printer_id)
 
 
 @dataclass
@@ -333,6 +360,7 @@ def build_todo(
     plate_clear_ids: Iterable[int],
     interlock: Mapping[int, str],
     power_failed_ids: Iterable[int],
+    *,
     paused: Mapping[int, PausedInfo] | None = None,
 ) -> dict:
     """The response of GET /queue/todo.
@@ -366,12 +394,12 @@ def build_todo(
             )
 
     # A paused print waits for a person whatever is queued, so its group needs no
-    # job; without one it sorts to the top.
+    # job and sorts to the top of the list, waiting jobs or not.
     for pid, info in (paused or {}).items():
         if pid not in printers:
             continue
         waiting = [job for job in jobs if pid in job.printer_ids]
-        group = group_for(pid, None, None, index_of[waiting[0].id] if waiting else -1)
+        group = group_for(pid, None, None, -1)
         group.entries.setdefault(
             (KIND_PRINT_PAUSED, ()),
             {"kind": KIND_PRINT_PAUSED, "jobs": [], "detail": None, "printers": [], "paused": _paused_dict(info)},
