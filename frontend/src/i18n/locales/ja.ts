@@ -9561,7 +9561,9 @@ export default {
       runoutUnknown: "フィラメントがなくなりました。プリンターの画面で、必要なスロットを確認してください。",
       runoutExternal: "外部スプールのフィラメントがなくなりました。新しいスプールをセットしてから、再開してください。",
       errorCode: "エラー {{code}}",
-      moreErrors: "(他{{more}}件)",
+      moreErrors: "(他{{count}}件)",
+      moreErrors_one: "(他{{count}}件)",
+      moreErrors_other: "(他{{count}}件)",
     },
   },
 };

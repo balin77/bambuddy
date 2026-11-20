@@ -9489,7 +9489,9 @@ export default {
       runoutUnknown: "Filament bitti. Yazıcının beklediği yuvayı yazıcı ekranından kontrol edin.",
       runoutExternal: "Harici makaradaki filament bitti. Yeni bir makara takın, ardından devam ettirin.",
       errorCode: "Hata {{code}}",
-      moreErrors: "(+{{more}} tane daha)",
+      moreErrors: "(+{{count}} tane daha)",
+      moreErrors_one: "(+{{count}} tane daha)",
+      moreErrors_other: "(+{{count}} tane daha)",
     },
   },
 };

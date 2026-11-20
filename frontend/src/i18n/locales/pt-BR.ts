@@ -9547,7 +9547,9 @@ export default {
       runoutUnknown: "O filamento acabou. Veja na tela da impressora qual slot ela espera.",
       runoutExternal: "O filamento do carretel externo acabou. Carregue um carretel novo e depois retome.",
       errorCode: "Erro {{code}}",
-      moreErrors: "(+{{more}} outros)",
+      moreErrors: "(+{{count}} outro(s))",
+      moreErrors_one: "(+{{count}} outro)",
+      moreErrors_other: "(+{{count}} outros)",
     },
   },
 };

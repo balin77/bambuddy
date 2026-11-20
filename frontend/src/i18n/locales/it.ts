@@ -9547,7 +9547,9 @@ export default {
       runoutUnknown: "Il filamento è finito. Controlla sullo schermo della stampante quale slot si aspetta.",
       runoutExternal: "Il filamento della bobina esterna è finito. Carica una nuova bobina, poi riprendi.",
       errorCode: "Errore {{code}}",
-      moreErrors: "(+{{more}} altri)",
+      moreErrors: "(+{{count}} altro/i)",
+      moreErrors_one: "(+{{count}} altro)",
+      moreErrors_other: "(+{{count}} altri)",
     },
   },
 };
