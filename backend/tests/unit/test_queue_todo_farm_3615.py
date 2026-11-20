@@ -410,7 +410,7 @@ class TestNoStockFlags:
         assert [f.no_stock for f in hold.filaments] == [False]
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(("first", "flagged"), [(False, True), (True, False)])
+    @pytest.mark.parametrize(("first", "flagged"), [(False, True), (True, True)])
     async def test_a_pass_flags_what_the_text_marks(self, ctx, first, flagged):
         from backend.tests.unit.test_scheduler_loaded_filament_first_3587 import _set
 
@@ -422,7 +422,8 @@ class TestNoStockFlags:
         with patch.object(PrintScheduler, "_stock_entries", AsyncMock(return_value=_stock(0))):
             await _run(ctx, scheduler, real_unmatched=True)
 
-        # Loaded-filament-first words the wait without the "none left" suffix.
+        # Both paths word the wait with the "none left" suffix, so both flag it (#3649:
+        # the pinned loaded-filament-first path used to leave it out).
         (hold,) = scheduler.filament_holds_snapshot()[item_id]
         assert [(f.type, f.color_name, f.no_stock) for f in hold.filaments] == [("PLA", "Earth Brown", flagged)]
 

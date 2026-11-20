@@ -1128,7 +1128,7 @@ export function PrintModal({
     if (!hasInventoryPick || selectedPrinters.length !== 1 || !printerStatus) return;
     const key = (f: { type: string; color: string }) =>
       `${canonicalFilamentType(f.type)}|${normalizeColorForCompare(f.color)}`;
-    const loadedKeys = new Set(buildLoadedFilaments(printerStatus, undefined, filamentPolicies).map(key));
+    const loadedKeys = new Set(buildLoadedFilaments(printerStatus, undefined).map(key));
     const nowLoaded = Object.entries(inventoryPicks).filter(([, entry]) => loadedKeys.has(key(entry)));
     if (nowLoaded.length === 0) return;
     setFilamentOverrides((prev) => {
@@ -1140,7 +1140,7 @@ export function PrintModal({
       }
       return next;
     });
-  }, [hasInventoryPick, inventoryPicks, selectedPrinters.length, printerStatus, filamentPolicies]);
+  }, [hasInventoryPick, inventoryPicks, selectedPrinters.length, printerStatus]);
 
   const [prevTargetModel, setPrevTargetModel] = useState(targetModel);
   const [prevPlateForOverrides, setPrevPlateForOverrides] = useState(selectedPlate);

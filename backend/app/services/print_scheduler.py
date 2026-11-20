@@ -800,6 +800,16 @@ def _is_filament_wait(reason: str | None) -> bool:
     return bool(reason) and (_FILAMENT_WAIT_PREFIX in reason or _NO_MATCH_PREFIX in reason)
 
 
+def _todo_with_stock(unmatched: list[dict], out_of_stock: list[str]) -> list[TodoFilament]:
+    """The "To do" filaments of ``unmatched``, those the text marks out of stock flagged ``no_stock`` (#3615, #3649)."""
+    return [
+        replace(todo_filament_from_requirement(r), no_stock=True)
+        if _describe_filament(r, "nozzle_id") in out_of_stock
+        else todo_filament_from_requirement(r)
+        for r in unmatched
+    ]
+
+
 def _describe_deficit(deficits: list[FilamentDeficit]) -> str:
     """The short spools as the queue row names them ("PLA (20 g left, needs 300 g)")."""
     parts = []
@@ -3567,7 +3577,9 @@ class PrintScheduler:
                         # it off again. Not for a printer whose last known
                         # filament cannot run it.
                         missing_here = (
-                            await self._wake_declined_for_filament(db, item) if filament_first and auto_on_plugs else None
+                            await self._wake_declined_for_filament(db, item)
+                            if filament_first and auto_on_plugs
+                            else None
                         )
                         if missing_here is not None:
                             missing_text, missing_out_of_stock = missing_here
@@ -10760,12 +10772,13 @@ class PrintScheduler:
             if not any(o is override for o in known):
                 known.append(override)
 
-        entries = self._cached_filament_shortfall_entries(item.printer_id, required_types, overrides, note_entry)
-        if not entries:
+        shortfall = self._cached_filament_shortfall(item.printer_id, required_types, overrides, note_entry)
+        if not shortfall:
             return None
+        entries = self._cached_filament_shortfall_entries(item.printer_id, required_types, overrides)
         out_of_stock: list[str] = []
         marked_out: set[TodoFilament] = set()
-        marked = await self._mark_out_of_stock(db, [text for text, _ in entries], entry_overrides, out_of_stock, marked_out)
+        marked = await self._mark_out_of_stock(db, shortfall, entry_overrides, out_of_stock, marked_out)
         # Structured next to the text it backs, from the same inputs; the entries
         # the text marks as out of stock say so (#3615, #3649).
         self._record_hold(
@@ -10794,10 +10807,11 @@ class PrintScheduler:
         unmatched = await self._unmatched_filament(db, item)
         if not unmatched:
             return None
-        self._record_hold(
-            item.id, item.printer_id, item.target_model, [todo_filament_from_requirement(r) for r in unmatched]
-        )
-        return await self._describe_unmatched_with_stock(db, unmatched)
+        text, out_of_stock = await self._describe_unmatched_with_stock(db, unmatched)
+        # A pinned job's forced colour the inventory has none left of says so in
+        # the "To do" list too, exactly the entries the text marks (#3649).
+        self._record_hold(item.id, item.printer_id, item.target_model, _todo_with_stock(unmatched, out_of_stock))
+        return text, out_of_stock
 
     async def _describe_unmatched_with_stock(self, db: AsyncSession, unmatched: list[dict]) -> tuple[str, list[str]]:
         """The unmatched requirements as the queue row names them, and which of them are out of stock (#3590, #3649).
@@ -11128,12 +11142,7 @@ class PrintScheduler:
         # A forced colour the inventory has none left of says so (#3590).
         wanted, out_of_stock = await self._describe_unmatched_with_stock(db, unmatched)
         # Exactly the entries the text marks (#3615).
-        todo = [
-            replace(todo_filament_from_requirement(r), no_stock=True)
-            if _describe_filament(r, "nozzle_id") in out_of_stock
-            else todo_filament_from_requirement(r)
-            for r in unmatched
-        ]
+        todo = _todo_with_stock(unmatched, out_of_stock)
         held_by = item.printer_id  # set: _unmatched_filament returns [] without one
         # Structured next to the text; a released model job is no printer's (#3615).
         self._record_hold(
