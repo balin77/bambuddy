@@ -33,6 +33,7 @@ from backend.tests.unit.test_slot_hints_3634 import (
     RED,
     WHITE,
     _dual,
+    _hints,
     _holds,
     _job,
     _loaded_ams,
@@ -171,6 +172,17 @@ class TestPrinting:
         ams = _loaded_ams(RED, BLUE, WHITE, GREEN)
         status = _status(ams, state="PAUSE", print_ams_mapping=[0], tray_now=0, tray_tar=2, tray_pre=3)
         scheduler = _scheduler_with({2: RED_PINK})
+        (entry,) = (await _prepare(scheduler, {1: status}, [_next_job(2)]))[1]
+        assert _slots(entry) == [(0, 1)]
+
+    @pytest.mark.asyncio
+    async def test_a_paused_print_s_runout_slots_are_not_offered_by_a_line_nor_a_hint(self):
+        # Tray 2 ran out and the printer expects tray 3 (#3648): the Prepare line and the Load hint both skip them.
+        ams = _loaded_ams(RED, BLUE, WHITE, GREEN)
+        status = _status(ams, state="PAUSE", print_ams_mapping=[0], tray_now=0, tray_tar=3, tray_pre=2)
+        scheduler = _scheduler_with({1: _need(RED), 2: RED_PINK})
+        hints = await _hints(scheduler, {1: status}, [_job(1)], _holds(1))
+        assert [s.tray_id for s in hints[1].slots] == [1]
         (entry,) = (await _prepare(scheduler, {1: status}, [_next_job(2)]))[1]
         assert _slots(entry) == [(0, 1)]
 

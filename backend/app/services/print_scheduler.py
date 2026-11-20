@@ -2159,12 +2159,43 @@ class PrintScheduler:
             out.update({("library", r[0]): (r[1], r[2], r[3]) for r in rows})
         return out
 
-    def _running_trays(self, status) -> set[int]:
-        """The trays the printer's running print uses: never offered as a place to load (#3634)."""
+    @staticmethod
+    def _paused_target_trays(status, slots: list[dict]) -> set[int]:
+        """The slots a paused print expects or has just left (``tray_tar`` and ``tray_pre``), as global trays.
+
+        Both are raw: a rack printer (H3C) reports its slot 0-8, which its
+        layout resolves; otherwise, or when that does not resolve, a slot 0-3
+        names that slot on every AMS (the conservative reading) and anything
+        else is a global tray. Empty unless the printer is paused (#3640, #3648).
+        """
+        trays: set[int] = set()
+        if status.state != "PAUSE":
+            return trays
+        layout = TrayLayout.from_state(status)
+        for raw in (status.tray_tar, status.tray_pre):
+            if not _is_tray_id(raw) or raw < 0 or raw == NO_TRAY:
+                continue
+            resolved = layout.raw_slot_to_global(raw) if layout.rack_units else None
+            if resolved is not None:
+                trays.add(resolved)
+                continue
+            for slot in slots:
+                local = raw <= 3 and slot["tray_id"] == raw and not slot["is_ht"] and not slot["is_external"]
+                if slot["global_tray_id"] == raw or local:
+                    trays.add(slot["global_tray_id"])
+        return trays
+
+    def _running_trays(self, status, slots: list[dict]) -> set[int]:
+        """The trays the printer's running print uses: never offered as a place to load (#3634).
+
+        While the print is paused this includes the slots it expects or has
+        just left, so a filament that ran out is never offered a remapped target (#3648).
+        """
         if status.state not in _ACTIVE_PRINT_STATES:
             return set()
         layout = TrayLayout.from_state(status)
         trays = {tray for tray in print_ams_mapping(status) if _is_tray_id(tray) and tray >= 0}
+        trays |= self._paused_target_trays(status, slots)
         tray_now = status.tray_now
         if _is_tray_id(tray_now) and tray_now != NO_TRAY and layout.is_loaded_tray(tray_now):
             trays.add(tray_now)
@@ -2248,7 +2279,7 @@ class PrintScheduler:
         slots = self._reported_slots(status)
         if not slots:
             return None
-        return status, slots, self._running_trays(status)
+        return status, slots, self._running_trays(status, slots)
 
     async def _slot_hint_signature(
         self,
@@ -2461,20 +2492,7 @@ class PrintScheduler:
         slot 0-3 names that slot on every AMS (the conservative reading) and
         anything else is a global tray.
         """
-        reserved = set(running)
-        if status.state == "PAUSE":
-            layout = TrayLayout.from_state(status)
-            for raw in (status.tray_tar, status.tray_pre):
-                if not _is_tray_id(raw) or raw < 0 or raw == NO_TRAY:
-                    continue
-                resolved = layout.raw_slot_to_global(raw) if layout.rack_units else None
-                if resolved is not None:
-                    reserved.add(resolved)
-                    continue
-                for slot in slots:
-                    local = raw <= 3 and slot["tray_id"] == raw and not slot["is_ht"] and not slot["is_external"]
-                    if slot["global_tray_id"] == raw or local:
-                        reserved.add(slot["global_tray_id"])
+        reserved = set(running) | self._paused_target_trays(status, slots)
         return reserved | self._backup_peer_trays(status, slots, reserved)
 
     def _claimed_trays(

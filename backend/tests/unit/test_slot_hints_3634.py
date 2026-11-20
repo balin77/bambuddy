@@ -248,6 +248,37 @@ class TestSlotHint:
         assert hints[1].state == HINT_ALL_NEEDED
 
     @pytest.mark.asyncio
+    async def test_a_paused_print_s_runout_slots_are_never_offered(self):
+        # Tray 2 ran out and the printer now expects tray 3 (#3648): neither is a place to load.
+        ams = _loaded_ams(RED, BLUE, WHITE, GREEN)
+        paused = _status(ams, state="PAUSE", print_ams_mapping=[0], tray_now=0, tray_tar=3, tray_pre=2)
+        scheduler = _scheduler_with({1: _need(RED)})
+        hints = await _hints(scheduler, {1: paused}, [_job(1)], _holds(1))
+        assert [s.tray_id for s in hints[1].slots] == [1]
+
+    @pytest.mark.asyncio
+    async def test_the_same_slots_are_offered_once_the_print_is_not_paused(self):
+        ams = _loaded_ams(RED, BLUE, WHITE, GREEN)
+        printing = _status(ams, state="RUNNING", print_ams_mapping=[0], tray_now=0, tray_tar=3, tray_pre=2)
+        scheduler = _scheduler_with({1: _need(RED)})
+        hints = await _hints(scheduler, {1: printing}, [_job(1)], _holds(1))
+        assert [s.tray_id for s in hints[1].slots] == [1, 2, 3]
+
+    @pytest.mark.asyncio
+    async def test_a_paused_rack_printer_s_runout_slots_are_resolved_by_its_layout(self):
+        ams = [
+            {
+                "id": 32,
+                "tray": [_tray(i, "PLA", c) for i, c in enumerate((RED, BLUE, WHITE, GREEN, "FF69B4", "00FFFF"))],
+            }
+        ]
+        paused = _status(ams, state="PAUSE", print_ams_mapping=[28], tray_now=28, tray_tar=5, tray_pre=4)
+        scheduler = _scheduler_with({1: _need(RED)})
+        hints = await _hints(scheduler, {1: paused}, [_job(1)], _holds(1))
+        # Slots 4 and 5 are the print's (global 32 and 33), slot 0 its own.
+        assert [s.tray_id for s in hints[1].slots] == [1, 2, 3]
+
+    @pytest.mark.asyncio
     async def test_an_idle_printer_s_old_mapping_is_not_a_running_print(self):
         ams = _loaded_ams(RED, BLUE, WHITE)
         idle = _status(ams, state="FINISH", print_ams_mapping=[2], tray_now=2)
