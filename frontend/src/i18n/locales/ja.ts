@@ -8872,6 +8872,16 @@ export default {
       unknownJobs_other: "フィラメントが不明な待機中のジョブ: {{count}} 件",
       more: "他 {{count}} 件",
       less: "表示を減らす",
+      replace: "交換: {{slots}}",
+      withGrams: "{{label}}（{{filament}}、残り {{remaining}} g）",
+    },
+    short: {
+      plain: "{{filament}}が足りません",
+      in: "{{slots}}の{{filament}}が足りません",
+      hasGrams: "{{filament}}が足りません: {{slots}}に {{remaining}} g",
+      haveGrams: "{{filament}}が足りません: {{slots}}の合計 {{remaining}} g",
+      hasGramsNeeds: "{{filament}}が足りません: {{slots}}に {{remaining}} g、ジョブには {{required}} g 必要です",
+      haveGramsNeeds: "{{filament}}が足りません: {{slots}}の合計 {{remaining}} g、ジョブには {{required}} g 必要です",
     },
   },
 };

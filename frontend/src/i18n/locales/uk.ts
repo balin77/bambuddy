@@ -8914,6 +8914,16 @@ export default {
       unknownJobs_other: "Завдання, що чекають, з невідомим філаментом: {{count}}",
       more: "Ще {{count}}",
       less: "Показати менше",
+      replace: "Замінити: {{slots}}",
+      withGrams: "{{label}} ({{filament}}, залишилось {{remaining}} г)",
+    },
+    short: {
+      plain: "Недостатньо філаменту {{filament}}",
+      in: "Недостатньо філаменту {{filament}} у {{slots}}",
+      hasGrams: "Недостатньо філаменту {{filament}}: у {{slots}} залишилось {{remaining}} г",
+      haveGrams: "Недостатньо філаменту {{filament}}: у {{slots}} разом залишилось {{remaining}} г",
+      hasGramsNeeds: "Недостатньо філаменту {{filament}}: у {{slots}} залишилось {{remaining}} г, завданню потрібно {{required}} г",
+      haveGramsNeeds: "Недостатньо філаменту {{filament}}: у {{slots}} разом залишилось {{remaining}} г, завданню потрібно {{required}} г",
     },
   },
 };

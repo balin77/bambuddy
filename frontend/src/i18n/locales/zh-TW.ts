@@ -8856,6 +8856,16 @@ export default {
       unknownJobs_other: "{{count}} 個等待中的工作耗材未知",
       more: "另外 {{count}} 個",
       less: "收合",
+      replace: "更換：{{slots}}",
+      withGrams: "{{label}}（{{filament}}，剩餘 {{remaining}} g）",
+    },
+    short: {
+      plain: "{{filament}}不足",
+      in: "{{slots}} 中的{{filament}}不足",
+      hasGrams: "{{filament}}不足：{{slots}} 剩餘 {{remaining}} g",
+      haveGrams: "{{filament}}不足：{{slots}} 合計剩餘 {{remaining}} g",
+      hasGramsNeeds: "{{filament}}不足：{{slots}} 剩餘 {{remaining}} g，工作需要 {{required}} g",
+      haveGramsNeeds: "{{filament}}不足：{{slots}} 合計剩餘 {{remaining}} g，工作需要 {{required}} g",
     },
   },
 };

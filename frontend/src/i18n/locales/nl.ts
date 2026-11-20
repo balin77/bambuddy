@@ -8924,6 +8924,16 @@ export default {
       unknownJobs_other: "{{count}} wachtende opdrachten hebben onbekende filamenten",
       more: "+{{count}} meer",
       less: "Minder tonen",
+      replace: "Vervangen: {{slots}}",
+      withGrams: "{{label}} ({{filament}}, nog {{remaining}} g)",
+    },
+    short: {
+      plain: "Te weinig {{filament}}",
+      in: "Te weinig {{filament}} in {{slots}}",
+      hasGrams: "Te weinig {{filament}}: {{slots}} heeft {{remaining}} g",
+      haveGrams: "Te weinig {{filament}}: {{slots}} hebben samen {{remaining}} g",
+      hasGramsNeeds: "Te weinig {{filament}}: {{slots}} heeft {{remaining}} g, de opdracht heeft {{required}} g nodig",
+      haveGramsNeeds: "Te weinig {{filament}}: {{slots}} hebben samen {{remaining}} g, de opdracht heeft {{required}} g nodig",
     },
   },
 };

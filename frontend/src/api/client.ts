@@ -2894,6 +2894,12 @@ export interface QueueTodoFilament {
   no_stock: boolean;
   // The nozzle a dual-nozzle file wants it on: 0 right, 1 left; null when it names none.
   nozzle?: number | null;
+  // Loaded, but a spool holds less than the job needs (#3634).
+  short?: boolean;
+  // The trays counted for a short filament (the mapped one, with AMS Filament Backup every pooled one); empty in an "Any <model>" entry, whose printers' hints name them.
+  short_trays?: { ams_id: number; tray_id: number; remaining_grams: number | null }[];
+  // What the job prints of it, when known.
+  required_grams?: number | null;
 }
 // Where a missing filament can go (#3634): an empty slot, or a loaded one no waiting job needs.
 export interface QueueTodoHintSlot {
@@ -2910,8 +2916,11 @@ export interface QueueTodoHintSlot {
   tray_info_idx: string;
   // The tray's product line (empty without RFID); names the colour like the printer card.
   tray_sub_brands: string;
+  // In a "replace" hint: what the spool has left, when known.
+  remaining_grams?: number | null;
 }
-export type QueueTodoHintState = 'free' | 'replaceable' | 'all_needed';
+// replace: the loaded spools that hold too little for the job.
+export type QueueTodoHintState = 'free' | 'replaceable' | 'all_needed' | 'replace';
 export interface QueueTodoSlotHint {
   state: QueueTodoHintState;
   slots: QueueTodoHintSlot[];

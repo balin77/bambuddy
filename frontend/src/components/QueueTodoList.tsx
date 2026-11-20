@@ -7,6 +7,7 @@ import { api, ApiError } from '../api/client';
 import type {
   QueueTodo,
   QueueTodoEntry,
+  QueueTodoFilament,
   QueueTodoGroup,
   QueueTodoHintSlot,
   QueueTodoKind,
@@ -46,18 +47,53 @@ type TFn = (key: string, options?: Record<string, unknown>) => string;
 
 // A slot as the Printers page names it: its label, and for a loaded one the
 // filament, with the colour named the way the printer card names it.
-function slotText(slot: QueueTodoHintSlot): string {
+function slotText(t: TFn, slot: QueueTodoHintSlot): string {
   const label = formatSlotLabel(slot.ams_id, slot.tray_id, slot.is_ht, slot.is_external, slot.ams_type);
   if (!slot.type) return label;
   const color = slot.color ? getColorName(slot.color, slot.tray_sub_brands || null, slot.tray_info_idx) : '';
-  return `${label} (${[slot.type, color].filter(Boolean).join(' ')})`;
+  const filament = [slot.type, color].filter(Boolean).join(' ');
+  // A spool to replace says what it has left.
+  if (typeof slot.remaining_grams === 'number') {
+    return t('queueTodo.slotHint.withGrams', { label, filament, remaining: formatGrams(slot.remaining_grams) });
+  }
+  return `${label} (${filament})`;
+}
+
+function formatGrams(grams: number): string {
+  return String(Math.round(grams));
+}
+
+// The label of a tray of a short filament. The tray's own slot in the entry's
+// hint knows if it is an AMS-HT or the external holder; without it the ids say.
+function trayLabel(tray: { ams_id: number; tray_id: number }, slots: QueueTodoHintSlot[]): string {
+  const slot = slots.find((s) => s.ams_id === tray.ams_id && s.tray_id === tray.tray_id);
+  if (slot) return formatSlotLabel(slot.ams_id, slot.tray_id, slot.is_ht, slot.is_external, slot.ams_type);
+  const isExternal = tray.ams_id >= 254;
+  return formatSlotLabel(tray.ams_id, tray.tray_id, !isExternal && tray.ams_id >= 128, isExternal);
+}
+
+// "Not enough PLA Lava Red: A2 has 12 g, the job needs 30 g". A pooled amount
+// (AMS Filament Backup counts every spool of the filament together) is the sum;
+// an amount that is not known for every tray is left out, and so is a job
+// amount that is not known.
+function shortText(t: TFn, f: QueueTodoFilament, slots: QueueTodoHintSlot[]): string {
+  const filament = [f.type, f.color_name].filter(Boolean).join(' ');
+  const trays = f.short_trays ?? [];
+  if (trays.length === 0) return t('queueTodo.short.plain', { filament });
+  const where = trays.map((tray) => trayLabel(tray, slots)).join(' + ');
+  const amounts = trays.map((tray) => tray.remaining_grams);
+  if (amounts.some((g) => typeof g !== 'number')) return t('queueTodo.short.in', { filament, slots: where });
+  const remaining = formatGrams((amounts as number[]).reduce((a, b) => a + b, 0));
+  const pooled = trays.length > 1;
+  const needs = typeof f.required_grams === 'number';
+  const key = `queueTodo.short.${pooled ? 'have' : 'has'}Grams${needs ? 'Needs' : ''}`;
+  return t(key, { filament, slots: where, remaining, required: needs ? formatGrams(f.required_grams as number) : '' });
 }
 
 function stateText(t: TFn, state: QueueTodoSlotHint['state'], slots: QueueTodoHintSlot[]): string {
   if (state === 'all_needed') return t('queueTodo.slotHint.allNeeded');
-  return t(state === 'free' ? 'queueTodo.slotHint.free' : 'queueTodo.slotHint.replaceable', {
-    slots: slots.map(slotText).join(', '),
-  });
+  const key = { free: 'free', replaceable: 'replaceable', replace: 'replace' }[state];
+  return t(`queueTodo.slotHint.${key}`, { slots: slots.map((s) => slotText(t, s)).join(', ') });
 }
 
 interface HintText {
@@ -297,7 +333,7 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZInd
         {entry.kind === 'load_filament' && (
           <ul className="flex flex-wrap gap-x-3 gap-y-1">
             {entry.filaments.map((f, i) => (
-              <li key={i} className="flex items-center gap-1.5 text-xs text-bambu-gray-light">
+              <li key={i} className="flex items-center gap-1.5 min-w-0 max-w-full text-xs text-bambu-gray-light">
                 {f.color && (
                   <span
                     data-testid="todo-swatch"
@@ -308,7 +344,13 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZInd
                     style={{ backgroundColor: f.color }}
                   />
                 )}
-                <span>{[f.type, f.color_name].filter(Boolean).join(' ')}</span>
+                {f.short ? (
+                  <span data-testid="todo-short" className="min-w-0 break-words">
+                    {shortText(t, f, entry.slot_hint?.state === 'replace' ? entry.slot_hint.slots : [])}
+                  </span>
+                ) : (
+                  <span>{[f.type, f.color_name].filter(Boolean).join(' ')}</span>
+                )}
                 {(f.nozzle === 0 || f.nozzle === 1) && (
                   <span data-testid="todo-nozzle">
                     ({t(f.nozzle === 1 ? 'printModal.leftNozzleTooltip' : 'printModal.rightNozzleTooltip')})
