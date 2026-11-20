@@ -2764,12 +2764,21 @@ class PrintScheduler:
                         # loaded and the printer stays free for jobs behind it.
                         wanted = await self._filament_wait_wanted(db, item)
                         if wanted:
+                            wanted_text, out_of_stock = wanted
                             suffix, has_priority = filament_wait_suffix(item)
-                            reason = f"{_FILAMENT_WAIT_PREFIX}{wanted}{suffix}"
+                            reason = f"{_FILAMENT_WAIT_PREFIX}{wanted_text}{suffix}"
                             previous_reason = item.waiting_reason
                             await hold_item(item, reason, notify=False)
                             if has_priority:
                                 reserve_for_filament_wait(item.printer_id)
+                            await self._notify_out_of_stock_once(
+                                db,
+                                item,
+                                previous_reason,
+                                out_of_stock,
+                                item.printer_id,
+                                pinned_printers.get(item.printer_id, ("", ""))[1],
+                            )
                             await self._notify_filament_wait_once(
                                 db,
                                 item,
@@ -3214,8 +3223,9 @@ class PrintScheduler:
                             # (#3587): release the printer and wait, as above.
                             wanted = await self._filament_wait_wanted(db, item)
                             if wanted:
+                                wanted_text, out_of_stock = wanted
                                 suffix, has_priority = filament_wait_suffix(item)
-                                waiting_reason = f"{_FILAMENT_WAIT_PREFIX}{wanted}{suffix}"
+                                waiting_reason = f"{_FILAMENT_WAIT_PREFIX}{wanted_text}{suffix}"
                                 item.printer_id = None
                                 drop_printer_resolved(item)
                                 item.waiting_reason = waiting_reason
@@ -3231,6 +3241,14 @@ class PrintScheduler:
                                     item,
                                     reason_before,
                                     waiting_reason,
+                                    None,
+                                    _candidate_model_label(candidates) or item.target_model or "",
+                                )
+                                await self._notify_out_of_stock_once(
+                                    db,
+                                    item,
+                                    reason_before,
+                                    out_of_stock,
                                     None,
                                     _candidate_model_label(candidates) or item.target_model or "",
                                 )
@@ -10199,17 +10217,61 @@ class PrintScheduler:
         shortfall = self._cached_filament_shortfall(item.printer_id, required_types, forced or None)
         return ", ".join(shortfall) if shortfall else None
 
-    async def _filament_wait_wanted(self, db: AsyncSession, item: PrintQueueItem) -> str | None:
+    async def _filament_wait_wanted(self, db: AsyncSession, item: PrintQueueItem) -> tuple[str, list[str]] | None:
         """What ``item`` waits for on its printer, worded for the queue row (#3587).
 
-        The short spools if there are any, else the requirements without a
-        tray; None when it lacks nothing.
+        ``(text, out_of_stock)``: the short spools if there are any, else the
+        requirements without a tray, a forced one the inventory has none left of
+        carrying ``_NO_STOCK_SUFFIX`` (#3649) and named in ``out_of_stock``.
+        None when it lacks nothing.
         """
         deficit = await self._filament_deficit(db, item)
         if deficit:
-            return _describe_deficit(deficit)
+            return _describe_deficit(deficit), []
         unmatched = await self._unmatched_filament(db, item)
-        return _describe_unmatched(unmatched) if unmatched else None
+        return await self._describe_unmatched_with_stock(db, unmatched) if unmatched else None
+
+    async def _describe_unmatched_with_stock(self, db: AsyncSession, unmatched: list[dict]) -> tuple[str, list[str]]:
+        """The unmatched requirements as the queue row names them, and which of them are out of stock (#3590, #3649).
+
+        A forced colour the inventory has none left of gets ``_NO_STOCK_SUFFIX``
+        and is listed in the second element (without the suffix). Shared by the
+        job held on its printer and the one staged for the user to start.
+        """
+        out_of_stock: list[str] = []
+        parts: list[str] = []
+        for r in unmatched:
+            text = _describe_filament(r, "nozzle_id")
+            if r.get("force_color_match") and await self._no_stock_left(
+                db, r.get("type") or "", r.get("color") or "", r.get("tray_info_idx") or ""
+            ):
+                out_of_stock.append(text)
+                text = f"{text}{_NO_STOCK_SUFFIX}"
+            parts.append(text)
+        return ", ".join(parts), out_of_stock
+
+    async def _notify_out_of_stock_once(
+        self,
+        db: AsyncSession,
+        item: PrintQueueItem,
+        previous_reason: str | None,
+        out_of_stock: list[str],
+        printer_id: int | None,
+        target_model: str,
+    ) -> None:
+        """Once per job, when its reason first names a filament the inventory has none left of (#3590, #3649)."""
+        if not out_of_stock or _NO_STOCK_SUFFIX in (previous_reason or ""):
+            return
+        try:
+            await notification_service.on_filament_out_of_stock(
+                job_name=await self._get_job_name(db, item),
+                target_model=target_model,
+                filament=", ".join(out_of_stock),
+                db=db,
+                printer_id=printer_id,
+            )
+        except Exception as e:
+            logger.debug("Out-of-stock notification failed for item %s: %s", item.id, e)
 
     async def _block_on_filament_deficit(
         self,
@@ -10451,17 +10513,7 @@ class PrintScheduler:
             return False
 
         # A forced colour the inventory has none left of says so (#3590).
-        out_of_stock: list[str] = []
-        parts: list[str] = []
-        for r in unmatched:
-            text = _describe_filament(r, "nozzle_id")
-            if r.get("force_color_match") and await self._no_stock_left(
-                db, r.get("type") or "", r.get("color") or "", r.get("tray_info_idx") or ""
-            ):
-                out_of_stock.append(text)
-                text = f"{text}{_NO_STOCK_SUFFIX}"
-            parts.append(text)
-        wanted = ", ".join(parts)
+        wanted, out_of_stock = await self._describe_unmatched_with_stock(db, unmatched)
         held_by = item.printer_id  # set: _unmatched_filament returns [] without one
         if previous_reason is None:
             previous_reason = item.waiting_reason
@@ -10502,17 +10554,14 @@ class PrintScheduler:
             )
         except Exception as e:
             logger.debug("filament_missing notification failed for item %s: %s", item.id, e)
-        if out_of_stock and _NO_STOCK_SUFFIX not in (previous_reason or ""):
-            try:
-                await notification_service.on_filament_out_of_stock(
-                    job_name=job_name,
-                    target_model=(printer.model if printer else "") or "",
-                    filament=", ".join(out_of_stock),
-                    db=db,
-                    printer_id=None if release_assignment else held_by,
-                )
-            except Exception as e:
-                logger.debug("Out-of-stock notification failed for item %s: %s", item.id, e)
+        await self._notify_out_of_stock_once(
+            db,
+            item,
+            previous_reason,
+            out_of_stock,
+            None if release_assignment else held_by,
+            (printer.model if printer else "") or "",
+        )
         return True
 
     @staticmethod
