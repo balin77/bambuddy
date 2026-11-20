@@ -19,11 +19,15 @@ A Bambu AMS lets me swap a spool that the running print doesn't use. So I could 
 A second, quieter kind of entry in the To do list, per printer: **Prepare**.
 
 ```
-X1C-2                        (printing, 1 h 20 m left)
-  Prepare   Next: Bracket needs PETG Black, PLA Blue
-            Can be replaced now: A3 (PLA Yellow), A4 (PLA Green)
-            Then: Lid needs PLA White · Free: B2
+X1C-2
+  PREPARE
+  Next: Bracket needs PETG Black, PLA Blue
+  Can be replaced: A3 (PLA Yellow), A4 (PLA Green)
+  Then: Lid needs PLA White
+  Free: B2
 ```
+
+Shown under the printer's other entries (or alone when it has none), in quiet gray. Each job's hint stands on its own line, worded as in #3634.
 
 - **Which jobs:** the next one or two jobs of that printer, in the order the queue would take them: jobs pinned to the printer, and model jobs that can only go to this one printer. A model job that several printers could take is left out, since it is not known which printer gets it.
 - **Which slots:** the same rules as #3634, plus:
