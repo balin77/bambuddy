@@ -42,6 +42,32 @@ interface WebSocketMessage {
   run?: { pipeline_id?: number | null };
 }
 
+type PauseRelevantStatus = {
+  state?: string;
+  hms_errors?: { full_code?: string; code?: string; attr?: number }[];
+  expected_tray?: number | null;
+  previous_tray?: number | null;
+};
+
+const hmsKey = (errors: PauseRelevantStatus['hms_errors']) =>
+  (errors ?? []).map((e) => e.full_code || `${e.attr}:${e.code}`).sort().join(',');
+
+// Whether a status push changes what the queue's "to do" list shows for a
+// paused print: the printer enters or leaves PAUSE, or while paused its faults
+// or the slots it names change (#3648).
+function pauseChangesTodo(before: unknown, push: PauseRelevantStatus): boolean {
+  const old = (before ?? {}) as PauseRelevantStatus;
+  const wasPaused = old.state === 'PAUSE';
+  const isPaused = (push.state ?? old.state) === 'PAUSE';
+  if (wasPaused !== isPaused) return true;
+  if (!isPaused) return false;
+  return (
+    ('hms_errors' in push && hmsKey(push.hms_errors) !== hmsKey(old.hms_errors)) ||
+    ('expected_tray' in push && push.expected_tray !== old.expected_tray) ||
+    ('previous_tray' in push && push.previous_tray !== old.previous_tray)
+  );
+}
+
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
@@ -262,6 +288,10 @@ export function useWebSocket() {
       // A changed plate-clear gate changes the queue's "to do" list (#3615).
       const before = queryClient.getQueryData<{ awaiting_plate_clear?: boolean }>(['printerStatus', id]);
       if ('awaiting_plate_clear' in statusData && before?.awaiting_plate_clear !== statusData.awaiting_plate_clear) {
+        queryClient.invalidateQueries({ queryKey: ['queue-todo'] });
+      } else if (pauseChangesTodo(queryClient.getQueryData(['printerStatus', id]), statusData)) {
+        // So does a print that gets paused or resumed, or a paused one whose
+        // reason changes (#3648).
         queryClient.invalidateQueries({ queryKey: ['queue-todo'] });
       }
       queryClient.setQueryData(['printerStatus', id], (old: Record<string, unknown> | undefined) => {

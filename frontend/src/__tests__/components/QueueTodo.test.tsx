@@ -10,7 +10,8 @@ import { ToastProvider } from '../../contexts/ToastContext';
 import { http, HttpResponse } from 'msw';
 import { render } from '../utils';
 import { server } from '../mocks/server';
-import type { QueueTodo } from '../../api/client';
+import type { QueueTodo, QueueTodoPaused, QueueTodoPausedSlot } from '../../api/client';
+import { getColorName } from '../../utils/colors';
 
 const perms = { granted: new Set<string>() };
 
@@ -411,5 +412,110 @@ describe('useQueueTodoAutoRefresh', () => {
     expect(spy).not.toHaveBeenCalled();
     await client.fetchQuery({ queryKey: ['queue', 'pending'], queryFn: async () => [] });
     await waitFor(() => expect(spy).toHaveBeenCalledWith({ queryKey: ['queue-todo'] }), { timeout: 3000 });
+  });
+});
+
+describe('QueueTodoList paused prints (#3648)', () => {
+  const slot = (over: Partial<QueueTodoPausedSlot> = {}): QueueTodoPausedSlot => ({
+    ams_id: 0,
+    tray_id: 0,
+    is_ht: false,
+    is_external: false,
+    ams_type: 0,
+    type: 'PLA',
+    color: '#C12E1F',
+    tray_info_idx: 'GFA00',
+    tray_sub_brands: '',
+    ...over,
+  });
+  const paused = (over: Partial<QueueTodoPaused> = {}): QueueTodoPaused => ({
+    job_name: 'Benchy',
+    progress: 42,
+    remaining_minutes: 95,
+    cause: 'paused',
+    ran_out: null,
+    expected: null,
+    error: null,
+    more_errors: 0,
+    ...over,
+  });
+  const renderPaused = (info: QueueTodoPaused, jobs: { id: number; name: string; can_start: boolean }[] = []) =>
+    render(
+      <QueueTodoList
+        todo={{
+          count: 1,
+          groups: [{
+            printer_id: 1,
+            printer_name: 'Alpha',
+            target_model: null,
+            entries: [{ kind: 'print_paused', jobs, filaments: [], printers: [], detail: null, paused: info }],
+          }],
+        }}
+      />,
+    );
+  const filament = `PLA ${getColorName('#C12E1F', null, 'GFA00')}`;
+
+  it('names the slot that ran out, the slot to refill and the filament', () => {
+    renderPaused(paused({ cause: 'runout_ams', ran_out: slot(), expected: slot({ tray_id: 1, type: '', color: '' }) }));
+    const row = screen.getByTestId('todo-entry-print_paused');
+    expect(row).toHaveTextContent('Print paused');
+    expect(screen.getByTestId('todo-paused-progress')).toHaveTextContent('Benchy · 42% · 1h 35m left');
+    expect(screen.getByTestId('todo-paused-cause')).toHaveTextContent(
+      `Filament ran out in A1. Load ${filament} into A2, then resume.`,
+    );
+  });
+
+  it('names only the slot to refill when the one that ran out is unknown', () => {
+    renderPaused(paused({ cause: 'runout_ams', expected: slot({ tray_id: 2, ams_id: 128, is_ht: true, ams_type: 1 }) }));
+    expect(screen.getByTestId('todo-paused-cause')).toHaveTextContent(`Load ${filament} into HT-A, then resume.`);
+  });
+
+  it('asks to check the printer when no slot can be told', () => {
+    renderPaused(paused({ cause: 'runout_ams' }));
+    expect(screen.getByTestId('todo-paused-cause')).toHaveTextContent(
+      'Filament ran out. Check the printer screen for the slot it expects.',
+    );
+  });
+
+  it('says to load a new spool on an external runout', () => {
+    renderPaused(paused({ cause: 'runout_external' }));
+    expect(screen.getByTestId('todo-paused-cause')).toHaveTextContent(
+      'Filament ran out on the external spool. Load a new spool, then resume.',
+    );
+  });
+
+  it('shows the error and how many more there are', () => {
+    renderPaused(paused({ cause: 'error', error: { code: '0500-0100-0001-0006', description: 'The door is open' }, more_errors: 1 }));
+    expect(screen.getByTestId('todo-paused-cause')).toHaveTextContent('The door is open (+1 more)');
+  });
+
+  it('shows the code of an error without text', () => {
+    renderPaused(paused({ cause: 'error', error: { code: '0300-4001', description: null } }));
+    expect(screen.getByTestId('todo-paused-cause')).toHaveTextContent('Error 0300-4001');
+  });
+
+  it('gives no reason line for a plain pause', () => {
+    renderPaused(paused());
+    expect(screen.queryByTestId('todo-paused-cause')).toBeNull();
+    expect(screen.getByTestId('todo-paused-progress')).toBeInTheDocument();
+  });
+
+  it('leaves out the file and the parts the printer did not report', () => {
+    renderPaused(paused({ job_name: null, remaining_minutes: null }));
+    expect(screen.getByTestId('todo-paused-progress').textContent).toBe('42%');
+    expect(screen.getByTestId('todo-entry-print_paused')).not.toHaveTextContent('Benchy');
+  });
+
+  it('has no progress line when nothing is known and does not repeat the waiting jobs', () => {
+    renderPaused(paused({ job_name: null, progress: null, remaining_minutes: null }), [{ id: 9, name: 'Next up', can_start: false }]);
+    expect(screen.queryByTestId('todo-paused-progress')).toBeNull();
+    expect(screen.getByTestId('todo-entry-print_paused')).not.toHaveTextContent('Next up');
+  });
+
+  it('wraps long text instead of widening the panel', () => {
+    renderPaused(paused({ job_name: 'A'.repeat(120), cause: 'error', error: { code: 'x', description: 'B'.repeat(200) } }));
+    expect(screen.getByTestId('todo-paused-progress').className).toContain('break-words');
+    expect(screen.getByTestId('todo-paused-cause').className).toContain('break-words');
+    expect(screen.getByTestId('todo-entry-print_paused').querySelector('.min-w-0')).not.toBeNull();
   });
 });
