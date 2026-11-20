@@ -422,6 +422,82 @@ describe('QueueTodoList slot hints (#3634)', () => {
     });
   });
 
+  describe('a short spool (#3634)', () => {
+    const lava = { type: 'PLA', color: '#C12E1F', color_name: 'Lava Red', no_stock: false };
+    const shortEntry = (filament: Partial<QueueTodoEntry['filaments'][number]>, slot_hint: QueueTodoSlotHint | null): QueueTodo => ({
+      count: 1,
+      groups: [{
+        printer_id: 1, printer_name: 'Farm-A1', target_model: null,
+        entries: [{ kind: 'load_filament', jobs: [{ id: 1, name: 'Job', can_start: false }], filaments: [{ ...lava, short: true, ...filament }], printers: [], detail: null, slot_hint }],
+      }],
+    });
+    const replace = (...slots: QueueTodoHintSlot[]) => hint('replace', slots);
+
+    it('says how much the spool has and what the job needs', () => {
+      render(<QueueTodoList todo={shortEntry(
+        { short_trays: [{ ams_id: 0, tray_id: 1, remaining_grams: 12.4 }], required_grams: 30 },
+        replace(slot(1, 'PLA', '#C12E1F', { remaining_grams: 12.4 })),
+      )} />);
+      expect(screen.getByTestId('todo-short')).toHaveTextContent('Not enough PLA Lava Red: A2 has 12 g, the job needs 30 g');
+    });
+
+    it('adds up the spools of a pool', () => {
+      render(<QueueTodoList todo={shortEntry(
+        { short_trays: [{ ams_id: 0, tray_id: 1, remaining_grams: 12 }, { ams_id: 0, tray_id: 2, remaining_grams: 13 }], required_grams: 60 },
+        null,
+      )} />);
+      expect(screen.getByTestId('todo-short')).toHaveTextContent('Not enough PLA Lava Red: A2 + A3 have 25 g, the job needs 60 g');
+    });
+
+    it('leaves the grams out when they are not known', () => {
+      render(<QueueTodoList todo={shortEntry({ short_trays: [{ ams_id: 0, tray_id: 1, remaining_grams: null }], required_grams: 30 }, null)} />);
+      expect(screen.getByTestId('todo-short').textContent).toBe('Not enough PLA Lava Red in A2');
+    });
+
+    it('leaves out what the job needs when that is not known', () => {
+      render(<QueueTodoList todo={shortEntry({ short_trays: [{ ams_id: 0, tray_id: 1, remaining_grams: 12 }], required_grams: null }, null)} />);
+      expect(screen.getByTestId('todo-short').textContent).toBe('Not enough PLA Lava Red: A2 has 12 g');
+    });
+
+    it('names no tray for an entry of an "Any <model>" group', () => {
+      render(<QueueTodoList todo={shortEntry({ short_trays: [], required_grams: 30 }, null)} />);
+      expect(screen.getByTestId('todo-short').textContent).toBe('Not enough PLA Lava Red');
+    });
+
+    it('labels an AMS-HT tray from its slot in the hint', () => {
+      render(<QueueTodoList todo={shortEntry(
+        { short_trays: [{ ams_id: 128, tray_id: 0, remaining_grams: 5 }], required_grams: 30 },
+        replace(slot(0, 'PLA', '#C12E1F', { ams_id: 128, is_ht: true, ams_type: 4, remaining_grams: 5 })),
+      )} />);
+      expect(screen.getByTestId('todo-short').textContent).toContain('HT-A has 5 g');
+    });
+
+    it('shows the replace hint with what is left, or without when unknown', () => {
+      const { unmount } = render(<QueueTodoList todo={shortEntry({}, replace(slot(1, 'PLA', '#C12E1F', { remaining_grams: 12 })))} />);
+      expect(screen.getByTestId('todo-slot-hint').textContent).toMatch(/^Replace: A2 \(PLA .+, 12 g left\)$/);
+      unmount();
+      render(<QueueTodoList todo={shortEntry({}, replace(slot(1, 'PLA', '#C12E1F', { remaining_grams: null })))} />);
+      expect(screen.getByTestId('todo-slot-hint').textContent).toMatch(/^Replace: A2 \(PLA [^,]+\)$/);
+    });
+
+    it('keeps a missing filament as it was', () => {
+      render(<QueueTodoList todo={pinned(hint('free', [slot(1)]))} />);
+      expect(screen.queryByTestId('todo-short')).toBeNull();
+      expect(screen.getByText('PLA Pink')).toBeInTheDocument();
+    });
+
+    it('is translated: the German line', async () => {
+      await i18n.loadLanguages('de');
+      await i18n.changeLanguage('de');
+      try {
+        render(<QueueTodoList todo={shortEntry({ short_trays: [{ ams_id: 0, tray_id: 1, remaining_grams: 12 }], required_grams: 30 }, null)} />);
+        expect(screen.getByTestId('todo-short').textContent).toBe('Nicht genug PLA Lava Red: A2 hat noch 12 g, der Auftrag braucht 30 g');
+      } finally {
+        await i18n.changeLanguage('en');
+      }
+    });
+  });
+
   const anyEntry = (count: number): QueueTodo => {
     const ids = Array.from({ length: count }, (_, i) => i + 1);
     const entry: QueueTodoEntry = {

@@ -8897,6 +8897,16 @@ export default {
       unknownJobs_other: "{{count}} wartende Aufträge haben unbekannte Filamente",
       more: "+{{count}} weitere",
       less: "Weniger anzeigen",
+      replace: "Ersetzen: {{slots}}",
+      withGrams: "{{label}} ({{filament}}, noch {{remaining}} g)",
+    },
+    short: {
+      plain: "Nicht genug {{filament}}",
+      in: "Nicht genug {{filament}} in {{slots}}",
+      hasGrams: "Nicht genug {{filament}}: {{slots}} hat noch {{remaining}} g",
+      haveGrams: "Nicht genug {{filament}}: {{slots}} haben zusammen {{remaining}} g",
+      hasGramsNeeds: "Nicht genug {{filament}}: {{slots}} hat noch {{remaining}} g, der Auftrag braucht {{required}} g",
+      haveGramsNeeds: "Nicht genug {{filament}}: {{slots}} haben zusammen {{remaining}} g, der Auftrag braucht {{required}} g",
     },
   },
 };

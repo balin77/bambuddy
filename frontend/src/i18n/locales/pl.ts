@@ -8950,6 +8950,16 @@ export default {
       unknownJobs_other: "Oczekujące zadania z nieznanym filamentem: {{count}}",
       more: "+{{count}} więcej",
       less: "Pokaż mniej",
+      replace: "Wymień: {{slots}}",
+      withGrams: "{{label}} ({{filament}}, zostało {{remaining}} g)",
+    },
+    short: {
+      plain: "Za mało filamentu {{filament}}",
+      in: "Za mało filamentu {{filament}} w {{slots}}",
+      hasGrams: "Za mało filamentu {{filament}}: {{slots}} ma {{remaining}} g",
+      haveGrams: "Za mało filamentu {{filament}}: {{slots}} mają razem {{remaining}} g",
+      hasGramsNeeds: "Za mało filamentu {{filament}}: {{slots}} ma {{remaining}} g, zadanie potrzebuje {{required}} g",
+      haveGramsNeeds: "Za mało filamentu {{filament}}: {{slots}} mają razem {{remaining}} g, zadanie potrzebuje {{required}} g",
     },
   },
 };

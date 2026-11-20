@@ -8520,6 +8520,16 @@ export default {
       unknownJobs_other: "필라멘트를 알 수 없는 대기 작업: {{count}}개",
       more: "{{count}}개 더 보기",
       less: "간단히 보기",
+      replace: "교체: {{slots}}",
+      withGrams: "{{label}} ({{filament}}, {{remaining}} g 남음)",
+    },
+    short: {
+      plain: "{{filament}}이(가) 부족합니다",
+      in: "{{slots}}의 {{filament}}이(가) 부족합니다",
+      hasGrams: "{{filament}}이(가) 부족합니다: {{slots}}에 {{remaining}} g 남음",
+      haveGrams: "{{filament}}이(가) 부족합니다: {{slots}} 합계 {{remaining}} g 남음",
+      hasGramsNeeds: "{{filament}}이(가) 부족합니다: {{slots}}에 {{remaining}} g 남음, 작업에 {{required}} g 필요",
+      haveGramsNeeds: "{{filament}}이(가) 부족합니다: {{slots}} 합계 {{remaining}} g 남음, 작업에 {{required}} g 필요",
     },
   },
 };

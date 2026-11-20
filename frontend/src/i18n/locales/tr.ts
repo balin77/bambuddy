@@ -8824,6 +8824,16 @@ export default {
       unknownJobs_other: "{{count}} bekleyen işin filamentleri bilinmiyor",
       more: "+{{count}} tane daha",
       less: "Daha az göster",
+      replace: "Değiştir: {{slots}}",
+      withGrams: "{{label}} ({{filament}}, {{remaining}} g kaldı)",
+    },
+    short: {
+      plain: "Yeterli {{filament}} yok",
+      in: "{{slots}} içinde yeterli {{filament}} yok",
+      hasGrams: "Yeterli {{filament}} yok: {{slots}} içinde {{remaining}} g var",
+      haveGrams: "Yeterli {{filament}} yok: {{slots}} içinde toplam {{remaining}} g var",
+      hasGramsNeeds: "Yeterli {{filament}} yok: {{slots}} içinde {{remaining}} g var, iş {{required}} g gerektiriyor",
+      haveGramsNeeds: "Yeterli {{filament}} yok: {{slots}} içinde toplam {{remaining}} g var, iş {{required}} g gerektiriyor",
     },
   },
 };

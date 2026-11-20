@@ -8882,6 +8882,16 @@ export default {
       unknownJobs_other: "{{count}} lavori in attesa hanno filamenti sconosciuti",
       more: "+{{count}} altri",
       less: "Mostra meno",
+      replace: "Sostituisci: {{slots}}",
+      withGrams: "{{label}} ({{filament}}, restano {{remaining}} g)",
+    },
+    short: {
+      plain: "{{filament}} insufficiente",
+      in: "{{filament}} insufficiente in {{slots}}",
+      hasGrams: "{{filament}} insufficiente: {{slots}} ha {{remaining}} g",
+      haveGrams: "{{filament}} insufficiente: {{slots}} hanno {{remaining}} g in totale",
+      hasGramsNeeds: "{{filament}} insufficiente: {{slots}} ha {{remaining}} g, il lavoro ne richiede {{required}} g",
+      haveGramsNeeds: "{{filament}} insufficiente: {{slots}} hanno {{remaining}} g in totale, il lavoro ne richiede {{required}} g",
     },
   },
 };

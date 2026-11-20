@@ -8979,6 +8979,16 @@ errors: {
       unknownJobs_other: "{{count}} väntande jobb har okända filament",
       more: "+{{count}} till",
       less: "Visa färre",
+      replace: "Byt ut: {{slots}}",
+      withGrams: "{{label}} ({{filament}}, {{remaining}} g kvar)",
+    },
+    short: {
+      plain: "För lite {{filament}}",
+      in: "För lite {{filament}} i {{slots}}",
+      hasGrams: "För lite {{filament}}: {{slots}} har {{remaining}} g",
+      haveGrams: "För lite {{filament}}: {{slots}} har tillsammans {{remaining}} g",
+      hasGramsNeeds: "För lite {{filament}}: {{slots}} har {{remaining}} g, jobbet behöver {{required}} g",
+      haveGramsNeeds: "För lite {{filament}}: {{slots}} har tillsammans {{remaining}} g, jobbet behöver {{required}} g",
     },
   },
 };
