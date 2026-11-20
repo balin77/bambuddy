@@ -227,3 +227,26 @@ describe('FilamentMapping: a slot waiting for the inventory colour', () => {
     expect(await screen.findByText(/None of this filament is left in the inventory\./)).toBeInTheDocument();
   });
 });
+
+describe('FilamentMapping: a colour from the inventory is always forced (#3649)', () => {
+  it('has no force-colour box on the picked slot, and keeps it on the others', async () => {
+    mockPrinter();
+    renderPanel({
+      inventoryPicks: { 2: PICK },
+      forceColorMatch: { 1: false, 2: true },
+      onForceColorMatchChange: vi.fn(),
+    });
+
+    await waitFor(() => expect(screen.getByText('(Waits for filament)')).toBeInTheDocument());
+    // Slot 1 is a loaded slot: its box stays.
+    expect(screen.getAllByText('Force color match')).toHaveLength(1);
+  });
+
+  it('shows the box on both slots without a pick', async () => {
+    mockPrinter();
+    renderPanel({ forceColorMatch: {}, onForceColorMatchChange: vi.fn() });
+
+    await waitFor(() => expect(screen.getAllByRole('combobox')).toHaveLength(2));
+    expect(screen.getAllByText('Force color match')).toHaveLength(2);
+  });
+});
