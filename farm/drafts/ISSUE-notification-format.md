@@ -1,6 +1,6 @@
 # Issue drafts – notifications: readable layout, raw reason code, language
 
-**Status:** All three posted on 20 November 2026: A as maziggy/bambuddy#3641, B as maziggy/bambuddy#3642, C as https://github.com/maziggy/bambuddy/issues/2933#issuecomment-7033784133. Nothing assigned yet, no code yet. Three parts:
+**Status:** A posted as maziggy/bambuddy#3641 and B as maziggy/bambuddy#3642, both assigned to balin77 on 21 November 2026. C posted as a comment on #2933 on 20 November 2026 (https://github.com/maziggy/bambuddy/issues/2933#issuecomment-7033784133); #2933 was assigned to dashu33 on 21 November 2026. Code for A and B: branches `feature/notification-readable` and `fix/notification-filament-short`, PR drafts `PR-3641.md` and `PR-3642.md`. Three parts:
 
 - **A. Feature:** readable notifications (structured fields, colour dots), new issue.
 - **B. Bug:** the queue notification shows the raw code `filament_short`, a small separate bug report.
