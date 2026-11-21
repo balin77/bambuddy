@@ -27,6 +27,7 @@ export function GroupEditPage() {
   const [filamentMode, setFilamentMode] = useState<FilamentRuleMode>('block');
   const [filamentRules, setFilamentRules] = useState<FilamentRule[]>([]);
   // The rules plus one typed in the card but not added yet, which Save keeps (#3522).
+  const [hideUnusable, setHideUnusable] = useState(false);
   const [filamentRulesToSave, setFilamentRulesToSave] = useState<FilamentRule[] | null>(null);
 
   const { data: groupData, isLoading: groupLoading } = useQuery({
@@ -48,6 +49,7 @@ export function GroupEditPage() {
     setRestrictFilaments(groupData.restrict_filaments ?? false);
     setFilamentMode(groupData.filament_rule_mode ?? 'block');
     setFilamentRules(groupData.filament_rules ?? []);
+    setHideUnusable(groupData.hide_unpermitted_controls ?? false);
     setInitialized(true);
   }
 
@@ -113,6 +115,7 @@ export function GroupEditPage() {
               restrict_filaments: restrictFilaments,
               filament_rule_mode: filamentMode,
               filament_rules: filamentRulesToSave ?? filamentRules,
+              hide_unpermitted_controls: hideUnusable,
             }),
       });
     } else {
@@ -123,6 +126,7 @@ export function GroupEditPage() {
         restrict_filaments: restrictFilaments,
         filament_rule_mode: filamentMode,
         filament_rules: filamentRulesToSave ?? filamentRules,
+        hide_unpermitted_controls: hideUnusable,
       });
     }
   };
@@ -369,6 +373,28 @@ export function GroupEditPage() {
           })}
         </div>
       )}
+
+      {/* Display option (#3639): the controls this group's members cannot use */}
+      <Card>
+        <div className="p-4 space-y-2">
+          {isAdministrators ? (
+            <p className="text-sm text-bambu-gray">{t('groups.editor.adminsSeeAllControls')}</p>
+          ) : (
+            <>
+              <label className="flex items-center gap-2 text-sm text-white cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={hideUnusable}
+                  onChange={(e) => setHideUnusable(e.target.checked)}
+                  className="w-4 h-4 shrink-0 rounded border-bambu-gray text-bambu-green focus:ring-bambu-green focus:ring-offset-0 bg-bambu-dark-secondary"
+                />
+                {t('groups.editor.hideUnusableControls')}
+              </label>
+              <p className="text-xs text-bambu-gray">{t('groups.editor.hideUnusableControlsHint')}</p>
+            </>
+          )}
+        </div>
+      </Card>
 
       {/* Spacer for fixed bottom bar */}
       <div className="h-16" />
