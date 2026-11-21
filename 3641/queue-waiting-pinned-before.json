@@ -1,0 +1,9 @@
+{
+  "embeds": [
+    {
+      "title": "Queue Job Waiting",
+      "description": "Stackable_Bin_4x waiting for P1S\nWaiting for filament: Workshop P1S Left (needs PLA (Lavender Purple))",
+      "color": 44610
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "embeds": [
+    {
+      "title": "Plate Clear Required",
+      "description": "Workshop P1S Left: print finished. Confirm the build plate is clear before the queue continues.",
+      "color": 44610
+    }
+  ]
+}

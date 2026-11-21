@@ -1,0 +1,26 @@
+{
+  "embeds": [
+    {
+      "title": "Queue Job Waiting",
+      "description": "Stackable_Bin_4x waiting for P1S\nWaiting for filament: Workshop P1S Left (needs PLA (Lavender Purple))",
+      "color": 11771355,
+      "fields": [
+        {
+          "name": "Printer",
+          "value": "Workshop P1S Left",
+          "inline": false
+        },
+        {
+          "name": "Job",
+          "value": "Stackable_Bin_4x",
+          "inline": false
+        },
+        {
+          "name": "Waiting for",
+          "value": "🟣 PLA Lavender Purple (#B39DDB)",
+          "inline": false
+        }
+      ]
+    }
+  ]
+}

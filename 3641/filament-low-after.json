@@ -1,0 +1,31 @@
+{
+  "embeds": [
+    {
+      "title": "Filament Low",
+      "description": "Workshop P1S Left: Slot A2 at 12%",
+      "color": 11771355,
+      "fields": [
+        {
+          "name": "Printer",
+          "value": "Workshop P1S Left",
+          "inline": false
+        },
+        {
+          "name": "Slot",
+          "value": "A2",
+          "inline": false
+        },
+        {
+          "name": "Filament",
+          "value": "🟣 PLA Lavender Purple (#B39DDB)",
+          "inline": false
+        },
+        {
+          "name": "Remaining",
+          "value": "12%",
+          "inline": false
+        }
+      ]
+    }
+  ]
+}

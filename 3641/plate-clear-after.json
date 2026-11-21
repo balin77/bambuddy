@@ -1,0 +1,21 @@
+{
+  "embeds": [
+    {
+      "title": "Plate Clear Required",
+      "description": "Workshop P1S Left: print finished. Confirm the build plate is clear before the queue continues.",
+      "color": 44610,
+      "fields": [
+        {
+          "name": "Printer",
+          "value": "Workshop P1S Left",
+          "inline": false
+        },
+        {
+          "name": "Finished",
+          "value": "Stackable_Bin_4x",
+          "inline": false
+        }
+      ]
+    }
+  ]
+}
