@@ -2196,22 +2196,38 @@ class NotificationService:
         filament: str,
         db: AsyncSession,
         printer_id: int | None = None,
+        filaments: Sequence[NotificationFilament] = (),
     ) -> None:
         """A queued job waits for a forced filament with none left in the inventory (#3590).
 
         Routed like ``on_queue_job_waiting`` for the same job: ``printer_id`` is
         the printer a pinned job waits on; a job for "Any <model>" has none and
         reaches only "All printers" providers.
+
+        ``filament`` is the entries as the waiting reason words them; ``filaments``
+        are the same filaments as data (#3641). With them ``{filament}`` is the
+        readable "dot type name (#hex)" of the other filament events and the colour
+        variables are set; without them ``{filament}`` is ``filament`` as given.
         """
         providers = await self._get_providers_for_event(db, "on_filament_out_of_stock", printer_id)
         if not providers:
             return
 
+        printer_label = await self._queue_printer_label(db, printer_id, target_model or "")
         variables = {
             "job_name": job_name,
             "target_model": target_model or "",
+            "printer": printer_label,
             "filament": filament,
+            # Telegram Markdown v1: only "_" is escaped (telegram_markdown_escape), as for every variable (pre-existing).
+            **{key: value for key, value in filament_variables(filaments).items() if filaments and key != "slot"},
         }
+
+        fields = [("Printer", printer_label), ("Job", job_name)]
+        if filaments:
+            fields.append(("Out of stock", "\n".join(f.line for f in filaments if f.line)))
+        presentation = NotificationPresentation(fields=tuple(fields), color=embed_color(filaments))
+
         title, message = await self._build_message_from_template(db, "filament_out_of_stock", variables)
         await self._send_to_providers(
             providers,
@@ -2222,6 +2238,7 @@ class NotificationService:
             printer_id,
             None,
             variables=variables,
+            presentation=presentation,
         )
 
     async def on_printer_offline(self, printer_id: int, printer_name: str, db: AsyncSession):
@@ -2403,6 +2420,7 @@ class NotificationService:
             return
 
         variables = {"printer": printer_name, "capacity": str(capacity)}
+        presentation = NotificationPresentation(fields=(("Printer", printer_name), ("Capacity", f"{capacity} plates")))
 
         title, message = await self._build_message_from_template(db, "plate_changer_empty", variables)
         await self._send_to_providers(
@@ -2414,6 +2432,7 @@ class NotificationService:
             printer_id,
             printer_name,
             variables=variables,
+            presentation=presentation,
         )
 
     async def on_filament_low(

@@ -14,6 +14,7 @@ from sqlalchemy import select, text
 from backend.app.models.printer import Printer
 from backend.app.models.settings import Settings
 from backend.app.services.inventory_stock import StockEntry
+from backend.app.services.notification_content import NotificationFilament
 from backend.app.services.print_scheduler import (
     _NO_STOCK_SUFFIX,
     PrintScheduler,
@@ -184,6 +185,8 @@ class TestQueuePass:
         kwargs = notify.await_args.kwargs
         assert kwargs["filament"] == "PLA (Earth Brown)"
         assert kwargs["target_model"] == "X1C"
+        # The same filament as data, for the colour variables and Discord fields (#3641).
+        assert kwargs["filaments"] == [NotificationFilament(type="PLA", color_hex="#8B5A2B", color_name="Earth Brown")]
 
         # Same reason next pass, and after a restart (a new scheduler): the reason is persisted.
         assert (await self._pass(queue_db, scheduler, (0, 0.0))).await_count == 0
@@ -281,6 +284,9 @@ class TestPinnedHold:
         notify.assert_awaited_once()
         assert notify.await_args.kwargs["filament"] == "PLA Earth Brown"
         assert notify.await_args.kwargs["printer_id"] == 8
+        assert notify.await_args.kwargs["filaments"] == [
+            NotificationFilament(type="PLA", color_hex="#8B5A2B", color_name="Earth Brown")
+        ]
 
     @pytest.mark.asyncio
     async def test_the_reason_names_the_printer_that_holds_the_job(self):

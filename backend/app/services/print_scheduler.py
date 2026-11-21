@@ -10,7 +10,7 @@ import time
 import uuid
 import zipfile
 from collections import deque
-from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -899,6 +899,17 @@ def _override_filaments(overrides: list[dict]) -> list[NotificationFilament]:
             type=o.get("type") or None,
             color_hex=o.get("color") or None,
             color_name=o.get("color_name") or None,
+        )
+        found.setdefault((filament.type, filament.color_hex, filament.color_name), filament)
+    return list(found.values())
+
+
+def _stock_notification_filaments(todos: Iterable[TodoFilament]) -> list[NotificationFilament]:
+    """The filaments the inventory has none left of, for the out-of-stock notification (#3590, #3641), once each."""
+    found: dict[tuple, NotificationFilament] = {}
+    for todo in todos:
+        filament = NotificationFilament(
+            type=todo.type or None, color_hex=todo.color or None, color_name=todo.color_name or None
         )
         found.setdefault((filament.type, filament.color_hex, filament.color_name), filament)
     return list(found.values())
@@ -3665,7 +3676,7 @@ class PrintScheduler:
                             else None
                         )
                         if missing_here is not None:
-                            missing_text, missing_out_of_stock = missing_here
+                            missing_text, missing_out_of_stock, missing_stock = missing_here
                             suffix, has_priority = filament_wait_suffix(item)
                             wake_reason = f"{_FILAMENT_WAIT_PREFIX}{missing_text}{suffix}"
                             previous_reason = item.waiting_reason
@@ -3679,6 +3690,7 @@ class PrintScheduler:
                                 missing_out_of_stock,
                                 item.printer_id,
                                 pinned_printers.get(item.printer_id, ("", ""))[1],
+                                filaments=missing_stock,
                             )
                             await self._notify_filament_wait_once(
                                 db,
@@ -3812,7 +3824,7 @@ class PrintScheduler:
                         # as the gates below, but the job is skipped instead
                         # of staged, so it starts by itself once the spool is
                         # loaded and the printer stays free for jobs behind it.
-                        wanted, wanted_filaments = await self._filament_wait_found(db, item)
+                        wanted, wanted_filaments, wanted_stock = await self._filament_wait_found(db, item)
                         if wanted:
                             wanted_text, out_of_stock = wanted
                             suffix, has_priority = filament_wait_suffix(item)
@@ -3828,6 +3840,7 @@ class PrintScheduler:
                                 out_of_stock,
                                 item.printer_id,
                                 pinned_printers.get(item.printer_id, ("", ""))[1],
+                                filaments=wanted_stock,
                             )
                             await self._notify_filament_wait_once(
                                 db,
@@ -3938,6 +3951,7 @@ class PrintScheduler:
                     per_model_reasons: list[tuple[str | None, str]] = []
                     # Forced filaments the inventory has none left of (#3590).
                     out_of_stock: list[str] = []
+                    out_of_stock_filaments: list[NotificationFilament] = []
                     # What the matcher found missing, as data for the notification (#3641).
                     missing_for_notice: list[dict] = []
                     # Candidates that cleared the cross-model gate below. The
@@ -4026,6 +4040,7 @@ class PrintScheduler:
                                 refused_uploads={pid: self._upload_refusal_kind.get(pid) for pid in backoff_printers},
                                 short_is_missing=filament_first,
                                 out_of_stock=out_of_stock,
+                                out_of_stock_filaments=out_of_stock_filaments,
                                 missing_overrides=missing_for_notice,
                                 short_filaments=short_filaments,
                                 holds_out=call_holds,
@@ -4169,6 +4184,7 @@ class PrintScheduler:
                                     target_model=_candidate_model_label(candidates) or item.target_model,
                                     filament=", ".join(out_of_stock),
                                     db=db,
+                                    filaments=out_of_stock_filaments,
                                 )
                             except Exception as e:
                                 logger.debug("Out-of-stock notification failed for item %s: %s", item.id, e)
@@ -4259,7 +4275,7 @@ class PrintScheduler:
                         if filament_first:
                             # Race fallback of the matcher's own filament check
                             # (#3587): release the printer and wait, as above.
-                            wanted, wanted_filaments = await self._filament_wait_found(db, item)
+                            wanted, wanted_filaments, wanted_stock = await self._filament_wait_found(db, item)
                             if wanted:
                                 wanted_text, out_of_stock = wanted
                                 suffix, has_priority = filament_wait_suffix(item)
@@ -4290,6 +4306,7 @@ class PrintScheduler:
                                     out_of_stock,
                                     None,
                                     _candidate_model_label(candidates) or item.target_model or "",
+                                    filaments=wanted_stock,
                                 )
                                 skip_reasons["filament_wait"] = skip_reasons.get("filament_wait", 0) + 1
                                 continue
@@ -5167,6 +5184,7 @@ class PrintScheduler:
         refused_uploads: Mapping[int, FtpFailureKind | None] | None = None,
         short_is_missing: bool = False,
         out_of_stock: list[str] | None = None,
+        out_of_stock_filaments: list[NotificationFilament] | None = None,
         holds_out: dict[int, list[TodoFilament]] | None = None,
         unmatched_todo: Callable[[int], list[TodoFilament]] | None = None,
         short_filaments: Callable[[int], Awaitable[list[TodoFilament]]] | None = None,
@@ -5209,6 +5227,8 @@ class PrintScheduler:
                               waits for a refill instead of being staged there.
             out_of_stock: Out parameter (#3590). Receives the bare text of each forced
                           filament the reason marks with ``_NO_STOCK_SUFFIX``.
+            out_of_stock_filaments: Out parameter (#3641). The same filaments as data,
+                                    for the out-of-stock notification.
             holds_out: Filled with the filaments each printer lacks, by printer id, when
                        the answer is a filament wait (#3615). Nothing else changes.
             unmatched_todo: The structured form of what ``unmatched_on`` names (#3615).
@@ -5484,6 +5504,12 @@ class PrintScheduler:
                             db, all_missing, entry_overrides, out_of_stock, marked_todo
                         )
                         flag_no_stock({n for n, _ in colour_missing}, marked_todo)
+                        if out_of_stock_filaments is not None:
+                            out_of_stock_filaments.extend(
+                                f
+                                for f in _stock_notification_filaments(sorted(marked_todo, key=str))
+                                if f not in out_of_stock_filaments
+                            )
                         if holds_out is not None:
                             holds_out.update(missing_todo)
                         no_match = f"No matching material/color. Waiting on {', '.join(all_missing)}"
@@ -5506,6 +5532,12 @@ class PrintScheduler:
                             )
                         )
                         flag_no_stock({name}, marked_todo)
+                        if out_of_stock_filaments is not None:
+                            out_of_stock_filaments.extend(
+                                f
+                                for f in _stock_notification_filaments(sorted(marked_todo, key=str))
+                                if f not in out_of_stock_filaments
+                            )
                     printers_missing_filament = marked_list
                 reasons.append(_waiting_clause(printers_missing_filament))
                 if holds_out is not None:
@@ -10864,11 +10896,14 @@ class PrintScheduler:
             db=db,
         )
 
-    async def _wake_declined_for_filament(self, db: AsyncSession, item: PrintQueueItem) -> tuple[str, list[str]] | None:
+    async def _wake_declined_for_filament(
+        self, db: AsyncSession, item: PrintQueueItem
+    ) -> tuple[str, list[str], list[NotificationFilament]] | None:
         """What a pinned job lacks on its switched-off printer, None to switch it on (#3587).
 
-        ``(text, out_of_stock)`` as ``_filament_wait_wanted`` has it: a forced
-        colour the inventory has none left of carries ``_NO_STOCK_SUFFIX`` (#3649).
+        ``(text, out_of_stock, out_of_stock_filaments)``: the first two as
+        ``_filament_wait_wanted`` has them, a forced colour the inventory has none
+        left of carrying ``_NO_STOCK_SUFFIX`` (#3649); the third is those as data (#3641).
 
         Declines only on positive evidence: the trays this printer last
         reported (#2876) cannot run this job as it is now. Never for a job the
@@ -10907,7 +10942,8 @@ class PrintScheduler:
             item.target_model,
             [replace(todo, no_stock=True) if todo in marked_out else todo for _, todo in entries],
         )
-        return ", ".join(marked), out_of_stock
+        stock = _stock_notification_filaments(todo for _, todo in entries if todo in marked_out)
+        return ", ".join(marked), out_of_stock, stock
 
     async def _filament_wait_wanted(self, db: AsyncSession, item: PrintQueueItem) -> tuple[str, list[str]] | None:
         """What ``item`` waits for on its printer, worded for the queue row (#3587); see ``_filament_wait_found``."""
@@ -10915,8 +10951,11 @@ class PrintScheduler:
 
     async def _filament_wait_found(
         self, db: AsyncSession, item: PrintQueueItem
-    ) -> tuple[tuple[str, list[str]] | None, list[NotificationFilament]]:
+    ) -> tuple[tuple[str, list[str]] | None, list[NotificationFilament], list[NotificationFilament]]:
         """What ``item`` waits for on its printer: worded for the queue row, and as data (#3587, #3641).
+
+        ``(wanted, filaments, out_of_stock_filaments)``: ``wanted`` as below, the
+        filaments it waits for, and those of them the inventory has none left of.
 
         ``(text, out_of_stock)``: the short spools if there are any, else the
         requirements without a tray, a forced one the inventory has none left of
@@ -10929,15 +10968,17 @@ class PrintScheduler:
             short = await self._deficit_todo_filaments(db, item, deficit)
             self._record_hold(item.id, item.printer_id, item.target_model, short)
             layout = printer_tray_layout(item.printer_id, printer_manager) if item.printer_id else None
-            return (_describe_deficit(deficit), []), _short_notification_filaments(short, layout)
+            return (_describe_deficit(deficit), []), _short_notification_filaments(short, layout), []
         unmatched = await self._unmatched_filament(db, item)
         if not unmatched:
-            return None, []
+            return None, [], []
         text, out_of_stock = await self._describe_unmatched_with_stock(db, unmatched)
         # A pinned job's forced colour the inventory has none left of says so in
         # the "To do" list too, exactly the entries the text marks (#3649).
-        self._record_hold(item.id, item.printer_id, item.target_model, _todo_with_stock(unmatched, out_of_stock))
-        return (text, out_of_stock), _override_filaments(unmatched)
+        todo = _todo_with_stock(unmatched, out_of_stock)
+        self._record_hold(item.id, item.printer_id, item.target_model, todo)
+        stock = _stock_notification_filaments(t for t in todo if t.no_stock)
+        return (text, out_of_stock), _override_filaments(unmatched), stock
 
     async def _describe_unmatched_with_stock(self, db: AsyncSession, unmatched: list[dict]) -> tuple[str, list[str]]:
         """The unmatched requirements as the queue row names them, and which of them are out of stock (#3590, #3649).
@@ -10966,6 +11007,7 @@ class PrintScheduler:
         out_of_stock: list[str],
         printer_id: int | None,
         target_model: str,
+        filaments: Sequence[NotificationFilament] = (),
     ) -> None:
         """Once per job and shortage, when it names a filament the inventory has none left of (#3590, #3649).
 
@@ -10991,6 +11033,7 @@ class PrintScheduler:
                 filament=", ".join(out_of_stock),
                 db=db,
                 printer_id=printer_id,
+                filaments=filaments,
             )
         except Exception as e:
             logger.debug("Out-of-stock notification failed for item %s: %s", item.id, e)
@@ -11325,6 +11368,7 @@ class PrintScheduler:
             out_of_stock,
             None if release_assignment else held_by,
             (printer.model if printer else "") or "",
+            filaments=_stock_notification_filaments(t for t in todo if t.no_stock),
         )
         return True
 

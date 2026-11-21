@@ -203,6 +203,24 @@ class TestStockHintOnTheFilamentFirstPath:
         assert wanted == (f"PLA Lava Red{_NO_STOCK_SUFFIX}", ["PLA Lava Red"])
 
     @pytest.mark.asyncio
+    async def test_the_wait_also_hands_over_its_filaments_as_data(self):
+        """The waiting and the out-of-stock notification get the colour as data, only the latter the empty one (#3641)."""
+        for count, stock in ((0, True), (2, False)):
+            scheduler = _scheduler(LOADED)
+            scheduler._inventory_hints = True
+            item = _item([2, -1])
+            with (
+                patch(STOCK, AsyncMock(return_value=self._entries(count))),
+                patch("backend.app.services.print_scheduler.printer_manager") as pm,
+            ):
+                pm.get_status.return_value = _status()
+                wanted, filaments, out_of_stock = await scheduler._filament_wait_found(AsyncMock(), item)
+
+            assert wanted is not None
+            assert [(f.type, f.color_name) for f in filaments] == [("PLA", "Lava Red")]
+            assert [(f.type, f.color_name) for f in out_of_stock] == ([("PLA", "Lava Red")] if stock else [])
+
+    @pytest.mark.asyncio
     async def test_the_todo_entry_of_the_hold_is_marked_no_stock_only_when_none_is_left(self):
         """Farm: the "To do" list shows the same finding as the text (#3615, #3649)."""
         for hints, count, expected in ((True, 0, True), (True, 2, False), (False, 0, False)):
