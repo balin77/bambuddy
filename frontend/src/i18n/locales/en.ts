@@ -6259,6 +6259,7 @@ export default {
     inventoryPanelHint: 'Pick a colour from the inventory that is not loaded yet. Colours you leave alone stay automatic.',
     asapBlockedInventory: 'A colour from the inventory is not loaded yet. Queue or schedule the job, or pick a loaded slot.',
     slotGroupInventory: 'From inventory (not loaded)',
+    slotInventoryNowHint: 'Colours from the inventory can be picked with {{queue}} or {{schedule}}.',
     statusWaitsForFilament: 'Waits for filament',
     inventoryWaitHint: 'The job waits until this filament is loaded on {{printer}}.',
     inventoryWaitHintEach: 'The job waits until this filament is loaded on each selected printer.',

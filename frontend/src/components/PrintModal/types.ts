@@ -338,6 +338,9 @@ export interface FilamentMappingProps {
   /** The inventory's stock, offered as a second group "From inventory (not
    *  loaded)" under the loaded slots (#3649). Omitted or empty = no group. */
   inventoryFilaments?: InventoryFilament[];
+  /** "Now" is chosen and the inventory has colours to offer: say that they come
+   *  with Queue or Schedule, as the group itself is not shown (#3649). */
+  inventoryNowHint?: boolean;
   /** The colours picked from the inventory, by slot (#3649). A slot with a pick takes
    *  no tray: the job waits for that colour to be loaded on the printer. `filamentReqs`
    *  keeps the file's own colour for such a slot. */

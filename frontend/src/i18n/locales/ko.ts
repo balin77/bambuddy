@@ -5982,6 +5982,7 @@ export default {
     inventoryPanelHint: '아직 장착되지 않은 재고 색상을 선택하세요. 선택하지 않은 색상은 자동으로 유지됩니다.',
     asapBlockedInventory: '재고에서 고른 색상이 아직 장착되지 않았습니다. 작업을 대기열에 추가하거나 예약하거나, 장착된 슬롯을 선택하세요.',
     slotGroupInventory: '재고에서 (미장착)',
+    slotInventoryNowHint: '재고의 색상은 {{queue}} 또는 {{schedule}}에서 선택할 수 있습니다.',
     statusWaitsForFilament: '필라멘트 대기 중',
     inventoryWaitHint: '이 필라멘트가 {{printer}}에 장착될 때까지 작업이 대기합니다.',
     inventoryWaitHintEach: '이 필라멘트가 선택한 각 프린터에 장착될 때까지 작업이 대기합니다.',

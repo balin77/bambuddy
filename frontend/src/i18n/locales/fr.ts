@@ -6199,6 +6199,7 @@ export default {
     inventoryPanelHint: 'Choisissez une couleur de l\'inventaire qui n\'est pas encore chargée. Les couleurs laissées telles quelles restent automatiques.',
     asapBlockedInventory: 'Une couleur de l\'inventaire n\'est pas encore chargée. Mettez la tâche en file d\'attente ou planifiez-la, ou choisissez un emplacement chargé.',
     slotGroupInventory: 'De l\'inventaire (non chargé)',
+    slotInventoryNowHint: 'Les couleurs de l\'inventaire peuvent être choisies avec {{queue}} ou {{schedule}}.',
     statusWaitsForFilament: 'Attend le filament',
     inventoryWaitHint: 'La tâche attend que ce filament soit chargé sur {{printer}}.',
     inventoryWaitHintEach: 'La tâche attend que ce filament soit chargé sur chaque imprimante sélectionnée.',

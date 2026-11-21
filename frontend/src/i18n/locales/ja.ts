@@ -6212,6 +6212,7 @@ export default {
     inventoryPanelHint: 'まだ装着されていない在庫の色を選びます。選ばなかった色は自動のままです。',
     asapBlockedInventory: '在庫から選んだ色はまだ装着されていません。ジョブをキューに追加するかスケジュールするか、装着済みのスロットを選んでください。',
     slotGroupInventory: '在庫から（未装着）',
+    slotInventoryNowHint: '在庫の色は{{queue}}または{{schedule}}で選択できます。',
     statusWaitsForFilament: 'フィラメント待ち',
     inventoryWaitHint: 'このフィラメントが {{printer}} に装着されるまで、ジョブは待機します。',
     inventoryWaitHintEach: 'このフィラメントが選択した各プリンターに装着されるまで、ジョブは待機します。',
