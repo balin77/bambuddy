@@ -3793,6 +3793,9 @@ export default {
       printerAccessLimited: '制限あり: {{printers}} 台のプリンターを選択、{{locations}} 件のロケーション',
       printerAccessOpen: '制限なし: メンバーはすべてのプリンターを表示できます。',
       managePrinterAccess: 'プリンターへのアクセスを管理',
+      hideUnusableControls: 'このグループが使えないコントロールを非表示にする',
+      hideUnusableControlsHint: 'メンバーに表示される内容だけを変更します。権限のないコントロールはグレー表示ではなく表示されなくなります。サーバーは引き続きすべての権限を確認します。ユーザーのすべてのグループで有効な場合に適用され、管理者には適用されません。',
+      adminsSeeAllControls: '管理者には常にすべてのコントロールが表示されます。',
     },
   },
 

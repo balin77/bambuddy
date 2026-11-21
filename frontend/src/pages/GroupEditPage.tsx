@@ -22,6 +22,7 @@ export function GroupEditPage() {
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [search, setSearch] = useState('');
   const [initialized, setInitialized] = useState(false);
+  const [hideUnusable, setHideUnusable] = useState(false);
 
   const { data: groupData, isLoading: groupLoading } = useQuery({
     queryKey: ['group', id],
@@ -39,6 +40,7 @@ export function GroupEditPage() {
     setName(groupData.name);
     setDescription(groupData.description || '');
     setPermissions(groupData.permissions);
+    setHideUnusable(groupData.hide_unpermitted_controls ?? false);
     setInitialized(true);
   }
 
@@ -107,12 +109,14 @@ export function GroupEditPage() {
         name: name !== groupData?.name ? name : undefined,
         description,
         permissions: groupData?.is_system && !permissionsChanged ? undefined : permissions,
+        ...(isAdministrators ? {} : { hide_unpermitted_controls: hideUnusable }),
       });
     } else {
       createMutation.mutate({
         name,
         description: description || undefined,
         permissions,
+        hide_unpermitted_controls: hideUnusable,
       });
     }
   };
@@ -371,6 +375,28 @@ export function GroupEditPage() {
           })}
         </div>
       )}
+
+      {/* Display option (#3639): the controls this group's members cannot use */}
+      <Card>
+        <div className="p-4 space-y-2">
+          {isAdministrators ? (
+            <p className="text-sm text-bambu-gray">{t('groups.editor.adminsSeeAllControls')}</p>
+          ) : (
+            <>
+              <label className="flex items-center gap-2 text-sm text-white cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={hideUnusable}
+                  onChange={(e) => setHideUnusable(e.target.checked)}
+                  className="w-4 h-4 shrink-0 rounded border-bambu-gray text-bambu-green focus:ring-bambu-green focus:ring-offset-0 bg-bambu-dark-secondary"
+                />
+                {t('groups.editor.hideUnusableControls')}
+              </label>
+              <p className="text-xs text-bambu-gray">{t('groups.editor.hideUnusableControlsHint')}</p>
+            </>
+          )}
+        </div>
+      </Card>
 
       {/* Spacer for fixed bottom bar */}
       <div className="h-16" />

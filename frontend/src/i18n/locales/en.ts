@@ -3825,6 +3825,9 @@ export default {
       printerAccessLimited: 'Limited: {{printers}} printers picked, {{locations}} locations',
       printerAccessOpen: 'Not limited: members see every printer.',
       managePrinterAccess: 'Manage printer access',
+      hideUnusableControls: 'Hide controls this group cannot use',
+      hideUnusableControlsHint: 'Only changes what members see: a control they lack the permission for is left out instead of greyed out. The server still checks every permission. Applies when all of a user\'s groups have it, and never to administrators.',
+      adminsSeeAllControls: 'Administrators always see every control.',
     },
   },
 

@@ -3780,6 +3780,9 @@ export default {
       printerAccessLimited: '受限：已選 {{printers}} 台印表機，{{locations}} 個位置',
       printerAccessOpen: '不受限：成員可以看到所有印表機。',
       managePrinterAccess: '管理印表機存取',
+      hideUnusableControls: '隱藏此群組無法使用的控制項',
+      hideUnusableControlsHint: '僅改變成員看到的內容：沒有權限的控制項不再顯示為灰色，而是直接隱藏。伺服器仍會檢查每一項權限。當使用者的所有群組都啟用此選項時生效，對管理員一律不生效。',
+      adminsSeeAllControls: '管理員一律可以看到所有控制項。',
     },
   },
 

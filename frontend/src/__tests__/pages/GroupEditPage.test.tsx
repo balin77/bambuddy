@@ -282,6 +282,106 @@ describe('GroupEditPage', () => {
   });
 });
 
+describe('GroupEditPage hide unusable controls (#3639)', () => {
+  let posted: Record<string, unknown> | null;
+  let patched: Record<string, unknown> | null;
+
+  const setup = (group: Record<string, unknown>) => {
+    posted = null;
+    patched = null;
+    server.use(
+      http.get('/api/v1/groups/permissions', () => HttpResponse.json(mockPermissions)),
+      http.get('/api/v1/groups/:id', () => HttpResponse.json(group)),
+      http.post('/api/v1/groups/', async ({ request }) => {
+        posted = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ ...group, ...posted, id: 10 });
+      }),
+      http.patch('/api/v1/groups/:id', async ({ request }) => {
+        patched = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ ...group, ...patched });
+      })
+    );
+  };
+
+  const renderEdit = async () => {
+    const { MemoryRouter, Routes, Route } = await import('react-router-dom');
+    const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
+    const { AuthProvider } = await import('../../contexts/AuthContext');
+    const { ToastProvider } = await import('../../contexts/ToastContext');
+    const { ThemeProvider } = await import('../../contexts/ThemeContext');
+    const { render: rtlRender } = await import('@testing-library/react');
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <ThemeProvider>
+            <ToastProvider>
+              <MemoryRouter initialEntries={['/groups/5/edit']}>
+                <Routes>
+                  <Route path="/groups/:id/edit" element={<GroupEditPage />} />
+                  <Route path="/settings" element={<div>Settings</div>} />
+                </Routes>
+              </MemoryRouter>
+            </ToastProvider>
+          </ThemeProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    );
+  };
+
+  const helpers = { ...mockGroup, id: 5, name: 'Helpers', is_system: false };
+
+  it('shows the option as stored', async () => {
+    setup({ ...helpers, hide_unpermitted_controls: true });
+    await renderEdit();
+    expect(await screen.findByRole('checkbox', { name: /hide controls this group cannot use/i })).toBeChecked();
+  });
+
+  it('is off for a group that does not have it', async () => {
+    setup({ ...helpers });
+    await renderEdit();
+    expect(await screen.findByRole('checkbox', { name: /hide controls this group cannot use/i })).not.toBeChecked();
+  });
+
+  it('saves the option with the group', async () => {
+    setup({ ...helpers, hide_unpermitted_controls: false });
+    const user = userEvent.setup();
+    await renderEdit();
+
+    await user.click(await screen.findByRole('checkbox', { name: /hide controls this group cannot use/i }));
+    await user.click(screen.getByRole('button', { name: /save/i }));
+
+    await waitFor(() => expect(patched).not.toBeNull());
+    expect(patched).toMatchObject({ hide_unpermitted_controls: true });
+  });
+
+  it('creates a group with the option', async () => {
+    setup({});
+    const user = userEvent.setup();
+    render(<GroupEditPage />);
+
+    await user.type(await screen.findByPlaceholderText(/group name/i), 'Helpers');
+    await user.click(screen.getByRole('checkbox', { name: /hide controls this group cannot use/i }));
+    await user.click(screen.getByText('Save'));
+
+    await waitFor(() => expect(posted).not.toBeNull());
+    expect(posted).toMatchObject({ hide_unpermitted_controls: true });
+  });
+
+  it('offers no checkbox for Administrators and never sends the option', async () => {
+    setup({ ...mockGroup, id: 1, name: 'Administrators', is_system: true });
+    const user = userEvent.setup();
+    await renderEdit();
+
+    await waitFor(() => expect(screen.getByDisplayValue('Administrators')).toBeInTheDocument());
+    expect(screen.getByText('Administrators always see every control.')).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /hide controls this group cannot use/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(patched).not.toBeNull());
+    expect(patched).not.toHaveProperty('hide_unpermitted_controls');
+  });
+});
+
 describe('GroupEditPage printer access (#1727)', () => {
   // Printer access is edited on its own page; the editor only summarises it
   let posted: Record<string, unknown> | null;

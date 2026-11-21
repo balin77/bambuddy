@@ -3780,6 +3780,9 @@ export default {
       printerAccessLimited: 'Limitado: {{printers}} impressoras escolhidas, {{locations}} locais',
       printerAccessOpen: 'Sem limite: os membros veem todas as impressoras.',
       managePrinterAccess: 'Gerenciar acesso às impressoras',
+      hideUnusableControls: 'Ocultar os controles que este grupo não pode usar',
+      hideUnusableControlsHint: 'Muda apenas o que os membros veem: um controle para o qual não têm permissão é omitido em vez de aparecer esmaecido. O servidor continua verificando cada permissão. Vale quando todos os grupos de um usuário têm a opção, e nunca para administradores.',
+      adminsSeeAllControls: 'Administradores sempre veem todos os controles.',
     },
   },
 

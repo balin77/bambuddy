@@ -3780,6 +3780,9 @@ export default {
       printerAccessLimited: '受限：已选 {{printers}} 台打印机，{{locations}} 个位置',
       printerAccessOpen: '不受限：成员可以看到所有打印机。',
       managePrinterAccess: '管理打印机访问',
+      hideUnusableControls: '隐藏此组无法使用的控件',
+      hideUnusableControlsHint: '仅改变成员看到的内容：没有权限的控件不再显示为灰色，而是直接隐藏。服务器仍会检查每一项权限。当用户的所有组都启用此选项时生效，对管理员始终不生效。',
+      adminsSeeAllControls: '管理员始终可以看到所有控件。',
     },
   },
 

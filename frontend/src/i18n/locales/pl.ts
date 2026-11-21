@@ -3825,6 +3825,9 @@ export default {
       printerAccessLimited: 'Ograniczony: wybrane drukarki: {{printers}}, lokalizacje: {{locations}}',
       printerAccessOpen: 'Bez ograniczeń: członkowie widzą wszystkie drukarki.',
       managePrinterAccess: 'Zarządzaj dostępem do drukarek',
+      hideUnusableControls: 'Ukryj kontrolki, których ta grupa nie może używać',
+      hideUnusableControlsHint: 'Zmienia tylko to, co widzą członkowie: kontrolka, do której nie mają uprawnień, jest pomijana zamiast wyszarzona. Serwer nadal sprawdza każde uprawnienie. Działa, gdy wszystkie grupy użytkownika mają tę opcję, i nigdy dla administratorów.',
+      adminsSeeAllControls: 'Administratorzy zawsze widzą wszystkie kontrolki.',
     },
   },
 

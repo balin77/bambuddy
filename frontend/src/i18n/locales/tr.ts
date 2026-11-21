@@ -3796,6 +3796,9 @@ export default {
       printerAccessLimited: 'Sınırlı: {{printers}} yazıcı seçildi, {{locations}} konum',
       printerAccessOpen: 'Sınırsız: üyeler tüm yazıcıları görür.',
       managePrinterAccess: 'Yazıcı erişimini yönet',
+      hideUnusableControls: 'Bu grubun kullanamadığı denetimleri gizle',
+      hideUnusableControlsHint: 'Yalnızca üyelerin gördüklerini değiştirir: yetkileri olmayan bir denetim soluk gösterilmek yerine hiç gösterilmez. Sunucu her izni yine de denetler. Bir kullanıcının tüm gruplarında etkinse uygulanır ve yöneticilere asla uygulanmaz.',
+      adminsSeeAllControls: 'Yöneticiler her zaman tüm denetimleri görür.',
     },
   },
 

@@ -3855,6 +3855,9 @@ errors: {
       printerAccessLimited: 'Begränsad: {{printers}} skrivare valda, {{locations}} platser',
       printerAccessOpen: 'Inte begränsad: medlemmar ser alla skrivare.',
       managePrinterAccess: 'Hantera skrivaråtkomst',
+      hideUnusableControls: 'Dölj kontroller som den här gruppen inte kan använda',
+      hideUnusableControlsHint: 'Ändrar bara vad medlemmarna ser: en kontroll de saknar behörighet för utelämnas i stället för att visas nedtonad. Servern kontrollerar fortfarande varje behörighet. Gäller när alla en användares grupper har alternativet, och aldrig för administratörer.',
+      adminsSeeAllControls: 'Administratörer ser alltid alla kontroller.',
     },
   },
 

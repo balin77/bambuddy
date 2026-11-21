@@ -3823,6 +3823,9 @@ export default {
       printerAccessLimited: 'Beperkt: {{printers}} printers gekozen, {{locations}} locaties',
       printerAccessOpen: 'Niet beperkt: leden zien alle printers.',
       managePrinterAccess: 'Printertoegang beheren',
+      hideUnusableControls: 'Bedieningselementen verbergen die deze groep niet kan gebruiken',
+      hideUnusableControlsHint: 'Verandert alleen wat leden zien: een bedieningselement waarvoor ze geen rechten hebben, wordt weggelaten in plaats van grijs getoond. De server controleert nog steeds elke permissie. Geldt wanneer alle groepen van een gebruiker de optie hebben, en nooit voor beheerders.',
+      adminsSeeAllControls: 'Beheerders zien altijd alle bedieningselementen.',
     },
   },
 

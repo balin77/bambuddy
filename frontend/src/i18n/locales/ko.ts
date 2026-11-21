@@ -3622,6 +3622,9 @@ export default {
       printerAccessLimited: '제한됨: 프린터 {{printers}}대 선택, 위치 {{locations}}개',
       printerAccessOpen: '제한 없음: 구성원은 모든 프린터를 볼 수 있습니다.',
       managePrinterAccess: '프린터 접근 관리',
+      hideUnusableControls: '이 그룹이 사용할 수 없는 컨트롤 숨기기',
+      hideUnusableControlsHint: '구성원에게 보이는 내용만 바뀝니다. 권한이 없는 컨트롤은 회색으로 표시되는 대신 표시되지 않습니다. 서버는 여전히 모든 권한을 확인합니다. 사용자의 모든 그룹에서 켜져 있을 때 적용되며 관리자에게는 적용되지 않습니다.',
+      adminsSeeAllControls: '관리자에게는 항상 모든 컨트롤이 표시됩니다.',
     }
   },
 

@@ -3793,6 +3793,9 @@ export default {
       printerAccessLimited: 'Eingeschränkt: {{printers}} Drucker ausgewählt, {{locations}} Standorte',
       printerAccessOpen: 'Nicht eingeschränkt: Mitglieder sehen alle Drucker.',
       managePrinterAccess: 'Druckerzugriff verwalten',
+      hideUnusableControls: 'Steuerelemente ausblenden, die diese Gruppe nicht verwenden kann',
+      hideUnusableControlsHint: 'Ändert nur, was Mitglieder sehen: Ein Steuerelement ohne passende Berechtigung wird weggelassen statt ausgegraut. Der Server prüft weiterhin jede Berechtigung. Gilt, wenn alle Gruppen eines Benutzers die Option haben, und nie für Administratoren.',
+      adminsSeeAllControls: 'Administratoren sehen immer alle Steuerelemente.',
     },
   },
 
