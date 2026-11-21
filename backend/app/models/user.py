@@ -166,5 +166,15 @@ class User(Base):
         user_permissions = self.get_permissions()
         return any(p in user_permissions for p in permissions)
 
+    @property
+    def hide_unpermitted_controls(self) -> bool:
+        """Whether the UI should leave out controls this user cannot use (#3639).
+
+        Only when every group of the user has the option, so one group without
+        it keeps the full view. Administrators and users without a group never
+        get it. A display option only: the permission checks do not read it.
+        """
+        return not self.is_admin and bool(self.groups) and all(g.hide_unpermitted_controls for g in self.groups)
+
     def __repr__(self) -> str:
         return f"<User {self.username}>"

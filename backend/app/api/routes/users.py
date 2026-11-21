@@ -76,6 +76,7 @@ def _user_to_response(user: User) -> UserResponse:
         groups=[GroupBrief(id=g.id, name=g.name) for g in user.groups],
         permissions=sorted(user.get_permissions()),
         filament_policies=filament_policies_for(user),
+        hide_unpermitted_controls=user.hide_unpermitted_controls,
         created_at=user.created_at.isoformat(),
     )
 

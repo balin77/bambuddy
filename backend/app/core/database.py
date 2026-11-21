@@ -6007,6 +6007,16 @@ async def _run_migrations(conn):
         )
     await _safe_execute(conn, "ALTER TABLE groups ADD COLUMN filament_rules JSON")
 
+    # Migration: per-group option to hide the controls a group cannot use
+    # (#3639). Off by default, so no group changes for anyone on upgrade. The
+    # backfill covers a table create_all() already gave the column.
+    await _safe_execute(conn, "ALTER TABLE groups ADD COLUMN hide_unpermitted_controls BOOLEAN DEFAULT FALSE")
+    async with conn.begin_nested():
+        await conn.execute(
+            text("UPDATE groups SET hide_unpermitted_controls = :off WHERE hide_unpermitted_controls IS NULL"),
+            {"off": False},
+        )
+
     # Migration: camera-stream and websocket tokens record who minted them, so
     # they carry that caller's printer scope (#1727). Camera tokens minted
     # before this have no principal at all (username NULL; every new one sets
@@ -6433,6 +6443,7 @@ _PG_COLUMNS_SET_FROM_MODEL = (
     ("github_backup_config", "allow_insecure_http"),
     ("github_backup_config", "provider"),
     ("groups", "filament_rule_mode"),
+    ("groups", "hide_unpermitted_controls"),
     ("groups", "restrict_filaments"),
     ("groups", "restrict_printers"),
     ("library_files", "variant_position"),

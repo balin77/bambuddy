@@ -44,6 +44,8 @@ class GroupCreate(BaseModel):
     restrict_filaments: bool = False
     filament_rule_mode: Literal["allow", "block"] = "block"
     filament_rules: list[FilamentRuleSchema] = []
+    # Display option (#3639): members see no controls they lack the permission for.
+    hide_unpermitted_controls: bool = False
 
 
 class GroupUpdate(IgnoresNullForRequiredColumns):
@@ -60,6 +62,7 @@ class GroupUpdate(IgnoresNullForRequiredColumns):
     restrict_filaments: bool | None = None
     filament_rule_mode: Literal["allow", "block"] | None = None
     filament_rules: list[FilamentRuleSchema] | None = None
+    hide_unpermitted_controls: bool | None = None
 
 
 class GroupResponse(BaseModel):
@@ -76,6 +79,7 @@ class GroupResponse(BaseModel):
     restrict_filaments: bool = False
     filament_rule_mode: Literal["allow", "block"] = "block"
     filament_rules: list[FilamentRuleSchema] = []
+    hide_unpermitted_controls: bool = False
     user_count: int = 0
     created_at: datetime
     updated_at: datetime

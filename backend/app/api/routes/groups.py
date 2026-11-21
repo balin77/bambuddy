@@ -169,6 +169,22 @@ def _apply_filament_scope(
             group.filament_rules = cleaned
 
 
+def _apply_hide_unpermitted_controls(group: Group, hide: bool | None) -> None:
+    """Store the display option (#3639).
+
+    The Administrators group can't have it: admins keep every control, so the
+    setting would only mislead.
+    """
+    if hide is None or hide == bool(group.hide_unpermitted_controls):
+        return
+    if hide and group.name == ADMIN_GROUP_NAME:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Administrators always see every control",
+        )
+    group.hide_unpermitted_controls = hide
+
+
 def _filament_fields(group: Group) -> dict:
     return {
         "restrict_filaments": bool(group.restrict_filaments),
@@ -188,6 +204,7 @@ def _group_response(group: Group, printer_ids: list[int], locations: list[str], 
         printer_ids=printer_ids,
         locations=locations,
         **_filament_fields(group),
+        hide_unpermitted_controls=bool(group.hide_unpermitted_controls),
         user_count=user_count,
         created_at=group.created_at,
         updated_at=group.updated_at,
@@ -265,6 +282,7 @@ async def create_group(
         restrict_printers=False,
         restrict_filaments=False,
         filament_rule_mode="block",
+        hide_unpermitted_controls=False,
     )
     db.add(group)
     await db.flush()
@@ -272,6 +290,7 @@ async def create_group(
     _apply_filament_scope(
         group, group_data.restrict_filaments, group_data.filament_rule_mode, group_data.filament_rules
     )
+    _apply_hide_unpermitted_controls(group, group_data.hide_unpermitted_controls)
     await db.commit()
     await db.refresh(group)
 
@@ -304,6 +323,7 @@ async def get_group(
         printer_ids=await group_printer_ids(db, group.id),
         locations=await group_location_names(db, group.id),
         **_filament_fields(group),
+        hide_unpermitted_controls=bool(group.hide_unpermitted_controls),
         user_count=len(group.users),
         created_at=group.created_at,
         updated_at=group.updated_at,
@@ -373,6 +393,7 @@ async def update_group(
     _apply_filament_scope(
         group, group_data.restrict_filaments, group_data.filament_rule_mode, group_data.filament_rules
     )
+    _apply_hide_unpermitted_controls(group, group_data.hide_unpermitted_controls)
 
     await db.commit()
     await db.refresh(group)

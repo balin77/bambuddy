@@ -72,6 +72,9 @@ class Group(Base):
     # filaments this group's rules allow (see ``core/filament_scope.py``). The
     # mode and rules are kept while the flag is off, like the printer picks.
     restrict_filaments: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # Display option (#3639): members of this group get a printer page without
+    # the controls they cannot use. The server still checks every permission.
+    hide_unpermitted_controls: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     filament_rule_mode: Mapped[str] = mapped_column(String(10), default="block", server_default="block")
     filament_rules: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

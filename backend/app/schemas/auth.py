@@ -102,6 +102,8 @@ class UserResponse(BaseModel):
     # None: may print with every filament. Otherwise a filament is allowed when
     # any of these policies allows it (#3522); the server enforces the same.
     filament_policies: list[FilamentPolicyBrief] | None = None
+    # Display option (#3639): leave out the controls this user cannot use.
+    hide_unpermitted_controls: bool = False
     created_at: str
 
     class Config:
