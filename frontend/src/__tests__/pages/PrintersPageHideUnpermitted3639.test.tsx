@@ -5,7 +5,7 @@
  * always. With it the control is left out, and so is a section left with none.
  * A control disabled for another reason (offline, nothing printing) stays.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
@@ -91,9 +91,9 @@ const status = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-function setup(statusExtra: Record<string, unknown> = {}) {
+function setup(statusExtra: Record<string, unknown> = {}, printers: unknown[] = [printer]) {
   server.use(
-    http.get('/api/v1/printers/', () => HttpResponse.json([printer])),
+    http.get('/api/v1/printers/', () => HttpResponse.json(printers)),
     http.get('/api/v1/queue/', () => HttpResponse.json([])),
     http.get('/api/v1/printers/:id/status', () => HttpResponse.json(status(statusExtra))),
   );
@@ -232,6 +232,208 @@ describe('PrintersPage hides controls a restricted user cannot use (#3639)', () 
       await waitForBed();
       expect(screen.queryByTitle('Select')).toBeNull();
       expect(screen.queryByRole('button', { name: /Add Printer/ })).toBeNull();
+    });
+  });
+
+  describe('option on: what is left of a section, and what stays', () => {
+    beforeEach(() => {
+      auth.hide = true;
+    });
+
+    it('leaves out the add button of the empty state and the toolbar action group with its divider', async () => {
+      setup({}, []);
+      expect(await screen.findByText('No printers configured yet')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Add Printer/ })).toBeNull();
+      // Filter and view groups only: two dividers, none for the empty action group
+      expect(document.querySelectorAll('.h-6.w-px').length).toBe(2);
+    });
+
+    it('draws the third toolbar divider and the add button when the option is off', async () => {
+      auth.hide = false;
+      setup({}, []);
+      expect(await screen.findByText('No printers configured yet')).toBeInTheDocument();
+      expect(screen.getAllByRole('button', { name: /Add Printer/ }).length).toBe(2);
+      expect(document.querySelectorAll('.h-6.w-px').length).toBe(3);
+    });
+
+    describe('compact toolbar', () => {
+      const proto = HTMLElement.prototype;
+      const elProto = Element.prototype;
+      let offsetDesc: PropertyDescriptor | undefined;
+      let clientDesc: PropertyDescriptor | undefined;
+      beforeEach(() => {
+        offsetDesc = Object.getOwnPropertyDescriptor(proto, 'offsetWidth');
+        clientDesc = Object.getOwnPropertyDescriptor(elProto, 'clientWidth');
+        Object.defineProperty(proto, 'offsetWidth', { configurable: true, get: () => 800 });
+        Object.defineProperty(elProto, 'clientWidth', { configurable: true, get: () => 300 });
+      });
+      afterEach(() => {
+        if (offsetDesc) Object.defineProperty(proto, 'offsetWidth', offsetDesc);
+        if (clientDesc) Object.defineProperty(elProto, 'clientWidth', clientDesc);
+      });
+
+      it('has no Actions menu when the user has no action to offer', async () => {
+        setup();
+        await waitForBed();
+        expect(await screen.findByRole('button', { name: 'Filters' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'View' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Actions' })).toBeNull();
+      });
+
+      it('keeps the Actions menu without the option', async () => {
+        auth.hide = false;
+        setup();
+        await waitForBed();
+        expect(await screen.findByRole('button', { name: 'Actions' })).toBeInTheDocument();
+      });
+    });
+
+    it('keeps plate detection for a user with only printers:update, and leaves no right-hand group', async () => {
+      auth.granted = new Set(['printers:read', 'printers:update']);
+      setup();
+      await waitForBed();
+
+      expect(screen.getByText('Controls')).toBeInTheDocument();
+      expect(screen.getByTitle('Plate check disabled - Click to enable')).toBeEnabled();
+      expect(screen.queryByTitle(LIGHT)).toBeNull();
+      expect(screen.queryByTestId('speed-control')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
+      // The print buttons' group is not drawn at all, so it reserves no gap
+      expect(document.querySelector('.ml-auto.flex.items-center.justify-end.gap-2.flex-shrink-0')).toBeNull();
+    });
+
+    it('opens the HMS dialog from the card with no Clear button', async () => {
+      setup({
+        hms_errors: [{ attr: 0x0300, code: '0x400C', severity: 1, description: 'The task was canceled.' }],
+      });
+      await waitForBed();
+      fireEvent.click(await screen.findByTitle('Click to view HMS errors'));
+
+      expect(await screen.findByText('The task was canceled.')).toBeInTheDocument();
+      expect(screen.queryByText('Clear Errors')).toBeNull();
+    });
+
+    it('offers Print only with both library:upload and queue:create', async () => {
+      auth.granted = new Set(['printers:read', 'library:upload']);
+      setup();
+      await waitForBed();
+      expect(screen.queryByRole('button', { name: /^Print$/ })).toBeNull();
+    });
+
+    it('hides Print with queue:create alone', async () => {
+      auth.granted = new Set(['printers:read', 'queue:create']);
+      setup();
+      await waitForBed();
+      expect(screen.queryByRole('button', { name: /^Print$/ })).toBeNull();
+    });
+
+    it('shows Print with both', async () => {
+      auth.granted = new Set(['printers:read', 'library:upload', 'queue:create']);
+      setup();
+      await waitForBed();
+      expect(screen.getByRole('button', { name: /^Print$/ })).toBeEnabled();
+    });
+
+    it('keeps a readout tile clickable for a user who may control the printer', async () => {
+      auth.granted = new Set(['printers:read', 'printers:control']);
+      setup();
+      const bed = (await screen.findByText('Bed')).parentElement!;
+      expect(bed.className).toContain('cursor-pointer');
+      expect(bed.className).not.toContain('cursor-default');
+    });
+  });
+
+  describe('skip-objects badge', () => {
+    const printing = {
+      state: 'RUNNING',
+      current_print: 'plate.3mf',
+      subtask_name: 'plate',
+      progress: 40,
+      printable_objects_count: 3,
+    };
+    const objects = () =>
+      http.get('/api/v1/printers/:id/print/objects', () =>
+        HttpResponse.json({ objects: [], total: 3, skipped_count: 2, is_printing: true, bbox_all: null }),
+      );
+
+    it('keeps the skipped count as a plain readout and reserves no space for the button when it is hidden', async () => {
+      auth.hide = true;
+      server.use(objects());
+      setup(printing);
+      const readout = await screen.findByTestId('skipped-count-readout');
+      expect(readout.textContent).toBe('2');
+      expect(readout.closest('button')).toBeNull();
+      expect(document.querySelector('p.pr-8.text-sm')).toBeNull();
+      expect(document.querySelector('div.pr-8.items-center')).toBeNull();
+    });
+
+    it('keeps the button and its reserved space with the permission', async () => {
+      auth.hide = true;
+      auth.granted = new Set(['printers:read', 'printers:control']);
+      server.use(objects());
+      setup(printing);
+      expect(await screen.findByText('2')).toBeInTheDocument();
+      expect(screen.queryByTestId('skipped-count-readout')).toBeNull();
+      expect(document.querySelector('p.pr-8.text-sm')).not.toBeNull();
+    });
+
+    it('reserves the space without the option', async () => {
+      server.use(objects());
+      setup(printing);
+      await waitForBed();
+      expect(document.querySelector('p.pr-8.text-sm')).not.toBeNull();
+    });
+  });
+
+  describe('firmware dialog', () => {
+    const firmware = {
+      printer_id: 4,
+      printer_name: 'Farm X1C',
+      model: 'X1C',
+      current_version: '01.08.00.00',
+      latest_version: '01.09.00.00',
+      update_available: true,
+      download_url: 'https://example.com/firmware.bin',
+      release_notes: 'New features added.',
+      available_versions: [
+        { version: '01.09.00.00', file_available: true, download_url: null, release_notes: null, release_time: null },
+        { version: '01.08.00.00', file_available: true, download_url: null, release_notes: null, release_time: null },
+      ],
+    };
+
+    const openDialog = async () => {
+      auth.granted.add('firmware:read');
+      server.use(
+        http.get('/api/v1/firmware/updates/:id', () => HttpResponse.json(firmware)),
+        http.get('/api/v1/settings/', () =>
+          HttpResponse.json({ check_printer_firmware: true, auto_archive: true, save_thumbnails: true }),
+        ),
+      );
+      setup();
+      const badge = await screen.findAllByText('01.08.00.00');
+      fireEvent.click(badge[0].closest('button')!);
+      expect(await screen.findByText('Firmware Update')).toBeInTheDocument();
+    };
+
+    it('leaves out the version list without firmware:update, and keeps the current version', async () => {
+      auth.hide = true;
+      await openDialog();
+      expect(screen.getByText('Current:')).toBeInTheDocument();
+      expect(screen.queryByText('Available versions')).toBeNull();
+    });
+
+    it('lists the versions, disabled, without the option', async () => {
+      auth.hide = false;
+      await openDialog();
+      expect(screen.getByText('Available versions')).toBeInTheDocument();
+    });
+
+    it('lists the versions with firmware:update', async () => {
+      auth.hide = true;
+      auth.granted = new Set(['printers:read', 'firmware:update']);
+      await openDialog();
+      expect(screen.getByText('Available versions')).toBeInTheDocument();
     });
   });
 

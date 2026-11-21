@@ -4718,6 +4718,14 @@ function PrinterCard({
                           )}
                         </button>
                       )}
+                      {!controlGate.render && objectsData && objectsData.skipped_count > 0 && (
+                        <span
+                          className="absolute top-1 right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[length:var(--pc-t10,10px)] font-bold bg-red-500 text-white rounded-full z-10"
+                          data-testid="skipped-count-readout"
+                        >
+                          {objectsData.skipped_count}
+                        </span>
+                      )}
                       <div className="flex items-stretch gap-2">
                         <CoverImage
                           url={coverUrl}
@@ -4725,11 +4733,11 @@ function PrinterCard({
                           className="w-24 h-24 max-[520px]:w-20 max-[520px]:h-20"
                         />
                         <div className="flex h-24 max-[520px]:h-20 min-w-0 flex-1 flex-col justify-between pt-1">
-                          <div className="flex min-h-[18px] items-center gap-2 pr-8">
+                          <div className={`flex min-h-[18px] items-center gap-2${controlGate.render ? ' pr-8' : ''}`}>
                             <p className="min-w-0 truncate text-sm text-bambu-gray">{getStatusDisplay(status.state, status.stg_cur_name, t)}</p>
                             {plateStatusPill}
                           </div>
-                          <p className={`min-h-[18px] truncate pr-8 text-sm ${printName ? 'text-white' : 'text-bambu-gray/70'}`}>
+                          <p className={`min-h-[18px] truncate${controlGate.render ? ' pr-8' : ''} text-sm ${printName ? 'text-white' : 'text-bambu-gray/70'}`}>
                             {printName || t('printers.noActiveJob', 'No active job')}
                           </p>
                           <div className="flex h-3 items-center gap-2 text-sm">
@@ -8705,8 +8713,10 @@ function FirmwareUpdateModal({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
-  const { hasPermission } = useAuth();
+  const { hasPermission, hideUnpermitted } = useAuth();
   const canUpdate = hasPermission('firmware:update');
+  // Without the right to update, the version list only offers choices that do nothing (#3639).
+  const showVersionList = canUpdate || !hideUnpermitted;
   // Firmware goes onto the SD card the printer prints from: only while idle.
   const printerIdle = IDLE_PRINTER_STATES.includes(printerState ?? '');
   const [uploadStatus, setUploadStatus] = useState<FirmwareUploadStatus | null>(null);
@@ -8825,7 +8835,7 @@ function FirmwareUpdateModal({
           })()}
 
           {/* Available versions list */}
-          {firmwareInfo.available_versions && firmwareInfo.available_versions.length > 0 && !isUploading && uploadStatus?.status !== 'complete' && (
+          {showVersionList && firmwareInfo.available_versions && firmwareInfo.available_versions.length > 0 && !isUploading && uploadStatus?.status !== 'complete' && (
             <div className="mb-4">
               <div className="text-xs text-bambu-gray mb-2">{t('printers.firmwareModal.availableVersions')}</div>
               <div className="max-h-56 overflow-y-auto border border-bambu-dark-tertiary rounded-lg divide-y divide-bambu-dark-tertiary">

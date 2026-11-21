@@ -26,8 +26,8 @@ export function GroupEditPage() {
   const [restrictFilaments, setRestrictFilaments] = useState(false);
   const [filamentMode, setFilamentMode] = useState<FilamentRuleMode>('block');
   const [filamentRules, setFilamentRules] = useState<FilamentRule[]>([]);
-  // The rules plus one typed in the card but not added yet, which Save keeps (#3522).
   const [hideUnusable, setHideUnusable] = useState(false);
+  // The rules plus one typed in the card but not added yet, which Save keeps (#3522).
   const [filamentRulesToSave, setFilamentRulesToSave] = useState<FilamentRule[] | null>(null);
 
   const { data: groupData, isLoading: groupLoading } = useQuery({
