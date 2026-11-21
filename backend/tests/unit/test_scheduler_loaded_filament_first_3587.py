@@ -867,7 +867,7 @@ class TestModeOff:
         assert _dispatched(result) == []
         assert result.waiting.await_count == 1
         assert result.waiting.await_args.kwargs["waiting_reason"] == (
-            "Not enough PLA: A1 has 40 g, the job needs 120 g on X1C-1"
+            "Not enough PLA on X1C-1: A1 has 40 g, the job needs 120 g"
         )
 
     @pytest.mark.asyncio
@@ -1621,7 +1621,7 @@ class TestWaitingNotificationFilaments:
         result = await _run(ctx, PrintScheduler(), deficit_items={item_id})
 
         kwargs = result.waiting.await_args.kwargs
-        assert kwargs["waiting_reason"] == "Not enough PLA: A1 has 40 g, the job needs 120 g on X1C-1"
+        assert kwargs["waiting_reason"] == "Not enough PLA on X1C-1: A1 has 40 g, the job needs 120 g"
         assert kwargs["filaments"] == [NotificationFilament(type="PLA", slot=_ams_slot_label(0, 0))]
 
     @pytest.mark.asyncio

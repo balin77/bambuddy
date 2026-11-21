@@ -2205,9 +2205,10 @@ class NotificationService:
         reaches only "All printers" providers.
 
         ``filament`` is the entries as the waiting reason words them; ``filaments``
-        are the same filaments as data (#3641). With them ``{filament}`` is the
-        readable "dot type name (#hex)" of the other filament events and the colour
-        variables are set; without them ``{filament}`` is ``filament`` as given.
+        are the same filaments as data (#3641). ``{filament}`` stays ``filament`` as
+        given, so a template that is not edited reads as before; with ``filaments``
+        the colour variables (``{filament_type}``, ``{color_name}``, ``{color_hex}``,
+        ``{color_emoji}``) and the Discord fields are set as well.
         """
         providers = await self._get_providers_for_event(db, "on_filament_out_of_stock", printer_id)
         if not providers:
@@ -2220,7 +2221,11 @@ class NotificationService:
             "printer": printer_label,
             "filament": filament,
             # Telegram Markdown v1: only "_" is escaped (telegram_markdown_escape), as for every variable (pre-existing).
-            **{key: value for key, value in filament_variables(filaments).items() if filaments and key != "slot"},
+            **{
+                key: value
+                for key, value in filament_variables(filaments).items()
+                if filaments and key not in ("slot", "filament")
+            },
         }
 
         fields = [("Printer", printer_label), ("Job", job_name)]

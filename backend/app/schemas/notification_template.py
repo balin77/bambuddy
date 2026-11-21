@@ -378,7 +378,7 @@ SAMPLE_DATA: dict[str, dict[str, str]] = {
         "color_name": "Earth Brown",
         "color_hex": "#795548",
         "color_emoji": "\U0001f7e4",
-        "filament": "\U0001f7e4 PLA Earth Brown (#795548)",
+        "filament": "PLA Earth Brown",
         "timestamp": "2024-01-15 15:48",
         "app_name": "Bambuddy",
     },

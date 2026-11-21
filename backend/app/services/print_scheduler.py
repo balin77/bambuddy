@@ -832,26 +832,25 @@ def _grams_text(grams: float) -> str:
     return f"{math.floor(grams + 0.5):,}"
 
 
-def _short_filament_sentence(todo: TodoFilament, layout: TrayLayout | None = None) -> str:
-    """One short filament as the To do list words it (#3634, #3642).
+def _short_filament_facts(todo: TodoFilament, layout: TrayLayout | None = None) -> tuple[str, str, str]:
+    """One short filament as (name, where, amounts): "PLA Lava Red", "A2", "has 12 g, the job needs 40 g".
 
-    "Not enough PLA Lava Red: A2 has 12 g, the job needs 40 g". A pool of spools
-    (AMS Filament Backup) is the sum of its trays ("A2 + A3 have 25 g"); an
-    amount that is not known for every tray, or a job amount that is not known,
-    is left out. Slots are named the way the other alerts name them.
+    A pool of spools (AMS Filament Backup) is the sum of its trays ("A2 + A3" "have 25 g"); an
+    amount that is not known for every tray, or a job amount that is not known, is left out
+    (``amounts`` is empty then). Slots are named the way the other alerts name them.
     """
     filament = " ".join(part for part in (todo.type, todo.color_name) if part) or "Filament"
     if not todo.short_trays:
-        return f"Not enough {filament}"
+        return filament, "", ""
     where = " + ".join(_ams_slot_label(t.ams_id, t.tray_id, layout) for t in todo.short_trays)
     amounts = [t.remaining_grams for t in todo.short_trays]
     if any(g is None for g in amounts):
-        return f"Not enough {filament} in {where}"
+        return filament, where, ""
     verb = "have" if len(todo.short_trays) > 1 else "has"
-    text = f"Not enough {filament}: {where} {verb} {_grams_text(sum(g for g in amounts if g is not None))} g"
+    text = f"{verb} {_grams_text(sum(g for g in amounts if g is not None))} g"
     if todo.required_grams is not None:
         text += f", the job needs {_grams_text(todo.required_grams)} g"
-    return text
+    return filament, where, text
 
 
 def _describe_deficit_for_notification(
@@ -861,11 +860,30 @@ def _describe_deficit_for_notification(
 ) -> str:
     """The filament-short wait as a sentence for the notification (#3642).
 
-    The To do list's wording, with the printer the notification adds:
-    "Not enough PLA Lava Red: A2 has 12 g, the job needs 40 g on Workshop".
+    The To do list's wording, with the printer named first so it does not read as
+    where the job needs the grams: "Not enough PLA Lava Red on Workshop: A2 has
+    12 g, the job needs 40 g". Several short filaments share one lead: "Not enough
+    filament on Workshop: PLA Lava Red A2 has 12 g, the job needs 40 g; PETG Black
+    B1 has 50 g, the job needs 90 g". Without a printer the " on ..." is left out.
     """
     on = f" on {printer_name}" if printer_name else ""
-    return "; ".join(_short_filament_sentence(todo, layout) for todo in short) + on
+    facts = [_short_filament_facts(todo, layout) for todo in short]
+    if len(facts) == 1:
+        filament, where, amounts = facts[0]
+        if not where:
+            return f"Not enough {filament}{on}"
+        if not amounts:
+            return f"Not enough {filament} in {where}{on}"
+        return f"Not enough {filament}{on}: {where} {amounts}"
+    parts = []
+    for filament, where, amounts in facts:
+        if not where:
+            parts.append(filament)
+        elif not amounts:
+            parts.append(f"{filament} in {where}")
+        else:
+            parts.append(f"{filament} {where} {amounts}")
+    return f"Not enough filament{on}: " + "; ".join(parts)
 
 
 def _short_notification_filaments(

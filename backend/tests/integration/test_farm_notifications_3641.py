@@ -129,7 +129,7 @@ class TestOutOfStock:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    async def test_the_default_text_names_the_filament_with_its_dot(self, service, db_session, seed_template, discord):
+    async def test_the_default_text_keeps_the_plain_filament_text(self, service, db_session, seed_template, discord):
         await seed_template("filament_out_of_stock")
         await discord(on_filament_out_of_stock=True)
 
@@ -140,10 +140,7 @@ class TestOutOfStock:
             ),
         )
 
-        assert (
-            embed["description"]
-            == "Coaster_4x waits for \U0001f534 PLA Lava Red (#C62828), and none is left in the inventory."
-        )
+        assert embed["description"] == "Coaster_4x waits for PLA Lava Red, and none is left in the inventory."
 
     @pytest.mark.asyncio
     @pytest.mark.integration
@@ -178,6 +175,7 @@ class TestOutOfStock:
             )
 
         payload = client.post.await_args.kwargs["json"]
+        assert payload["filament"] == "PLA Lava Red"
         assert payload["filament_type"] == "PLA"
         assert payload["color_name"] == "Lava Red"
         assert payload["color_hex"] == "#C62828"
