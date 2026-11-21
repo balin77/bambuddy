@@ -4837,6 +4837,8 @@ export interface Group {
   restrict_filaments: boolean;
   filament_rule_mode: FilamentRuleMode;
   filament_rules: FilamentRule[];
+  /** Members see no controls they lack the permission for (#3639); display only */
+  hide_unpermitted_controls: boolean;
   user_count: number;
   created_at: string;
   updated_at: string;
@@ -4856,6 +4858,7 @@ export interface GroupCreate {
   restrict_filaments?: boolean;
   filament_rule_mode?: FilamentRuleMode;
   filament_rules?: FilamentRule[];
+  hide_unpermitted_controls?: boolean;
 }
 
 export interface GroupUpdate {
@@ -4868,6 +4871,7 @@ export interface GroupUpdate {
   restrict_filaments?: boolean;
   filament_rule_mode?: FilamentRuleMode;
   filament_rules?: FilamentRule[];
+  hide_unpermitted_controls?: boolean;
 }
 
 export interface PermissionInfo {
@@ -4921,6 +4925,8 @@ export interface UserResponse {
   permissions: Permission[];  // All permissions from groups
   /** null: may print with every filament (#3522) */
   filament_policies?: FilamentPolicy[] | null;
+  /** Every group of the user hides the controls they cannot use (#3639); never true for admins */
+  hide_unpermitted_controls?: boolean;
   created_at: string;
 }
 

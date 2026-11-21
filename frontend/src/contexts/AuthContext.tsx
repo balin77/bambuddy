@@ -11,6 +11,9 @@ interface AuthContextType {
    *  wait instead of sending a kiosk to /login, where it can't sign in (#3360). */
   authUnconfirmed: boolean;
   isAdmin: boolean;
+  /** Leave out controls the user lacks the permission for, instead of greying them (#3639).
+   *  Never with auth off or for admins; the server checks permissions either way. */
+  hideUnpermitted: boolean;
   /** Login with username/password. Returns LoginResponse (may include requires_2fa). */
   login: (username: string, password: string, persistence?: TokenPersistence) => Promise<LoginResponse>;
   /** Finalise login after 2FA or OIDC — store token and set user directly. */
@@ -312,6 +315,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return user?.is_admin ?? false;
   }, [authEnabled, user?.is_admin]);
 
+  const hideUnpermitted = authEnabled && !isAdmin && !!user?.hide_unpermitted_controls;
+
   // Permission check functions
   const hasPermission = useCallback((permission: Permission): boolean => {
     if (!authEnabled) return true; // Auth disabled = allow all
@@ -358,6 +363,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         authUnconfirmed,
         isAdmin,
+        hideUnpermitted,
         login,
         loginWithToken,
         logout,
