@@ -14,8 +14,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from backend.app.models.print_queue import PrintQueueItem
-from backend.app.services.filament_deficit import FilamentDeficit
-from backend.app.services.print_scheduler import PrintScheduler
+from backend.app.services.filament_deficit import FilamentDeficit, describe_deficit
+from backend.app.services.print_scheduler import PrintScheduler, _describe_deficit_for_notification
+from backend.app.services.queue_todo import ShortTray, TodoFilament
 
 
 @pytest.fixture
@@ -174,14 +175,28 @@ async def test_the_waiting_notification_names_the_printer(scheduler, db_session,
     assert waiting.await_args.kwargs["printer_id"] == item.printer_id
 
 
-def _deficit(ams_id, tray_id, remaining, required=40.0, material="PLA"):
+def _deficit(ams_id, tray_id, remaining, required=40.0, material="PLA", slot_id=1, pooled=()):
     return FilamentDeficit(
-        slot_id=1,
+        slot_id=slot_id,
         ams_id=ams_id,
         tray_id=tray_id,
         filament_type=material,
         required_grams=required,
         remaining_grams=remaining,
+        pooled=pooled,
+    )
+
+
+def _short_filament(deficits, color_name=""):
+    """The To do list's object for ``deficits``: what the sentence is worded from."""
+    facts = describe_deficit(deficits, color_name=color_name)
+    return TodoFilament(
+        type=facts.filament_type,
+        color="",
+        color_name=color_name,
+        short=True,
+        short_trays=facts.trays,
+        required_grams=facts.required_grams,
     )
 
 
@@ -201,7 +216,8 @@ async def test_notification_reason_is_a_sentence_not_the_code(scheduler, db_sess
     item = await queue_item()
     reason = await _waiting_reason_sent(scheduler, db_session, item, [_deficit(0, 1, 12.0)])
 
-    assert reason == "Not enough filament on Test Printer: PLA in A2 (12 g left, needs 40 g)"
+    # The To do list's sentence, with the printer the notification adds.
+    assert reason == "Not enough PLA: A2 has 12 g, the job needs 40 g on Test Printer"
     assert "filament_short" not in reason
 
 
@@ -210,43 +226,83 @@ async def test_notification_reason_with_unknown_grams(scheduler, db_session, que
     item = await queue_item()
     reason = await _waiting_reason_sent(scheduler, db_session, item, [_deficit(0, 0, None)])
 
-    assert reason == "Not enough filament on Test Printer: PLA in A1 (needs 40 g)"
+    assert reason == "Not enough PLA in A1 on Test Printer"
 
 
 @pytest.mark.asyncio
 async def test_notification_reason_joins_several_deficits(scheduler, db_session, queue_item):
     item = await queue_item()
     reason = await _waiting_reason_sent(
-        scheduler, db_session, item, [_deficit(0, 1, 12.0), _deficit(1, 3, None, 90.0, "PETG")]
+        scheduler,
+        db_session,
+        item,
+        [_deficit(0, 1, 12.0), _deficit(1, 3, 50.0, 90.0, "PETG", slot_id=2)],
     )
 
-    assert reason == ("Not enough filament on Test Printer: PLA in A2 (12 g left, needs 40 g), PETG in B4 (needs 90 g)")
+    assert reason == (
+        "Not enough PLA: A2 has 12 g, the job needs 40 g; Not enough PETG: B4 has 50 g, the job needs 90 g on Test Printer"
+    )
+
+
+@pytest.mark.asyncio
+async def test_notification_reason_pools_the_spools_of_one_filament(scheduler, db_session, queue_item):
+    """AMS Filament Backup: A2 + A3 count together, as in the To do list."""
+    item = await queue_item()
+    pooled = ((0, 1, 10.0), (0, 2, 15.0))
+    reason = await _waiting_reason_sent(
+        scheduler,
+        db_session,
+        item,
+        [_deficit(0, 1, 10.0, pooled=pooled), _deficit(0, 2, 15.0, slot_id=2, pooled=pooled)],
+    )
+
+    assert reason == "Not enough PLA: A2 + A3 have 25 g, the job needs 80 g on Test Printer"
 
 
 @pytest.mark.asyncio
 async def test_notification_reason_names_ht_and_external_slots(scheduler, db_session, queue_item):
     item = await queue_item()
     reason = await _waiting_reason_sent(
-        scheduler, db_session, item, [_deficit(128, 0, 5.0), _deficit(255, 1, 8.0, material="PETG")]
+        scheduler, db_session, item, [_deficit(128, 0, 5.0), _deficit(255, 1, 8.0, material="PETG", slot_id=2)]
     )
 
-    assert "PLA in HT-A (5 g left, needs 40 g)" in reason
-    assert "PETG in Ext-R (8 g left, needs 40 g)" in reason
+    assert "Not enough PLA: HT-A has 5 g, the job needs 40 g" in reason
+    assert "Not enough PETG: Ext-R has 8 g, the job needs 40 g" in reason
+
+
+@pytest.mark.asyncio
+async def test_notification_reason_names_the_colour_of_the_job(scheduler, db_session, queue_item):
+    """The colour name comes from the job's requirement for the slot, as in the To do list."""
+    item = await queue_item()
+    requirements = [{"slot_id": 1, "type": "PLA", "color": "#C62828", "color_name": "Lava Red"}]
+    with patch.object(scheduler, "_get_filament_requirements", AsyncMock(return_value=requirements)):
+        reason = await _waiting_reason_sent(scheduler, db_session, item, [_deficit(0, 1, 12.0)])
+
+    assert reason == "Not enough PLA Lava Red: A2 has 12 g, the job needs 40 g on Test Printer"
 
 
 def test_describe_deficit_for_notification_without_slot_or_printer():
-    from backend.app.services.print_scheduler import _describe_deficit_for_notification
-
-    assert (
-        _describe_deficit_for_notification([_deficit(None, None, 12.0)])
-        == "Not enough filament: PLA (12 g left, needs 40 g)"
-    )
+    assert _describe_deficit_for_notification([_short_filament([_deficit(None, None, 12.0)])]) == "Not enough PLA"
 
 
 def test_describe_deficit_for_notification_without_known_type():
-    from backend.app.services.print_scheduler import _describe_deficit_for_notification
+    short = [_short_filament([_deficit(0, 1, 12.0, material="")])]
 
     assert (
-        _describe_deficit_for_notification([_deficit(0, 1, 12.0, material="")], "X1C")
-        == "Not enough filament on X1C: Filament in A2 (12 g left, needs 40 g)"
+        _describe_deficit_for_notification(short, "X1C")
+        == "Not enough Filament: A2 has 12 g, the job needs 40 g on X1C"
     )
+
+
+def test_describe_deficit_for_notification_leaves_out_an_unknown_job_amount():
+    short = [TodoFilament(type="PLA", color="", short=True, short_trays=(ShortTray(0, 1, 12.0),))]
+
+    assert _describe_deficit_for_notification(short) == "Not enough PLA: A2 has 12 g"
+
+
+def test_describe_deficit_for_notification_groups_thousands():
+    short = [
+        TodoFilament(type="PLA", color="", short=True, short_trays=(ShortTray(0, 1, 1200.0),), required_grams=1500.0)
+    ]
+
+    assert _describe_deficit_for_notification(short) == "Not enough PLA: A2 has 1,200 g, the job needs 1,500 g"
