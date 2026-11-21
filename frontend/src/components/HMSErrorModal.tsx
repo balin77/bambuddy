@@ -14,6 +14,8 @@ interface HMSErrorModalProps {
   onClose: () => void;
   printerId: number;
   hasPermission: (permission: Permission) => boolean;
+  // The user's groups hide the controls they cannot use (#3639)
+  hideUnpermitted?: boolean;
   // Runout guidance for a PAUSED print (#2587). When set, AMS-runout errors are
   // re-described to name the physical slot the firmware now expects, instead of
   // the generic "insert into the same slot" text (wrong under AMS Filament Backup).
@@ -117,7 +119,8 @@ function getHMSHomeUrl(): string {
   return `https://wiki.bambulab.com/en/hms/home`;
 }
 
-export function HMSErrorModal({ printerName, errors, onClose, printerId, hasPermission, runoutGuidance }: HMSErrorModalProps) {
+export function HMSErrorModal({ printerName, errors, onClose, printerId, hasPermission, hideUnpermitted = false, runoutGuidance }: HMSErrorModalProps) {
+  const showControls = hasPermission('printers:control') || !hideUnpermitted;
   const { t } = useTranslation();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
@@ -248,7 +251,7 @@ export function HMSErrorModal({ printerName, errors, onClose, printerId, hasPerm
                         </div>
                         <p className="text-sm text-bambu-gray mb-2">{description}</p>
                         {remedy && <p className="text-sm text-bambu-gray mb-2">{remedy}</p>}
-                        {error.actions && error.actions.length > 0 && (
+                        {showControls && error.actions && error.actions.length > 0 && (
                           <div className="flex flex-wrap gap-2 my-2">
                             {error.actions.map((action) => {
                               const pendingVars = activateActionMutation.variables;
@@ -330,7 +333,7 @@ export function HMSErrorModal({ printerName, errors, onClose, printerId, hasPerm
           <p className="text-xs text-bambu-gray">
             {t('hmsErrors.clearInstructions')}
           </p>
-          {errors.length > 0 && (
+          {showControls && errors.length > 0 && (
             <button
               onClick={() => clearMutation.mutate()}
               disabled={!hasPermission('printers:maintenance') || clearMutation.isPending}

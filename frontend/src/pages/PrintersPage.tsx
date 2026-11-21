@@ -89,6 +89,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
+import { usePermissionGate } from '../hooks/usePermissionGate';
 import {
   Plus,
   Link,
@@ -2177,7 +2178,20 @@ function PrinterCard({
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const { hasPermission, canModify, authEnabled, isAdmin } = useAuth();
+  const { hasPermission, canModify, authEnabled, isAdmin, hideUnpermitted } = useAuth();
+  // A control the user may not use is greyed out, or left out when all their
+  // groups hide them (#3639). A control disabled for another reason always stays.
+  const gate = usePermissionGate();
+  const clearPlateGate = gate('printers:clear_plate');
+  const controlGate = gate('printers:control');
+  const updateGate = gate('printers:update');
+  const deleteGate = gate('printers:delete');
+  const amsRfidGate = gate('printers:ams_rfid');
+  const filesGate = gate('printers:files');
+  const cameraGate = gate('camera:view');
+  const smartPlugGate = gate('smart_plugs:control');
+  const uploadGate = gate('library:upload');
+  const queueGate = gate('queue:create');
   const [showMenu, setShowMenu] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteArchives, setDeleteArchives] = useState(true);
@@ -3055,6 +3069,7 @@ function PrinterCard({
           </button>
         </div>
       )}
+      {clearPlateGate.render && (
       <button
         type="button"
         onClick={() => clearPlateMutation.mutate()}
@@ -3069,6 +3084,7 @@ function PrinterCard({
         )}
         {t('printers.plateStatus.markCleared')}
       </button>
+      )}
       {showConfirmOutcome && pendingConfirmArchive && (
         <ConfirmOutcomeDialog
           archiveId={pendingConfirmArchive.id}
@@ -3818,10 +3834,13 @@ function PrinterCard({
     includeRfid?: boolean;
   }) => {
     const printerBusy = status?.state === 'RUNNING';
+    const showRfid = includeRfid && amsRfidGate.render;
+    // Nothing left to offer: no menu, so the hover card draws no empty box.
+    if (!showRfid && !controlGate.render) return null;
 
     return (
       <>
-        {includeRfid && (
+        {showRfid && (
           <button
             className={`w-full px-2 py-1.5 text-left text-xs flex items-center gap-2 rounded transition-colors ${
               hasPermission('printers:ams_rfid')
@@ -3840,6 +3859,7 @@ function PrinterCard({
             {t('printers.rfid.reread')}
           </button>
         )}
+        {controlGate.render && (
         <button
           className={`w-full px-2 py-1.5 text-left text-xs flex items-center gap-2 rounded transition-colors ${
             hasPermission('printers:filament')
@@ -3857,6 +3877,8 @@ function PrinterCard({
           <LogIn className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
           {t('printers.ams.load')}
         </button>
+        )}
+        {controlGate.render && (
         <button
           className={`w-full px-2 py-1.5 text-left text-xs flex items-center gap-2 rounded transition-colors ${
             hasPermission('printers:filament')
@@ -3874,6 +3896,7 @@ function PrinterCard({
           <LogOut className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
           {t('printers.ams.unload')}
         </button>
+        )}
       </>
     );
   };
@@ -3891,6 +3914,7 @@ function PrinterCard({
       </Button>
       {showMenu && (
         <div className="absolute left-0 bottom-full mb-2 w-48 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg shadow-lg z-20">
+          {updateGate.render && (
           <button
             className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 ${
               hasPermission('printers:update')
@@ -3907,6 +3931,7 @@ function PrinterCard({
             <Pencil className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
             {t('common.edit')}
           </button>
+          )}
           <button
             className="w-full px-4 py-2 text-left text-sm hover:bg-bambu-dark-tertiary flex items-center gap-2"
             onClick={() => {
@@ -3930,6 +3955,7 @@ function PrinterCard({
             </button>
           )}
           {/* Maintenance Mode toggle (#1476) — leverages backend is_active flag */}
+          {updateGate.render && (
           <button
             className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 ${
               hasPermission('printers:update')
@@ -3953,6 +3979,7 @@ function PrinterCard({
               ? t('printers.maintenance.menuEnter')
               : t('printers.maintenance.menuExit')}
           </button>
+          )}
           <button
             className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 disabled:opacity-50 ${hasPermission('printers:admin') ? 'hover:bg-bambu-dark-tertiary' : ''}`}
             disabled={!hasPermission('printers:admin')}
@@ -3997,6 +4024,7 @@ function PrinterCard({
             <Stethoscope className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
             {t('diagnostic.runButton')}
           </button>
+          {deleteGate.render && (
           <button
             className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 ${
               hasPermission('printers:delete')
@@ -4013,6 +4041,7 @@ function PrinterCard({
             <Trash2 className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
             {t('common.delete')}
           </button>
+          )}
         </div>
       )}
     </div>
@@ -4121,7 +4150,7 @@ function PrinterCard({
                     })()}
                   </div>
                   {viewMode === 'compact' && plateChangerChip(true)}
-                  {viewMode === 'compact' && showClearPlateButton && (
+                  {viewMode === 'compact' && showClearPlateButton && clearPlateGate.render && (
                     <button
                       type="button"
                       onClick={() => clearPlateMutation.mutate()}
@@ -4483,6 +4512,7 @@ function PrinterCard({
                       {t('printers.maintenance.subtitle')}
                     </p>
                   </div>
+                  {updateGate.render && (
                   <Button
                     variant="secondary"
                     size="sm"
@@ -4492,6 +4522,7 @@ function PrinterCard({
                   >
                     {t('printers.maintenance.exitButton')}
                   </Button>
+                  )}
                 </div>
               </>
             )}
@@ -4598,6 +4629,7 @@ function PrinterCard({
 
                   return (
                     <div className="p-2 bg-bambu-dark rounded-[10px] relative overflow-hidden">
+                      {controlGate.render && (
                       <button
                         onClick={() => setShowSkipObjectsModal(true)}
                         disabled={!canSkipObjects}
@@ -4623,6 +4655,7 @@ function PrinterCard({
                           </span>
                         )}
                       </button>
+                      )}
                       <div className="flex items-stretch gap-2">
                         <CoverImage
                           url={coverUrl}
@@ -4751,10 +4784,17 @@ function PrinterCard({
               const canUseStatusControls = status.connected && hasPermission('printers:tune');
               // Nozzle/extruder selection calls /select-extruder: printers:motion, not tune (#3248)
               const canSelectNozzle = status.connected && hasPermission('printers:motion');
-              const statusControlTitle = canUseStatusControls ? undefined : t('printers.permission.noControl');
-              const nozzleSelectTitle = canSelectNozzle ? undefined : t('printers.permission.noControl');
+              // With the groups' option on, a user who may not use a tile gets a plain
+              // readout: no "no permission" hint and no dimming that would suggest
+              // something is switched off (#3639).
+              const readoutOnly = hideUnpermitted && !tuneGate.allowed;
+              const nozzleReadoutOnly = hideUnpermitted && !motionGate.allowed;
+              const statusControlTitle = canUseStatusControls || readoutOnly ? undefined : t('printers.permission.noControl');
+              const nozzleSelectTitle = canSelectNozzle || nozzleReadoutOnly ? undefined : t('printers.permission.noControl');
+              const unusableStatusClass = readoutOnly ? 'cursor-default' : 'cursor-default opacity-80';
+              const unusableNozzleClass = nozzleReadoutOnly ? 'cursor-default' : 'cursor-default opacity-80';
               const statusControlClass = `relative text-center px-2 py-1.5 bg-bambu-dark rounded-lg flex-1 flex flex-col justify-center items-center transition-colors ${
-                canUseStatusControls ? 'cursor-pointer hover:bg-bambu-dark-tertiary' : 'cursor-default opacity-80'
+                canUseStatusControls ? 'cursor-pointer hover:bg-bambu-dark-tertiary' : unusableStatusClass
               }`;
               // Chamber fan only exists on enclosed Bambu models. Open-frame
               // printers (A1, A1 Mini, A2L, P1P) have no chamber fan — showing
@@ -5016,7 +5056,7 @@ function PrinterCard({
                       >
                         <div
                           className={`relative text-center px-3 py-1.5 bg-bambu-dark rounded-lg h-full flex flex-col justify-center items-center transition-colors ${
-                            canSelectNozzle ? 'cursor-pointer hover:bg-bambu-dark-tertiary' : 'cursor-default opacity-80'
+                            canSelectNozzle ? 'cursor-pointer hover:bg-bambu-dark-tertiary' : unusableNozzleClass
                           }`}
                           title={canSelectNozzle ? t('printers.activeNozzle', { nozzle: activeNozzle === 'L' ? t('common.left') : t('common.right') }) : nozzleSelectTitle}
                           onClick={() => canSelectNozzle && setStatusControlMenu(statusControlMenu === 'nozzle-select' ? null : 'nozzle-select')}
@@ -5066,7 +5106,7 @@ function PrinterCard({
                         <div
                           key={key}
                           className={`relative px-2 py-1.5 bg-bambu-dark rounded-lg flex-1 min-w-0 flex items-center justify-center gap-1 transition-colors ${
-                            canUseStatusControls ? 'cursor-pointer hover:bg-bambu-dark-tertiary' : 'cursor-default opacity-80'
+                            canUseStatusControls ? 'cursor-pointer hover:bg-bambu-dark-tertiary' : unusableStatusClass
                           }`}
                           title={canUseStatusControls ? label : statusControlTitle}
                           onClick={() => canUseStatusControls && setStatusControlMenu(statusControlMenu === `fan-${key}` ? null : `fan-${key}`)}
@@ -5109,6 +5149,13 @@ function PrinterCard({
               const iconControlClass = 'flex h-8 w-8 items-center justify-center rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
               const printControlClass = 'flex h-8 w-20 items-center justify-center gap-1 px-2 rounded-lg text-xs font-medium transition-colors';
 
+              // What the section offers this user (#3639). Plate detection is the
+              // only control here that needs printers:update.
+              const showAirduct = controlGate.render && ['P2S', 'X2D', 'H2D', 'H2D Pro', 'H2C', 'H2S', 'H3C'].includes(printer.model ?? '');
+              const showSecondaryControls = controlGate.render || updateGate.render;
+              const showPrintControls = controlGate.render;
+              if (!showSecondaryControls && !showPrintControls) return null;
+
               return (
                 <div className="mt-3">
                   {/* Section Header */}
@@ -5121,7 +5168,9 @@ function PrinterCard({
 
                   <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-2">
                     {/* Left: Secondary controls */}
+                    {showSecondaryControls && (
                     <div className="flex flex-wrap items-center gap-2 min-w-0">
+                        {controlGate.render && (
                       <button
                         onClick={() => chamberLightMutation.mutate(!status.chamber_light)}
                         disabled={!status.connected || chamberLightMutation.isPending || !hasPermission('printers:tune')}
@@ -5134,9 +5183,10 @@ function PrinterCard({
                       >
                         <ChamberLight on={status.chamber_light ?? false} className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
                       </button>
+                        )}
 
                       {/* Airduct Mode (P2S / X2D / H2* / H3C, an H2D Pro stored as "H2D Pro", #3335) */}
-                      {(['P2S', 'X2D', 'H2D', 'H2D Pro', 'H2C', 'H2S', 'H3C'].includes(printer.model ?? '')) && (() => {
+                        {showAirduct && (() => {
                         const isHeating = status.airduct_mode === 1;
                         const Icon = isHeating ? Flame : Snowflake;
                         const color = isHeating ? 'text-orange-600 dark:text-orange-400' : 'text-sky-600 dark:text-sky-400';
@@ -5183,7 +5233,7 @@ function PrinterCard({
                       })()}
 
                       {/* Movement — compact badge, popover holds XY, Z, and home controls */}
-                      {(() => {
+                        {motionGate.render && (() => {
                         const canControl = hasPermission('printers:motion');
                         const disabled = isPrinting || !canControl;
                         const jogButtonClass = 'flex h-8 w-8 items-center justify-center rounded bg-indigo-100 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 transition-colors hover:bg-indigo-200 dark:hover:bg-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-50';
@@ -5361,6 +5411,7 @@ function PrinterCard({
                         );
                       })()}
 
+                        {updateGate.render && (
                       <div className={`inline-flex rounded-lg ${printer.plate_detection_enabled ? 'ring-1 ring-green-500' : ''}`}>
                         <button
                           onClick={handleTogglePlateDetection}
@@ -5395,9 +5446,10 @@ function PrinterCard({
                           )}
                         </button>
                       </div>
+                        )}
 
                       {/* Print Speed */}
-                      {(() => (
+                        {controlGate.render && (() => (
                         <div className="relative">
                           <button
                             data-testid="speed-control"
@@ -5444,8 +5496,10 @@ function PrinterCard({
                       ))()}
 
                     </div>
+                    )}
 
                     {/* Right: Print Control Buttons */}
+                    {showPrintControls && (
                     <div className="ml-auto flex items-center justify-end gap-2 flex-shrink-0">
                       {/* Pause/Resume button */}
                       {(() => {
@@ -5493,6 +5547,7 @@ function PrinterCard({
                         );
                       })()}
                     </div>
+                    )}
                   </div>
                 </div>
               );
@@ -6885,6 +6940,7 @@ function PrinterCard({
               {/* Spacer */}
               <div className="flex-1" />
 
+              {smartPlugGate.render && (
               <div className="flex items-center gap-2">
                 {/* Auto-off */}
                 <button
@@ -6922,6 +6978,7 @@ function PrinterCard({
                   <Zap className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
                 </button>
               </div>
+              )}
             </div>
 
             {/* HA entity buttons row */}
@@ -6974,6 +7031,7 @@ function PrinterCard({
                     Replaces the old Settings > General > Camera switch, which
                     made choosing between an overlay and a window a trip to
                     another page for something you decide per camera. */}
+                {cameraGate.render && (
                 <div className="flex items-center flex-shrink-0">
                   <Button
                     variant="secondary"
@@ -7008,6 +7066,7 @@ function PrinterCard({
                   </Button>
                   )}
                 </div>
+                )}
                 {cameraMenuAnchor && !webApp && (
                   <ContextMenu
                     x={cameraMenuAnchor.x}
@@ -7016,6 +7075,7 @@ function PrinterCard({
                     onClose={() => setCameraMenuAnchor(null)}
                   />
                 )}
+                {filesGate.render && (
                 <Button
                   variant="secondary"
                   size="sm"
@@ -7026,11 +7086,13 @@ function PrinterCard({
                 >
                   <HardDrive className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
                 </Button>
+                )}
                 {/* Shown whatever the printer is doing (#2849): this uploads a
                     file and queues it, which a busy or offline printer is no
                     reason to refuse -- it only means the item waits. Hiding it
                     while the drop zone accepted the same file would have left
                     the two routes into this flow disagreeing. */}
+                {uploadGate.render && queueGate.render && (
                 <Button
                   size="sm"
                   onClick={() => setShowUploadForPrint(true)}
@@ -7047,6 +7109,7 @@ function PrinterCard({
                   <PrinterIcon className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
                   {t('common.print')}
                 </Button>
+                )}
               </div>
             </div>
         </div>
@@ -7571,6 +7634,7 @@ function PrinterCard({
           onClose={() => setShowHMSModal(false)}
           printerId={printer.id}
           hasPermission={hasPermission}
+          hideUnpermitted={hideUnpermitted}
           runoutGuidance={runoutGuidance}
         />
       )}
@@ -7595,6 +7659,7 @@ function PrinterCard({
           amsExtruderMap={status.ams_extruder_map}
           isDualNozzle={printer.nozzle_count === 2 || status?.temperatures?.nozzle_2 !== undefined}
           canToggle={hasPermission('printers:maintenance')}
+          hideToggle={hideUnpermitted && !maintenanceGate.allowed}
           pending={setAmsBackupMutation.isPending}
           onToggle={(next) => setAmsBackupMutation.mutate(next)}
           onClose={() => setAmsBackupModalOpen(false)}
@@ -9357,6 +9422,9 @@ export function PrintersPage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const { hasPermission, hasAnyPermission } = useAuth();
+  const gate = usePermissionGate();
+  const bulkSelectGate = gate(['printers:pause_resume', 'printers:stop', 'printers:maintenance', 'printers:clear_plate']);
+  const addPrinterGate = gate('printers:create');
   // Which way the camera buttons open a stream. Chosen per click from the
   // button's own menu; null until this browser has made a choice, so the
   // stored setting below can act as the default a fresh browser starts from.
@@ -10193,9 +10261,15 @@ export function PrintersPage() {
     </>
   );
 
+  // Whether the toolbar has anything to offer in its action group; without it
+  // the group, its divider and the compact Actions menu are left out (#3639).
+  const showActionControls =
+    bulkSelectGate.render || addPrinterGate.render || (hideDisconnected && Object.keys(smartPlugByPrinter).length > 0);
+
   const renderActionControls = (inMenu = false) => (
     <>
       {/* Bulk select toggle */}
+      {bulkSelectGate.render && (
       <button
         onClick={() => {
           if (selectionMode) clearSelection();
@@ -10212,6 +10286,7 @@ export function PrintersPage() {
         <CheckSquare className="w-4 h-4" />
         {inMenu && <span>{t('printers.bulk.select')}</span>}
       </button>
+      )}
 
       {/* Power dropdown for offline printers with smart plugs */}
       {hideDisconnected && Object.keys(smartPlugByPrinter).length > 0 && (
@@ -10263,6 +10338,7 @@ export function PrintersPage() {
           )}
         </div>
       )}
+      {addPrinterGate.render && (
       <Button
         onClick={() => setShowAddModal(true)}
         disabled={!hasPermission('printers:create')}
@@ -10272,6 +10348,7 @@ export function PrintersPage() {
         <Plus className="w-4 h-4" />
         {t('printers.addPrinter')}
       </Button>
+      )}
     </>
   );
 
@@ -10324,8 +10401,12 @@ export function PrintersPage() {
             <div className="flex items-center gap-2">{renderFilterControls()}</div>
             <div className="h-6 w-px bg-bambu-dark-tertiary" />
             <div className="flex items-center gap-2">{renderViewControls()}</div>
+            {showActionControls && (
+              <>
             <div className="h-6 w-px bg-bambu-dark-tertiary" />
             <div className="flex items-center gap-2">{renderActionControls()}</div>
+              </>
+            )}
           </div>
 
           {compactToolbar && (
@@ -10336,9 +10417,11 @@ export function PrintersPage() {
               <ToolbarMenu label={t('printers.toolbar.view', 'View')} icon={<SlidersHorizontal className="w-4 h-4" />}>
                 <div className="flex w-48 flex-col gap-2">{renderViewControls(true)}</div>
               </ToolbarMenu>
+              {showActionControls && (
               <ToolbarMenu label={t('printers.toolbar.actions', 'Actions')} icon={<MoreHorizontal className="w-4 h-4" />}>
                 <div className="flex w-48 flex-col gap-2">{renderActionControls(true)}</div>
               </ToolbarMenu>
+              )}
             </div>
           )}
         </div>
@@ -10350,6 +10433,7 @@ export function PrintersPage() {
         <Card>
           <CardContent className="text-center py-12">
             <p className="text-bambu-gray mb-4">{t('printers.noPrintersConfigured')}</p>
+            {addPrinterGate.render && (
             <Button
               onClick={() => setShowAddModal(true)}
               disabled={!hasPermission('printers:create')}
@@ -10358,6 +10442,7 @@ export function PrintersPage() {
               <Plus className="w-4 h-4" />
               {t('printers.addPrinter')}
             </Button>
+            )}
           </CardContent>
         </Card>
       ) : sortedPrinters.length === 0 && (search.trim() || statusFilter !== 'all' || locationFilter !== 'all') ? (
