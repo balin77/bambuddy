@@ -105,6 +105,24 @@ describe('HMSErrorModal', () => {
       expect(screen.getByText('Clear Errors').closest('button')).toBeDisabled();
     });
 
+    it('leaves out clear and the fault actions when the user\'s groups hide what they cannot use (#3639)', () => {
+      const noPermission = vi.fn().mockReturnValue(false) as unknown as (permission: 'printers:control') => boolean;
+      const withActions = { ...knownError, actions: ['IGNORE_RESUME'] };
+      render(<HMSErrorModal {...defaultProps} errors={[withActions]} hasPermission={noPermission} hideUnpermitted />);
+      expect(screen.queryByText('Clear Errors')).toBeNull();
+      expect(screen.queryByRole('button', { name: /resume/i })).toBeNull();
+      // The faults themselves are information and stay
+      expect(screen.getByText(withActions.description!)).toBeInTheDocument();
+    });
+
+    it('keeps them, disabled, without that option (#3639)', () => {
+      const noPermission = vi.fn().mockReturnValue(false) as unknown as (permission: 'printers:control') => boolean;
+      const withActions = { ...knownError, actions: ['IGNORE_RESUME'] };
+      render(<HMSErrorModal {...defaultProps} errors={[withActions]} hasPermission={noPermission} />);
+      expect(screen.getByText('Clear Errors').closest('button')).toBeDisabled();
+      expect(screen.getByRole('button', { name: /resume/i })).toBeDisabled();
+    });
+
     it('calls API and closes modal on successful clear', async () => {
       const user = userEvent.setup();
       const onClose = vi.fn();

@@ -177,6 +177,25 @@ describe('AmsBackupModal', () => {
     expect(toggle).toBeDisabled();
   });
 
+  it('leaves the switch out when the user\'s groups hide what they cannot use (#3639)', async () => {
+    render(
+      <AmsBackupModal
+        isOpen
+        state={true}
+        amsUnits={makeAmsUnits()}
+        amsExtruderMap={undefined}
+        isDualNozzle={false}
+        canToggle={false}
+        hideToggle
+        pending={false}
+        onToggle={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(await screen.findByTestId('ams-backup-modal')).toBeInTheDocument();
+    expect(screen.queryByRole('switch')).toBeNull();
+  });
+
   it('shows a no-pairs empty state when AMS has no backup pair', async () => {
     render(
       <AmsBackupModal

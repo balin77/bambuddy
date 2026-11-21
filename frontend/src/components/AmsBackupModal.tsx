@@ -34,6 +34,8 @@ interface AmsBackupModalProps {
   amsExtruderMap: Record<string, number> | undefined;
   isDualNozzle: boolean;
   canToggle: boolean;
+  /** Leave the switch out (the user's groups hide the controls they cannot use, #3639) */
+  hideToggle?: boolean;
   pending: boolean;
   onToggle: (next: boolean) => void;
   onClose: () => void;
@@ -183,6 +185,7 @@ export function AmsBackupModal({
   amsExtruderMap,
   isDualNozzle,
   canToggle,
+  hideToggle = false,
   pending,
   onToggle,
   onClose,
@@ -290,11 +293,13 @@ export function AmsBackupModal({
               {t('printers.amsBackup.modalHelp')}
             </p>
           </div>
-          <Toggle
-            checked={isOn}
-            onChange={onToggle}
-            disabled={!canToggle || isUnknown || pending}
-          />
+          {!hideToggle && (
+            <Toggle
+              checked={isOn}
+              onChange={onToggle}
+              disabled={!canToggle || isUnknown || pending}
+            />
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-6">
