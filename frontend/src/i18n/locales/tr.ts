@@ -6464,6 +6464,7 @@ export default {
     inventoryPanelHint: 'Envanterden henüz yüklenmemiş bir renk seçin. Dokunmadığınız renkler otomatik kalır.',
     asapBlockedInventory: 'Envanterden seçilen bir renk henüz yüklenmedi. İşi kuyruğa alın veya zamanlayın ya da yüklü bir yuva seçin.',
     slotGroupInventory: 'Envanterden (yüklü değil)',
+    slotInventoryNowHint: 'Envanterdeki renkler {{queue}} veya {{schedule}} ile seçilebilir.',
     statusWaitsForFilament: 'Filament bekliyor',
     inventoryWaitHint: 'İş, bu filament {{printer}} yazıcısına yüklenene kadar bekler.',
     inventoryWaitHintEach: 'İş, bu filament seçilen her yazıcıya yüklenene kadar bekler.',

@@ -181,6 +181,28 @@ describe('PrintModal: inventory colour for one printer (#3649)', () => {
     expect(within(listbox).queryByText('From inventory (not loaded)')).not.toBeInTheDocument();
   });
 
+  it('under ASAP the mapping says the inventory colours come with Queue or Schedule', async () => {
+    const user = userEvent.setup();
+    renderCreate();
+
+    await slotTrigger(2);
+    const hint = await screen.findByTestId('inventory-now-hint');
+    expect(hint).toHaveTextContent('Colours from the inventory can be picked with Queue or Schedule.');
+
+    // Once queued the group itself is there, so the pointer to it goes.
+    await user.click(screen.getByRole('button', { name: /^queue$/i }));
+    await waitFor(() => expect(screen.queryByTestId('inventory-now-hint')).not.toBeInTheDocument());
+  });
+
+  it('says nothing under ASAP with "Show inventory colours" off', async () => {
+    mockBackend({ flag: false });
+    renderCreate();
+
+    await slotTrigger(2);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(screen.queryByTestId('inventory-now-hint')).not.toBeInTheDocument();
+  });
+
   it('a pick reads "Waits for filament", blocks ASAP with its reason, and says how the job starts', async () => {
     const user = userEvent.setup();
     renderCreate();

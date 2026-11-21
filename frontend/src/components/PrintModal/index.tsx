@@ -865,16 +865,19 @@ export function PrintModal({
   const inventoryEnabled = !!settings?.filament_override_inventory && !spoolmanMode && canReadInventory;
   // For a specific printer the list is for a job that waits for the colour (#3649): only
   // when it is queued or scheduled. "Now" can only use what is loaded.
-  const inventoryForPrinters = assignmentMode === 'printer' && !isSeparateJobs && scheduleOptions.scheduleType !== 'asap';
+  const inventoryPinned = assignmentMode === 'printer' && !isSeparateJobs;
+  const inventoryForPrinters = inventoryPinned && scheduleOptions.scheduleType !== 'asap';
   const { data: inventoryFilamentsData } = useQuery({
     queryKey: ['inventory-filaments'],
     queryFn: () => api.getInventoryFilaments(),
-    enabled: (assignmentMode === 'model' || inventoryForPrinters || hasInventoryPick) && inventoryEnabled,
+    enabled: (assignmentMode === 'model' || inventoryPinned || hasInventoryPick) && inventoryEnabled,
   });
   const inventoryFilaments = useMemo(
     () => (inventoryEnabled && inventoryFilamentsData?.inventory_available ? inventoryFilamentsData.filaments : []),
     [inventoryEnabled, inventoryFilamentsData],
   );
+  // With "Now" the group is not offered; the mapping says where it is (#3649).
+  const inventoryNowHint = inventoryPinned && !inventoryForPrinters && inventoryFilaments.length > 0;
 
   // The switch lives here at the maintainer's request (#3590); the Settings card
   // is the other way in. Optimistic, so the list reacts at once; both settings
@@ -2864,6 +2867,7 @@ export function PrintModal({
                 onNozzleRackChoiceChange={setNozzleRackChoice}
                 printerName={printers?.find((p) => p.id === effectivePrinterId)?.name}
                 inventoryFilaments={inventoryForPrinters ? inventoryFilaments : []}
+                inventoryNowHint={inventoryNowHint}
                 inventoryPicks={inventoryPicks}
                 onInventoryPick={handleInventoryPick}
                 inventoryDemand={inventoryDemand}
@@ -2904,6 +2908,7 @@ export function PrintModal({
                   }
                   printerName={printers?.find((p) => p.id === effectivePrinterId)?.name}
                   inventoryFilaments={inventoryForPrinters ? inventoryFilaments : []}
+                  inventoryNowHint={inventoryNowHint}
                   inventoryPicks={inventoryPicks}
                   onInventoryPick={handleInventoryPick}
                   inventoryDemand={inventoryDemand}

@@ -50,6 +50,7 @@ export function FilamentMapping({
   onNozzleRackChoiceChange,
   printerName,
   inventoryFilaments,
+  inventoryNowHint,
   inventoryPicks,
   onInventoryPick,
   inventoryDemand,
@@ -465,6 +466,15 @@ export function FilamentMapping({
               </button>
             </div>
           </div>
+          {inventoryNowHint && (
+            <p className="text-xs text-bambu-gray" data-testid="inventory-now-hint">
+              {t('printModal.slotInventoryNowHint', {
+                queue: t('printModal.queue'),
+                schedule: t('printModal.schedule'),
+                defaultValue: 'Colours from the inventory can be picked with {{queue}} or {{schedule}}.',
+              })}
+            </p>
+          )}
           {sameInletWarning && (
             <div className="flex items-start gap-1.5 rounded border border-yellow-500/40 bg-yellow-500/10 px-2 py-1.5 text-xs text-yellow-700 dark:text-yellow-400">
               <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
