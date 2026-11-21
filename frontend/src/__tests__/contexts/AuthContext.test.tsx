@@ -305,6 +305,48 @@ describe('AuthContext', () => {
     });
   });
 
+  describe('hideUnpermitted (#3639)', () => {
+    function signIn(me: Record<string, unknown>, authEnabled = true) {
+      setAuthToken('valid-token');
+      server.use(
+        http.get('/api/v1/auth/status', () => HttpResponse.json({ auth_enabled: authEnabled, requires_setup: false })),
+        http.get('/api/v1/auth/me', () =>
+          HttpResponse.json({ id: 2, username: 'helper', is_active: true, is_admin: false, permissions: [], groups: [], ...me })
+        )
+      );
+    }
+
+    afterEach(() => setAuthToken(null));
+
+    it('is on for a user whose groups all hide unusable controls', async () => {
+      signIn({ hide_unpermitted_controls: true });
+      const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current.user).not.toBeNull());
+      expect(result.current.hideUnpermitted).toBe(true);
+    });
+
+    it('is off without the option', async () => {
+      signIn({ hide_unpermitted_controls: false });
+      const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current.user).not.toBeNull());
+      expect(result.current.hideUnpermitted).toBe(false);
+    });
+
+    it('is off for administrators, whatever the response says', async () => {
+      signIn({ is_admin: true, hide_unpermitted_controls: true });
+      const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current.user).not.toBeNull());
+      expect(result.current.hideUnpermitted).toBe(false);
+    });
+
+    it('is off when authentication is disabled', async () => {
+      signIn({ hide_unpermitted_controls: true }, false);
+      const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.hideUnpermitted).toBe(false);
+    });
+  });
+
   describe('auth:expired event (#1698)', () => {
     beforeEach(() => {
       // authToken is a module-level variable initialised once at import time;

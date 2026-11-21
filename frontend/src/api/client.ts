@@ -4946,6 +4946,8 @@ export interface Group {
   printer_ids: number[];
   /** Matched against Printer.location, so printers added there later are included */
   locations: string[];
+  /** Members see no controls they lack the permission for (#3639); display only */
+  hide_unpermitted_controls: boolean;
   user_count: number;
   created_at: string;
   updated_at: string;
@@ -4962,6 +4964,7 @@ export interface GroupCreate {
   restrict_printers?: boolean;
   printer_ids?: number[];
   locations?: string[];
+  hide_unpermitted_controls?: boolean;
 }
 
 export interface GroupUpdate {
@@ -4971,6 +4974,7 @@ export interface GroupUpdate {
   restrict_printers?: boolean;
   printer_ids?: number[];
   locations?: string[];
+  hide_unpermitted_controls?: boolean;
 }
 
 export interface PermissionInfo {
@@ -5022,6 +5026,8 @@ export interface UserResponse {
   auth_source: string;  // "local" or "ldap"
   groups: GroupBrief[];
   permissions: Permission[];  // All permissions from groups
+  /** Every group of the user hides the controls they cannot use (#3639); never true for admins */
+  hide_unpermitted_controls?: boolean;
   created_at: string;
 }
 
