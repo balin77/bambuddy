@@ -2437,6 +2437,7 @@ class NotificationService:
 
         filaments = [filament] if filament is not None else []
         variables = {
+            # Telegram Markdown v1: only "_" is escaped (telegram_markdown_escape), as for every variable (pre-existing).
             **filament_variables(filaments),
             "printer": printer_name,
             "slot": slot,
@@ -3079,6 +3080,7 @@ class NotificationService:
             "target_model": target_model,
             "waiting_reason": waiting_reason,
             "printer": printer_label,
+            # Telegram Markdown v1: only "_" is escaped (telegram_markdown_escape), as for every variable (pre-existing).
             **filament_variables(filaments),
         }
 
