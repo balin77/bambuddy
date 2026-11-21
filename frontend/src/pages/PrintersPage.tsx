@@ -2027,6 +2027,7 @@ function ScheduledDryingBanner({ printerId, dryingActive, timeFormat }: { printe
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const { hasPermission } = useAuth();
+  const dryingGate = usePermissionGate()('printers:drying');
   // One fleet-wide query shared by every card, not one per card: the list is
   // nearly always empty and a 20-printer fleet would otherwise make 20
   // requests every 30s. React Query dedupes on the key.
@@ -2080,14 +2081,16 @@ function ScheduledDryingBanner({ printerId, dryingActive, timeFormat }: { printe
                 </>
               )}
             </span>
-            <button
-              onClick={() => cancelMutation.mutate(s.id)}
-              disabled={cancelMutation.isPending || !hasPermission('printers:drying')}
-              title={!hasPermission('printers:drying') ? t('printers.permission.noControl') : failed ? t('printers.drying.dismissFailed') : t('printers.drying.cancelScheduled')}
-              className="text-bambu-gray hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <X className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-            </button>
+            {dryingGate.render && (
+              <button
+                onClick={() => cancelMutation.mutate(s.id)}
+                disabled={cancelMutation.isPending || !hasPermission('printers:drying')}
+                title={!hasPermission('printers:drying') ? t('printers.permission.noControl') : failed ? t('printers.drying.dismissFailed') : t('printers.drying.cancelScheduled')}
+                className="text-bambu-gray hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <X className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+              </button>
+            )}
           </div>
         );
       })}
@@ -2183,7 +2186,14 @@ function PrinterCard({
   // groups hide them (#3639). A control disabled for another reason always stays.
   const gate = usePermissionGate();
   const clearPlateGate = gate('printers:clear_plate');
-  const controlGate = gate('printers:control');
+  const filamentGate = gate('printers:filament');
+  const tuneGate = gate('printers:tune');
+  const motionGate = gate('printers:motion');
+  const pauseResumeGate = gate('printers:pause_resume');
+  const stopGate = gate('printers:stop');
+  const dryingGate = gate('printers:drying');
+  const maintenanceGate = gate('printers:maintenance');
+  const adminGate = gate('printers:admin');
   const updateGate = gate('printers:update');
   const deleteGate = gate('printers:delete');
   const amsRfidGate = gate('printers:ams_rfid');
@@ -2994,7 +3004,7 @@ function PrinterCard({
   // Expanded view: the count lives in the header chip; only an empty changer gets the
   // prominent full-width button, next to expandedClearPlateButton in the live-status
   // block and in the slot for a powered-down or maintenance printer.
-  const expandedRefillPlatesButton = plateChangerEmpty ? (
+  const expandedRefillPlatesButton = plateChangerEmpty && clearPlateGate.render ? (
     <div className="mt-2">
       <button
         type="button"
@@ -3070,20 +3080,20 @@ function PrinterCard({
         </div>
       )}
       {clearPlateGate.render && (
-      <button
-        type="button"
-        onClick={() => clearPlateMutation.mutate()}
-        disabled={clearPlateMutation.isPending || !hasPermission('printers:clear_plate')}
-        className="mt-2 w-full inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-yellow-100 dark:bg-yellow-500/20 border border-yellow-300 dark:border-yellow-400/40 text-yellow-700 dark:text-yellow-400 hover:bg-yellow-500/30 transition-colors text-xs font-medium disabled:opacity-50"
-        title={!hasPermission('printers:clear_plate') ? t('printers.permission.noControl') : t('printers.plateStatus.markCleared')}
-      >
-        {clearPlateMutation.isPending ? (
-          <Loader2 className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)] animate-spin" />
-        ) : (
-          <PlateClearedIcon className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-        )}
-        {t('printers.plateStatus.markCleared')}
-      </button>
+        <button
+          type="button"
+          onClick={() => clearPlateMutation.mutate()}
+          disabled={clearPlateMutation.isPending || !hasPermission('printers:clear_plate')}
+          className="mt-2 w-full inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-yellow-100 dark:bg-yellow-500/20 border border-yellow-300 dark:border-yellow-400/40 text-yellow-700 dark:text-yellow-400 hover:bg-yellow-500/30 transition-colors text-xs font-medium disabled:opacity-50"
+          title={!hasPermission('printers:clear_plate') ? t('printers.permission.noControl') : t('printers.plateStatus.markCleared')}
+        >
+          {clearPlateMutation.isPending ? (
+            <Loader2 className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)] animate-spin" />
+          ) : (
+            <PlateClearedIcon className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+          )}
+          {t('printers.plateStatus.markCleared')}
+        </button>
       )}
       {showConfirmOutcome && pendingConfirmArchive && (
         <ConfirmOutcomeDialog
@@ -3836,7 +3846,7 @@ function PrinterCard({
     const printerBusy = status?.state === 'RUNNING';
     const showRfid = includeRfid && amsRfidGate.render;
     // Nothing left to offer: no menu, so the hover card draws no empty box.
-    if (!showRfid && !controlGate.render) return null;
+    if (!showRfid && !filamentGate.render) return null;
 
     return (
       <>
@@ -3859,43 +3869,43 @@ function PrinterCard({
             {t('printers.rfid.reread')}
           </button>
         )}
-        {controlGate.render && (
-        <button
-          className={`w-full px-2 py-1.5 text-left text-xs flex items-center gap-2 rounded transition-colors ${
-            hasPermission('printers:filament')
-              ? 'text-white hover:bg-bambu-dark-tertiary'
-              : 'text-bambu-gray/50 cursor-not-allowed'
-          }`}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (printerBusy || !hasPermission('printers:filament')) return;
-            startAmsLoad(amsId, slotId, loadTrayId);
-          }}
-          disabled={printerBusy || !hasPermission('printers:filament')}
-          title={printerBusy ? t('printers.bedJog.disabledWhilePrinting') : !hasPermission('printers:filament') ? t('printers.permission.noControl') : undefined}
-        >
-          <LogIn className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-          {t('printers.ams.load')}
-        </button>
+        {filamentGate.render && (
+          <button
+            className={`w-full px-2 py-1.5 text-left text-xs flex items-center gap-2 rounded transition-colors ${
+              hasPermission('printers:filament')
+                ? 'text-white hover:bg-bambu-dark-tertiary'
+                : 'text-bambu-gray/50 cursor-not-allowed'
+            }`}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (printerBusy || !hasPermission('printers:filament')) return;
+              startAmsLoad(amsId, slotId, loadTrayId);
+            }}
+            disabled={printerBusy || !hasPermission('printers:filament')}
+            title={printerBusy ? t('printers.bedJog.disabledWhilePrinting') : !hasPermission('printers:filament') ? t('printers.permission.noControl') : undefined}
+          >
+            <LogIn className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+            {t('printers.ams.load')}
+          </button>
         )}
-        {controlGate.render && (
-        <button
-          className={`w-full px-2 py-1.5 text-left text-xs flex items-center gap-2 rounded transition-colors ${
-            hasPermission('printers:filament')
-              ? 'text-white hover:bg-bambu-dark-tertiary'
-              : 'text-bambu-gray/50 cursor-not-allowed'
-          }`}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (printerBusy || !hasPermission('printers:filament')) return;
-            unloadAmsMutation.mutate({ trayId: loadTrayId });
-          }}
-          disabled={printerBusy || !hasPermission('printers:filament')}
-          title={printerBusy ? t('printers.bedJog.disabledWhilePrinting') : !hasPermission('printers:filament') ? t('printers.permission.noControl') : undefined}
-        >
-          <LogOut className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-          {t('printers.ams.unload')}
-        </button>
+        {filamentGate.render && (
+          <button
+            className={`w-full px-2 py-1.5 text-left text-xs flex items-center gap-2 rounded transition-colors ${
+              hasPermission('printers:filament')
+                ? 'text-white hover:bg-bambu-dark-tertiary'
+                : 'text-bambu-gray/50 cursor-not-allowed'
+            }`}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (printerBusy || !hasPermission('printers:filament')) return;
+              unloadAmsMutation.mutate({ trayId: loadTrayId });
+            }}
+            disabled={printerBusy || !hasPermission('printers:filament')}
+            title={printerBusy ? t('printers.bedJog.disabledWhilePrinting') : !hasPermission('printers:filament') ? t('printers.permission.noControl') : undefined}
+          >
+            <LogOut className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+            {t('printers.ams.unload')}
+          </button>
         )}
       </>
     );
@@ -3915,22 +3925,22 @@ function PrinterCard({
       {showMenu && (
         <div className="absolute left-0 bottom-full mb-2 w-48 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg shadow-lg z-20">
           {updateGate.render && (
-          <button
-            className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 ${
-              hasPermission('printers:update')
-                ? 'hover:bg-bambu-dark-tertiary'
-                : 'opacity-50 cursor-not-allowed'
-            }`}
-            onClick={() => {
-              if (!hasPermission('printers:update')) return;
-              setShowEditModal(true);
-              setShowMenu(false);
-            }}
-            title={!hasPermission('printers:update') ? t('printers.permission.noEdit') : undefined}
-          >
-            <Pencil className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-            {t('common.edit')}
-          </button>
+            <button
+              className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 ${
+                hasPermission('printers:update')
+                  ? 'hover:bg-bambu-dark-tertiary'
+                  : 'opacity-50 cursor-not-allowed'
+              }`}
+              onClick={() => {
+                if (!hasPermission('printers:update')) return;
+                setShowEditModal(true);
+                setShowMenu(false);
+              }}
+              title={!hasPermission('printers:update') ? t('printers.permission.noEdit') : undefined}
+            >
+              <Pencil className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+              {t('common.edit')}
+            </button>
           )}
           <button
             className="w-full px-4 py-2 text-left text-sm hover:bg-bambu-dark-tertiary flex items-center gap-2"
@@ -3956,43 +3966,45 @@ function PrinterCard({
           )}
           {/* Maintenance Mode toggle (#1476) — leverages backend is_active flag */}
           {updateGate.render && (
-          <button
-            className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 ${
-              hasPermission('printers:update')
-                ? 'hover:bg-bambu-dark-tertiary'
-                : 'opacity-50 cursor-not-allowed'
-            }`}
-            disabled={maintenanceMutation.isPending || !hasPermission('printers:update')}
-            onClick={() => {
-              if (!hasPermission('printers:update')) return;
-              setShowMenu(false);
-              if (printer.is_active !== false) {
-                handleEnterMaintenance();
-              } else {
-                maintenanceMutation.mutate(true);
-              }
-            }}
-            title={!hasPermission('printers:update') ? t('printers.permission.noEdit') : undefined}
-          >
-            <Wrench className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-            {printer.is_active !== false
-              ? t('printers.maintenance.menuEnter')
-              : t('printers.maintenance.menuExit')}
-          </button>
+            <button
+              className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 ${
+                hasPermission('printers:update')
+                  ? 'hover:bg-bambu-dark-tertiary'
+                  : 'opacity-50 cursor-not-allowed'
+              }`}
+              disabled={maintenanceMutation.isPending || !hasPermission('printers:update')}
+              onClick={() => {
+                if (!hasPermission('printers:update')) return;
+                setShowMenu(false);
+                if (printer.is_active !== false) {
+                  handleEnterMaintenance();
+                } else {
+                  maintenanceMutation.mutate(true);
+                }
+              }}
+              title={!hasPermission('printers:update') ? t('printers.permission.noEdit') : undefined}
+            >
+              <Wrench className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+              {printer.is_active !== false
+                ? t('printers.maintenance.menuEnter')
+                : t('printers.maintenance.menuExit')}
+            </button>
           )}
-          <button
-            className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 disabled:opacity-50 ${hasPermission('printers:admin') ? 'hover:bg-bambu-dark-tertiary' : ''}`}
-            disabled={!hasPermission('printers:admin')}
-            title={!hasPermission('printers:admin') ? t('printers.permission.noControl') : undefined}
-            onClick={() => {
-              if (!hasPermission('printers:admin')) return;
-              connectMutation.mutate();
-              setShowMenu(false);
-            }}
-          >
-            <RefreshCw className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-            {t('printers.reconnect')}
-          </button>
+          {adminGate.render && (
+            <button
+              className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 disabled:opacity-50 ${hasPermission('printers:admin') ? 'hover:bg-bambu-dark-tertiary' : ''}`}
+              disabled={!hasPermission('printers:admin')}
+              title={!hasPermission('printers:admin') ? t('printers.permission.noControl') : undefined}
+              onClick={() => {
+                if (!hasPermission('printers:admin')) return;
+                connectMutation.mutate();
+                setShowMenu(false);
+              }}
+            >
+              <RefreshCw className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+              {t('printers.reconnect')}
+            </button>
+          )}
           <button
             className="w-full px-4 py-2 text-left text-sm hover:bg-bambu-dark-tertiary flex items-center gap-2 disabled:opacity-50"
             disabled={forceRefreshMutation.isPending}
@@ -4025,22 +4037,22 @@ function PrinterCard({
             {t('diagnostic.runButton')}
           </button>
           {deleteGate.render && (
-          <button
-            className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 ${
-              hasPermission('printers:delete')
-                ? 'text-red-700 dark:text-red-400 hover:bg-bambu-dark-tertiary'
-                : 'text-red-700/50 dark:text-red-400/50 cursor-not-allowed'
-            }`}
-            onClick={() => {
-              if (!hasPermission('printers:delete')) return;
-              setShowDeleteConfirm(true);
-              setShowMenu(false);
-            }}
-            title={!hasPermission('printers:delete') ? t('printers.permission.noDelete') : undefined}
-          >
-            <Trash2 className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-            {t('common.delete')}
-          </button>
+            <button
+              className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 ${
+                hasPermission('printers:delete')
+                  ? 'text-red-700 dark:text-red-400 hover:bg-bambu-dark-tertiary'
+                  : 'text-red-700/50 dark:text-red-400/50 cursor-not-allowed'
+              }`}
+              onClick={() => {
+                if (!hasPermission('printers:delete')) return;
+                setShowDeleteConfirm(true);
+                setShowMenu(false);
+              }}
+              title={!hasPermission('printers:delete') ? t('printers.permission.noDelete') : undefined}
+            >
+              <Trash2 className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+              {t('common.delete')}
+            </button>
           )}
         </div>
       )}
@@ -4513,15 +4525,15 @@ function PrinterCard({
                     </p>
                   </div>
                   {updateGate.render && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={maintenanceMutation.isPending || !hasPermission('printers:update')}
-                    onClick={() => maintenanceMutation.mutate(true)}
-                    title={!hasPermission('printers:update') ? t('printers.permission.noEdit') : undefined}
-                  >
-                    {t('printers.maintenance.exitButton')}
-                  </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={maintenanceMutation.isPending || !hasPermission('printers:update')}
+                      onClick={() => maintenanceMutation.mutate(true)}
+                      title={!hasPermission('printers:update') ? t('printers.permission.noEdit') : undefined}
+                    >
+                      {t('printers.maintenance.exitButton')}
+                    </Button>
                   )}
                 </div>
               </>
@@ -4629,34 +4641,34 @@ function PrinterCard({
 
                   return (
                     <div className="p-2 bg-bambu-dark rounded-[10px] relative overflow-hidden">
-                      {controlGate.render && (
-                      <button
-                        onClick={() => setShowSkipObjectsModal(true)}
-                        disabled={!canSkipObjects}
-                        className={`absolute top-2 right-2 p-1.5 rounded transition-colors z-10 ${
-                          canSkipObjects
-                            ? 'text-bambu-gray hover:text-white hover:bg-white/10'
-                            : 'text-bambu-gray/30 cursor-not-allowed'
-                        }`}
-                        title={
-                          !hasPermission('printers:stop')
-                            ? t('printers.permission.noControl')
-                            : !isActivePrint
-                              ? t('printers.skipObjects.onlyWhilePrinting')
-                              : objectCount === 1
-                                ? t('printers.skipObjects.requiresMultiple')
-                                : t('printers.skipObjects.tooltip')
-                        }
-                      >
-                        <SkipObjectsIcon className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                        {objectsData && objectsData.skipped_count > 0 && (
-                          <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[length:var(--pc-t10,10px)] font-bold bg-red-500 text-white rounded-full">
-                            {objectsData.skipped_count}
-                          </span>
-                        )}
-                      </button>
+                      {stopGate.render && (
+                        <button
+                          onClick={() => setShowSkipObjectsModal(true)}
+                          disabled={!canSkipObjects}
+                          className={`absolute top-2 right-2 p-1.5 rounded transition-colors z-10 ${
+                            canSkipObjects
+                              ? 'text-bambu-gray hover:text-white hover:bg-white/10'
+                              : 'text-bambu-gray/30 cursor-not-allowed'
+                          }`}
+                          title={
+                            !hasPermission('printers:stop')
+                              ? t('printers.permission.noControl')
+                              : !isActivePrint
+                                ? t('printers.skipObjects.onlyWhilePrinting')
+                                : objectCount === 1
+                                  ? t('printers.skipObjects.requiresMultiple')
+                                  : t('printers.skipObjects.tooltip')
+                          }
+                        >
+                          <SkipObjectsIcon className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                          {objectsData && objectsData.skipped_count > 0 && (
+                            <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[length:var(--pc-t10,10px)] font-bold bg-red-500 text-white rounded-full">
+                              {objectsData.skipped_count}
+                            </span>
+                          )}
+                        </button>
                       )}
-                      {!controlGate.render && objectsData && objectsData.skipped_count > 0 && (
+                      {!stopGate.render && objectsData && objectsData.skipped_count > 0 && (
                         <span
                           className="absolute top-1 right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[length:var(--pc-t10,10px)] font-bold bg-red-500 text-white rounded-full z-10"
                           data-testid="skipped-count-readout"
@@ -4671,11 +4683,11 @@ function PrinterCard({
                           className="w-24 h-24 max-[520px]:w-20 max-[520px]:h-20"
                         />
                         <div className="flex h-24 max-[520px]:h-20 min-w-0 flex-1 flex-col justify-between pt-1">
-                          <div className={`flex min-h-[18px] items-center gap-2${controlGate.render ? ' pr-8' : ''}`}>
+                          <div className={`flex min-h-[18px] items-center gap-2${stopGate.render ? ' pr-8' : ''}`}>
                             <p className="min-w-0 truncate text-sm text-bambu-gray">{getStatusDisplay(status.state, status.stg_cur_name)}</p>
                             {plateStatusPill}
                           </div>
-                          <p className={`min-h-[18px] truncate${controlGate.render ? ' pr-8' : ''} text-sm ${printName ? 'text-white' : 'text-bambu-gray/70'}`}>
+                          <p className={`min-h-[18px] truncate${stopGate.render ? ' pr-8' : ''} text-sm ${printName ? 'text-white' : 'text-bambu-gray/70'}`}>
                             {printName || t('printers.noActiveJob', 'No active job')}
                           </p>
                           <div className="flex h-3 items-center gap-2 text-sm">
@@ -5159,9 +5171,9 @@ function PrinterCard({
 
               // What the section offers this user (#3639). Plate detection is the
               // only control here that needs printers:update.
-              const showAirduct = controlGate.render && ['P2S', 'X2D', 'H2D', 'H2D Pro', 'H2C', 'H2S', 'H3C'].includes(printer.model ?? '');
-              const showSecondaryControls = controlGate.render || updateGate.render;
-              const showPrintControls = controlGate.render;
+              const showAirduct = tuneGate.render && ['P2S', 'X2D', 'H2D', 'H2D Pro', 'H2C', 'H2S', 'H3C'].includes(printer.model ?? '');
+              const showSecondaryControls = tuneGate.render || motionGate.render || updateGate.render;
+              const showPrintControls = pauseResumeGate.render || stopGate.render;
               if (!showSecondaryControls && !showPrintControls) return null;
 
               return (
@@ -5177,59 +5189,323 @@ function PrinterCard({
                   <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-2">
                     {/* Left: Secondary controls */}
                     {showSecondaryControls && (
-                    <div className="flex flex-wrap items-center gap-2 min-w-0">
-                        {controlGate.render && (
-                      <button
-                        onClick={() => chamberLightMutation.mutate(!status.chamber_light)}
-                        disabled={!status.connected || chamberLightMutation.isPending || !hasPermission('printers:tune')}
-                        className={`${iconControlClass} ${
-                          status.chamber_light
-                            ? 'bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 hover:bg-yellow-500/20'
-                            : 'bg-bambu-dark text-bambu-gray/50 hover:bg-bambu-dark-tertiary hover:text-white'
-                        }`}
-                        title={!hasPermission('printers:tune') ? t('printers.permission.noControl') : (status.chamber_light ? t('printers.chamberLightOff') : t('printers.chamberLightOn'))}
-                      >
-                        <ChamberLight on={status.chamber_light ?? false} className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                      </button>
-                        )}
+                      <div className="flex flex-wrap items-center gap-2 min-w-0">
+                          {tuneGate.render && (
+                        <button
+                          onClick={() => chamberLightMutation.mutate(!status.chamber_light)}
+                          disabled={!status.connected || chamberLightMutation.isPending || !hasPermission('printers:tune')}
+                          className={`${iconControlClass} ${
+                            status.chamber_light
+                              ? 'bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 hover:bg-yellow-500/20'
+                              : 'bg-bambu-dark text-bambu-gray/50 hover:bg-bambu-dark-tertiary hover:text-white'
+                          }`}
+                          title={!hasPermission('printers:tune') ? t('printers.permission.noControl') : (status.chamber_light ? t('printers.chamberLightOff') : t('printers.chamberLightOn'))}
+                        >
+                          <ChamberLight on={status.chamber_light ?? false} className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                        </button>
+                          )}
 
-                      {/* Airduct Mode (P2S / X2D / H2* / H3C, an H2D Pro stored as "H2D Pro", #3335) */}
-                        {showAirduct && (() => {
-                        const isHeating = status.airduct_mode === 1;
-                        const Icon = isHeating ? Flame : Snowflake;
-                        const color = isHeating ? 'text-orange-600 dark:text-orange-400' : 'text-sky-600 dark:text-sky-400';
-                        const bg = isHeating ? 'bg-orange-50 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400 hover:bg-orange-500/20' : 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-400 hover:bg-sky-500/20';
-                        return (
+                        {/* Airduct Mode (P2S / X2D / H2* / H3C, an H2D Pro stored as "H2D Pro", #3335) */}
+                          {showAirduct && (() => {
+                          const isHeating = status.airduct_mode === 1;
+                          const Icon = isHeating ? Flame : Snowflake;
+                          const color = isHeating ? 'text-orange-600 dark:text-orange-400' : 'text-sky-600 dark:text-sky-400';
+                          const bg = isHeating ? 'bg-orange-50 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400 hover:bg-orange-500/20' : 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-400 hover:bg-sky-500/20';
+                          return (
+                            <div className="relative">
+                              <button
+                                onClick={() => setShowAirductMenu(showAirductMenu === printer.id ? null : printer.id)}
+                                disabled={!hasPermission('printers:tune')}
+                                className={`${iconControlClass} ${bg}`}
+                                title={`${t('printers.airduct.title')}: ${isHeating ? t('printers.airduct.heating') : t('printers.airduct.cooling')}`}
+                              >
+                                <Icon className={`w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)] ${color}`} />
+                              </button>
+                              {showAirductMenu === printer.id && (
+                                <>
+                                  <div className="fixed inset-0 z-40" onClick={() => setShowAirductMenu(null)} />
+                                  <div className="absolute bottom-full left-0 mb-1 z-50 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg shadow-lg py-1 min-w-[130px]">
+                                    {([
+                                      { mode: 'cooling', label: t('printers.airduct.cooling'), modeId: 0 },
+                                      { mode: 'heating', label: t('printers.airduct.heating'), modeId: 1 },
+                                    ] as const).map(({ mode, label, modeId }) => (
+                                      <button
+                                        key={mode}
+                                        onClick={() => {
+                                          airductMutation.mutate(mode);
+                                          setShowAirductMenu(null);
+                                        }}
+                                        className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${
+                                          status.airduct_mode === modeId
+                                            ? 'text-bambu-green bg-bambu-green/10'
+                                            : 'text-white hover:bg-bambu-dark-tertiary'
+                                        }`}
+                                      >
+                                        {mode === 'heating' ? <Flame className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" /> : <Snowflake className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />}
+                                        {label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                        {/* Movement — compact badge, popover holds XY, Z, and home controls */}
+                          {motionGate.render && (() => {
+                          const canControl = hasPermission('printers:motion');
+                          const disabled = isPrinting || !canControl;
+                          const jogButtonClass = 'flex h-8 w-8 items-center justify-center rounded bg-indigo-100 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 transition-colors hover:bg-indigo-200 dark:hover:bg-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-50';
+                          // Which part the Z axis moves (#1334). The endpoint takes a signed
+                          // nozzle-bed gap that means the same thing on every printer, so the
+                          // arrows are ours to interpret: on a bed-slinger "up" lifts the
+                          // toolhead and opens the gap, on a bed-on-Z printer it raises the
+                          // plate toward the nozzle and closes it.
+                          const zMovesToolhead = isBedSlinger(printer.model);
+                          const requestZJog = (arrow: 'up' | 'down') => {
+                            const opensGap = zMovesToolhead ? arrow === 'up' : arrow === 'down';
+                            // No not-homed gate here, and no endstop bypass to gate either:
+                            // since #2579 the jog is a bare move that never touches M211. That
+                            // does not make it clamped — the firmware ignores soft endstops on
+                            // MQTT G-code entirely, which is what the banner above warns about.
+                            bedJogMutation.mutate({ distance: opensGap ? bedJogStep : -bedJogStep });
+                          };
+                          const requestXyJog = (x: number, y: number) => {
+                            xyJogMutation.mutate({ x, y });
+                          };
+                          const requestExtruderJog = (distance: number) => {
+                            extruderJogMutation.mutate(distance);
+                          };
+                          return (
+                            <div className="relative">
+                              <button
+                                onClick={() => setShowBedJogMenu(showBedJogMenu === printer.id ? null : printer.id)}
+                                disabled={disabled}
+                                className={`${iconControlClass} ${
+                                  disabled
+                                    ? 'bg-bambu-dark text-bambu-gray/50 cursor-not-allowed'
+                                    : 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-500/20'
+                                }`}
+                                title={!canControl ? t('printers.permission.noControl') : isPrinting ? t('printers.bedJog.disabledWhilePrinting') : t('printers.bedJog.title')}
+                              >
+                                <Move className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                              </button>
+                              {showBedJogMenu === printer.id && (
+                                <>
+                                  <div className="fixed inset-0 z-40" onClick={() => setShowBedJogMenu(null)} />
+                                  <div className="absolute bottom-full left-0 mb-1 z-50 flex w-[216px] flex-col overflow-hidden rounded-xl border border-bambu-dark-tertiary bg-bambu-dark-secondary shadow-2xl">
+                                    <div className="shrink-0 px-3 py-2.5 text-center text-sm font-medium text-white">
+                                      {t('printers.bedJog.title')}
+                                    </div>
+                                    <div className="h-px bg-bambu-dark-tertiary" />
+                                    {/* #2579: Bambu firmware does not enforce soft endstops on
+                                        G-code sent over MQTT, so manual moves can drive past the
+                                        travel limits and cause a collision. Not fixable from our
+                                        side — warn prominently. */}
+                                    <div className="flex items-start gap-1.5 bg-yellow-500/10 px-3 py-2 text-[length:var(--pc-t11,11px)] leading-snug text-yellow-700 dark:text-yellow-400">
+                                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                      <span>{t('printers.bedJog.limitWarning')}</span>
+                                    </div>
+                                    <div className="h-px bg-bambu-dark-tertiary" />
+                                    <div className="flex justify-center px-3 py-2.5">
+                                      <div className="flex items-center justify-center gap-3">
+                                      <div className="grid grid-cols-3 gap-1">
+                                        <div />
+                                        <button
+                                          onClick={() => requestXyJog(0, bedJogStep)}
+                                          disabled={xyJogMutation.isPending}
+                                          className={jogButtonClass}
+                                          aria-label="Move Y forward"
+                                        >
+                                          <ArrowUp className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                                        </button>
+                                        <div />
+                                        <button
+                                          onClick={() => requestXyJog(-bedJogStep, 0)}
+                                          disabled={xyJogMutation.isPending}
+                                          className={jogButtonClass}
+                                          aria-label="Move X left"
+                                        >
+                                          <ArrowLeft className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            setShowBedJogMenu(null);
+                                            homeAxesMutation.mutate('all');
+                                          }}
+                                          disabled={homeAxesMutation.isPending}
+                                          className={jogButtonClass}
+                                          aria-label={t('printers.bedJog.homeZ')}
+                                        >
+                                          <Home className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                                        </button>
+                                        <button
+                                          onClick={() => requestXyJog(bedJogStep, 0)}
+                                          disabled={xyJogMutation.isPending}
+                                          className={jogButtonClass}
+                                          aria-label="Move X right"
+                                        >
+                                          <ArrowRight className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                                        </button>
+                                        <div />
+                                        <button
+                                          onClick={() => requestXyJog(0, -bedJogStep)}
+                                          disabled={xyJogMutation.isPending}
+                                          className={jogButtonClass}
+                                          aria-label="Move Y back"
+                                        >
+                                          <ArrowDown className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                                        </button>
+                                        <div />
+                                      </div>
+                                      <div className="flex flex-col items-center gap-1">
+                                        <button
+                                          onClick={() => requestZJog('up')}
+                                          disabled={bedJogMutation.isPending}
+                                          className={jogButtonClass}
+                                          aria-label={t(zMovesToolhead ? 'printers.bedJog.toolheadUp' : 'printers.bedJog.up')}
+                                        >
+                                          <ArrowUp className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                                        </button>
+                                        <div className="flex h-8 w-8 items-center justify-center text-bambu-gray/80">
+                                          <Layers className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                                        </div>
+                                        <button
+                                          onClick={() => requestZJog('down')}
+                                          disabled={bedJogMutation.isPending}
+                                          className={jogButtonClass}
+                                          aria-label={t(zMovesToolhead ? 'printers.bedJog.toolheadDown' : 'printers.bedJog.down')}
+                                        >
+                                          <ArrowDown className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                                        </button>
+                                      </div>
+                                      <div className="flex flex-col items-center gap-1">
+                                        <button
+                                          onClick={() => requestExtruderJog(-bedJogStep)}
+                                          disabled={extruderJogMutation.isPending}
+                                          className={jogButtonClass}
+                                          aria-label="Retract filament"
+                                        >
+                                          <ArrowUp className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                                        </button>
+                                        <div className="flex h-8 w-8 items-center justify-center text-bambu-gray/80">
+                                          <span className="text-sm font-semibold leading-none">E</span>
+                                        </div>
+                                        <button
+                                          onClick={() => requestExtruderJog(bedJogStep)}
+                                          disabled={extruderJogMutation.isPending}
+                                          className={jogButtonClass}
+                                          aria-label="Extrude filament"
+                                        >
+                                          <ArrowDown className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                                        </button>
+                                      </div>
+                                      </div>
+                                    </div>
+                                    <div className="h-px bg-bambu-dark-tertiary" />
+                                    <div className="px-3 pt-2.5 pb-3">
+                                      <div className="mb-1 text-[length:var(--pc-t9,9px)] uppercase tracking-wider text-bambu-gray/70">
+                                        {t('printers.bedJog.step')}
+                                      </div>
+                                      <div className="flex gap-1">
+                                      {[1, 10, 50].map((step) => (
+                                        <button
+                                          key={step}
+                                          onClick={() => setBedJogStep(step)}
+                                          className={`flex-1 px-1 py-1 rounded text-[length:var(--pc-t10,10px)] transition-colors ${
+                                            bedJogStep === step
+                                              ? 'bg-bambu-green/20 text-bambu-green'
+                                              : 'bg-bambu-dark text-bambu-gray hover:bg-bambu-dark-tertiary'
+                                          }`}
+                                        >
+                                          {step}
+                                        </button>
+                                      ))}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                          {updateGate.render && (
+                        <div className={`inline-flex rounded-lg ${printer.plate_detection_enabled ? 'ring-1 ring-green-500' : ''}`}>
+                          <button
+                            onClick={handleTogglePlateDetection}
+                            disabled={!status.connected || plateDetectionMutation.isPending || !hasPermission('printers:update')}
+                            className={`${iconControlClass} rounded-r-none ${
+                              printer.plate_detection_enabled
+                                ? 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20'
+                                : 'bg-bambu-dark text-bambu-gray/50 hover:bg-bambu-dark-tertiary hover:text-white'
+                            }`}
+                            title={!hasPermission('printers:update') ? t('printers.plateDetection.noPermission') : (printer.plate_detection_enabled ? t('printers.plateDetection.enabledClick') : t('printers.plateDetection.disabledClick'))}
+                          >
+                            {plateDetectionMutation.isPending ? (
+                              <Loader2 className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)] animate-spin" />
+                            ) : (
+                              <ScanSearch className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                            )}
+                          </button>
+                          <button
+                            onClick={handleOpenPlateManagement}
+                            disabled={!status.connected || isCheckingPlate || !hasPermission('printers:update')}
+                            className={`flex h-8 w-8 items-center justify-center rounded-r-lg border-l border-bambu-dark-tertiary transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                              printer.plate_detection_enabled
+                                ? 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20'
+                                : 'bg-bambu-dark text-bambu-gray/50 hover:bg-bambu-dark-tertiary hover:text-white'
+                            }`}
+                            title={!hasPermission('printers:update') ? t('printers.plateDetection.noPermission') : t('printers.plateDetection.manageCalibration')}
+                          >
+                            {isCheckingPlate ? (
+                              <Loader2 className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)] animate-spin" />
+                            ) : (
+                              <ChevronDown className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                            )}
+                          </button>
+                        </div>
+                          )}
+
+                        {/* Print Speed */}
+                          {tuneGate.render && (() => (
                           <div className="relative">
                             <button
-                              onClick={() => setShowAirductMenu(showAirductMenu === printer.id ? null : printer.id)}
-                              disabled={!hasPermission('printers:tune')}
-                              className={`${iconControlClass} ${bg}`}
-                              title={`${t('printers.airduct.title')}: ${isHeating ? t('printers.airduct.heating') : t('printers.airduct.cooling')}`}
+                              data-testid="speed-control"
+                              onClick={() => setShowSpeedMenu(showSpeedMenu === printer.id ? null : printer.id)}
+                              disabled={!isPrinting || !hasPermission('printers:tune')}
+                              className={`${iconControlClass} ${
+                                isPrinting
+                                  ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20'
+                                  : 'bg-bambu-dark text-bambu-gray/50 cursor-not-allowed'
+                              }`}
+                              title={isPrinting ? t('printers.speed.title') : undefined}
                             >
-                              <Icon className={`w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)] ${color}`} />
+                              <Gauge className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
                             </button>
-                            {showAirductMenu === printer.id && (
+                            {showSpeedMenu === printer.id && (
                               <>
-                                <div className="fixed inset-0 z-40" onClick={() => setShowAirductMenu(null)} />
+                                <div className="fixed inset-0 z-40" onClick={() => setShowSpeedMenu(null)} />
                                 <div className="absolute bottom-full left-0 mb-1 z-50 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg shadow-lg py-1 min-w-[130px]">
                                   {([
-                                    { mode: 'cooling', label: t('printers.airduct.cooling'), modeId: 0 },
-                                    { mode: 'heating', label: t('printers.airduct.heating'), modeId: 1 },
-                                  ] as const).map(({ mode, label, modeId }) => (
+                                    { mode: 1, label: t('printers.speed.silent') },
+                                    { mode: 2, label: t('printers.speed.standard') },
+                                    { mode: 3, label: t('printers.speed.sport') },
+                                    { mode: 4, label: t('printers.speed.ludicrous') },
+                                  ] as const).map(({ mode, label }) => (
                                     <button
                                       key={mode}
                                       onClick={() => {
-                                        airductMutation.mutate(mode);
-                                        setShowAirductMenu(null);
+                                        printSpeedMutation.mutate(mode);
+                                        setShowSpeedMenu(null);
                                       }}
-                                      className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2 ${
-                                        status.airduct_mode === modeId
+                                      className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
+                                        status.speed_level === mode
                                           ? 'text-bambu-green bg-bambu-green/10'
                                           : 'text-white hover:bg-bambu-dark-tertiary'
                                       }`}
                                     >
-                                      {mode === 'heating' ? <Flame className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" /> : <Snowflake className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />}
                                       {label}
                                     </button>
                                   ))}
@@ -5237,324 +5513,60 @@ function PrinterCard({
                               </>
                             )}
                           </div>
-                        );
-                      })()}
+                        ))()}
 
-                      {/* Movement — compact badge, popover holds XY, Z, and home controls */}
-                        {motionGate.render && (() => {
-                        const canControl = hasPermission('printers:motion');
-                        const disabled = isPrinting || !canControl;
-                        const jogButtonClass = 'flex h-8 w-8 items-center justify-center rounded bg-indigo-100 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 transition-colors hover:bg-indigo-200 dark:hover:bg-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-50';
-                        // Which part the Z axis moves (#1334). The endpoint takes a signed
-                        // nozzle-bed gap that means the same thing on every printer, so the
-                        // arrows are ours to interpret: on a bed-slinger "up" lifts the
-                        // toolhead and opens the gap, on a bed-on-Z printer it raises the
-                        // plate toward the nozzle and closes it.
-                        const zMovesToolhead = isBedSlinger(printer.model);
-                        const requestZJog = (arrow: 'up' | 'down') => {
-                          const opensGap = zMovesToolhead ? arrow === 'up' : arrow === 'down';
-                          // No not-homed gate here, and no endstop bypass to gate either:
-                          // since #2579 the jog is a bare move that never touches M211. That
-                          // does not make it clamped — the firmware ignores soft endstops on
-                          // MQTT G-code entirely, which is what the banner above warns about.
-                          bedJogMutation.mutate({ distance: opensGap ? bedJogStep : -bedJogStep });
-                        };
-                        const requestXyJog = (x: number, y: number) => {
-                          xyJogMutation.mutate({ x, y });
-                        };
-                        const requestExtruderJog = (distance: number) => {
-                          extruderJogMutation.mutate(distance);
-                        };
-                        return (
-                          <div className="relative">
-                            <button
-                              onClick={() => setShowBedJogMenu(showBedJogMenu === printer.id ? null : printer.id)}
-                              disabled={disabled}
-                              className={`${iconControlClass} ${
-                                disabled
-                                  ? 'bg-bambu-dark text-bambu-gray/50 cursor-not-allowed'
-                                  : 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-500/20'
-                              }`}
-                              title={!canControl ? t('printers.permission.noControl') : isPrinting ? t('printers.bedJog.disabledWhilePrinting') : t('printers.bedJog.title')}
-                            >
-                              <Move className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                            </button>
-                            {showBedJogMenu === printer.id && (
-                              <>
-                                <div className="fixed inset-0 z-40" onClick={() => setShowBedJogMenu(null)} />
-                                <div className="absolute bottom-full left-0 mb-1 z-50 flex w-[216px] flex-col overflow-hidden rounded-xl border border-bambu-dark-tertiary bg-bambu-dark-secondary shadow-2xl">
-                                  <div className="shrink-0 px-3 py-2.5 text-center text-sm font-medium text-white">
-                                    {t('printers.bedJog.title')}
-                                  </div>
-                                  <div className="h-px bg-bambu-dark-tertiary" />
-                                  {/* #2579: Bambu firmware does not enforce soft endstops on
-                                      G-code sent over MQTT, so manual moves can drive past the
-                                      travel limits and cause a collision. Not fixable from our
-                                      side — warn prominently. */}
-                                  <div className="flex items-start gap-1.5 bg-yellow-500/10 px-3 py-2 text-[length:var(--pc-t11,11px)] leading-snug text-yellow-700 dark:text-yellow-400">
-                                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                                    <span>{t('printers.bedJog.limitWarning')}</span>
-                                  </div>
-                                  <div className="h-px bg-bambu-dark-tertiary" />
-                                  <div className="flex justify-center px-3 py-2.5">
-                                    <div className="flex items-center justify-center gap-3">
-                                    <div className="grid grid-cols-3 gap-1">
-                                      <div />
-                                      <button
-                                        onClick={() => requestXyJog(0, bedJogStep)}
-                                        disabled={xyJogMutation.isPending}
-                                        className={jogButtonClass}
-                                        aria-label="Move Y forward"
-                                      >
-                                        <ArrowUp className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                                      </button>
-                                      <div />
-                                      <button
-                                        onClick={() => requestXyJog(-bedJogStep, 0)}
-                                        disabled={xyJogMutation.isPending}
-                                        className={jogButtonClass}
-                                        aria-label="Move X left"
-                                      >
-                                        <ArrowLeft className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                                      </button>
-                                      <button
-                                        onClick={() => {
-                                          setShowBedJogMenu(null);
-                                          homeAxesMutation.mutate('all');
-                                        }}
-                                        disabled={homeAxesMutation.isPending}
-                                        className={jogButtonClass}
-                                        aria-label={t('printers.bedJog.homeZ')}
-                                      >
-                                        <Home className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                                      </button>
-                                      <button
-                                        onClick={() => requestXyJog(bedJogStep, 0)}
-                                        disabled={xyJogMutation.isPending}
-                                        className={jogButtonClass}
-                                        aria-label="Move X right"
-                                      >
-                                        <ArrowRight className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                                      </button>
-                                      <div />
-                                      <button
-                                        onClick={() => requestXyJog(0, -bedJogStep)}
-                                        disabled={xyJogMutation.isPending}
-                                        className={jogButtonClass}
-                                        aria-label="Move Y back"
-                                      >
-                                        <ArrowDown className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                                      </button>
-                                      <div />
-                                    </div>
-                                    <div className="flex flex-col items-center gap-1">
-                                      <button
-                                        onClick={() => requestZJog('up')}
-                                        disabled={bedJogMutation.isPending}
-                                        className={jogButtonClass}
-                                        aria-label={t(zMovesToolhead ? 'printers.bedJog.toolheadUp' : 'printers.bedJog.up')}
-                                      >
-                                        <ArrowUp className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                                      </button>
-                                      <div className="flex h-8 w-8 items-center justify-center text-bambu-gray/80">
-                                        <Layers className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                                      </div>
-                                      <button
-                                        onClick={() => requestZJog('down')}
-                                        disabled={bedJogMutation.isPending}
-                                        className={jogButtonClass}
-                                        aria-label={t(zMovesToolhead ? 'printers.bedJog.toolheadDown' : 'printers.bedJog.down')}
-                                      >
-                                        <ArrowDown className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                                      </button>
-                                    </div>
-                                    <div className="flex flex-col items-center gap-1">
-                                      <button
-                                        onClick={() => requestExtruderJog(-bedJogStep)}
-                                        disabled={extruderJogMutation.isPending}
-                                        className={jogButtonClass}
-                                        aria-label="Retract filament"
-                                      >
-                                        <ArrowUp className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                                      </button>
-                                      <div className="flex h-8 w-8 items-center justify-center text-bambu-gray/80">
-                                        <span className="text-sm font-semibold leading-none">E</span>
-                                      </div>
-                                      <button
-                                        onClick={() => requestExtruderJog(bedJogStep)}
-                                        disabled={extruderJogMutation.isPending}
-                                        className={jogButtonClass}
-                                        aria-label="Extrude filament"
-                                      >
-                                        <ArrowDown className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                                      </button>
-                                    </div>
-                                    </div>
-                                  </div>
-                                  <div className="h-px bg-bambu-dark-tertiary" />
-                                  <div className="px-3 pt-2.5 pb-3">
-                                    <div className="mb-1 text-[length:var(--pc-t9,9px)] uppercase tracking-wider text-bambu-gray/70">
-                                      {t('printers.bedJog.step')}
-                                    </div>
-                                    <div className="flex gap-1">
-                                    {[1, 10, 50].map((step) => (
-                                      <button
-                                        key={step}
-                                        onClick={() => setBedJogStep(step)}
-                                        className={`flex-1 px-1 py-1 rounded text-[length:var(--pc-t10,10px)] transition-colors ${
-                                          bedJogStep === step
-                                            ? 'bg-bambu-green/20 text-bambu-green'
-                                            : 'bg-bambu-dark text-bambu-gray hover:bg-bambu-dark-tertiary'
-                                        }`}
-                                      >
-                                        {step}
-                                      </button>
-                                    ))}
-                                    </div>
-                                  </div>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        );
-                      })()}
-
-                        {updateGate.render && (
-                      <div className={`inline-flex rounded-lg ${printer.plate_detection_enabled ? 'ring-1 ring-green-500' : ''}`}>
-                        <button
-                          onClick={handleTogglePlateDetection}
-                          disabled={!status.connected || plateDetectionMutation.isPending || !hasPermission('printers:update')}
-                          className={`${iconControlClass} rounded-r-none ${
-                            printer.plate_detection_enabled
-                              ? 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20'
-                              : 'bg-bambu-dark text-bambu-gray/50 hover:bg-bambu-dark-tertiary hover:text-white'
-                          }`}
-                          title={!hasPermission('printers:update') ? t('printers.plateDetection.noPermission') : (printer.plate_detection_enabled ? t('printers.plateDetection.enabledClick') : t('printers.plateDetection.disabledClick'))}
-                        >
-                          {plateDetectionMutation.isPending ? (
-                            <Loader2 className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)] animate-spin" />
-                          ) : (
-                            <ScanSearch className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                          )}
-                        </button>
-                        <button
-                          onClick={handleOpenPlateManagement}
-                          disabled={!status.connected || isCheckingPlate || !hasPermission('printers:update')}
-                          className={`flex h-8 w-8 items-center justify-center rounded-r-lg border-l border-bambu-dark-tertiary transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                            printer.plate_detection_enabled
-                              ? 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20'
-                              : 'bg-bambu-dark text-bambu-gray/50 hover:bg-bambu-dark-tertiary hover:text-white'
-                          }`}
-                          title={!hasPermission('printers:update') ? t('printers.plateDetection.noPermission') : t('printers.plateDetection.manageCalibration')}
-                        >
-                          {isCheckingPlate ? (
-                            <Loader2 className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)] animate-spin" />
-                          ) : (
-                            <ChevronDown className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                          )}
-                        </button>
                       </div>
-                        )}
-
-                      {/* Print Speed */}
-                        {controlGate.render && (() => (
-                        <div className="relative">
-                          <button
-                            data-testid="speed-control"
-                            onClick={() => setShowSpeedMenu(showSpeedMenu === printer.id ? null : printer.id)}
-                            disabled={!isPrinting || !hasPermission('printers:tune')}
-                            className={`${iconControlClass} ${
-                              isPrinting
-                                ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20'
-                                : 'bg-bambu-dark text-bambu-gray/50 cursor-not-allowed'
-                            }`}
-                            title={isPrinting ? t('printers.speed.title') : undefined}
-                          >
-                            <Gauge className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                          </button>
-                          {showSpeedMenu === printer.id && (
-                            <>
-                              <div className="fixed inset-0 z-40" onClick={() => setShowSpeedMenu(null)} />
-                              <div className="absolute bottom-full left-0 mb-1 z-50 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg shadow-lg py-1 min-w-[130px]">
-                                {([
-                                  { mode: 1, label: t('printers.speed.silent') },
-                                  { mode: 2, label: t('printers.speed.standard') },
-                                  { mode: 3, label: t('printers.speed.sport') },
-                                  { mode: 4, label: t('printers.speed.ludicrous') },
-                                ] as const).map(({ mode, label }) => (
-                                  <button
-                                    key={mode}
-                                    onClick={() => {
-                                      printSpeedMutation.mutate(mode);
-                                      setShowSpeedMenu(null);
-                                    }}
-                                    className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
-                                      status.speed_level === mode
-                                        ? 'text-bambu-green bg-bambu-green/10'
-                                        : 'text-white hover:bg-bambu-dark-tertiary'
-                                    }`}
-                                  >
-                                    {label}
-                                  </button>
-                                ))}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      ))()}
-
-                    </div>
                     )}
 
                     {/* Right: Print Control Buttons */}
                     {showPrintControls && (
-                    <div className="ml-auto flex items-center justify-end gap-2 flex-shrink-0">
-                      {/* Pause/Resume button */}
-                      {(() => {
-                        const pauseUnavailable = !isPrinting || isControlBusy || !hasPermission('printers:pause_resume');
-                        return (
-                      <button
-                        onClick={() => isPaused ? setShowResumeConfirm(true) : setShowPauseConfirm(true)}
-                        disabled={pauseUnavailable}
-                        className={`
-                          ${printControlClass}
-                          ${pauseUnavailable
-                            ? unavailablePrintActionClass
-                            : isPaused
-                              ? 'bg-bambu-green/20 text-bambu-green hover:bg-bambu-green/30'
-                              : 'bg-yellow-100 dark:bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 hover:bg-yellow-500/30'
-                          }
-                        `}
-                        title={!hasPermission('printers:pause_resume') ? t('printers.permission.noControl') : (isPaused ? t('printers.resume') : t('printers.pause'))}
-                      >
-                        {isPaused ? <Play className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" /> : <Pause className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />}
-                        {isPaused ? t('printers.resume') : t('printers.pause')}
-                      </button>
-                        );
-                      })()}
+                      <div className="ml-auto flex items-center justify-end gap-2 flex-shrink-0">
+                        {/* Pause/Resume button */}
+                        {pauseResumeGate.render && (() => {
+                          const pauseUnavailable = !isPrinting || isControlBusy || !hasPermission('printers:pause_resume');
+                          return (
+                        <button
+                          onClick={() => isPaused ? setShowResumeConfirm(true) : setShowPauseConfirm(true)}
+                          disabled={pauseUnavailable}
+                          className={`
+                            ${printControlClass}
+                            ${pauseUnavailable
+                              ? unavailablePrintActionClass
+                              : isPaused
+                                ? 'bg-bambu-green/20 text-bambu-green hover:bg-bambu-green/30'
+                                : 'bg-yellow-100 dark:bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 hover:bg-yellow-500/30'
+                            }
+                          `}
+                          title={!hasPermission('printers:pause_resume') ? t('printers.permission.noControl') : (isPaused ? t('printers.resume') : t('printers.pause'))}
+                        >
+                          {isPaused ? <Play className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" /> : <Pause className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />}
+                          {isPaused ? t('printers.resume') : t('printers.pause')}
+                        </button>
+                          );
+                        })()}
 
-                      {/* Stop button */}
-                      {(() => {
-                        const stopUnavailable = !isPrinting || isControlBusy || !hasPermission('printers:stop');
-                        return (
-                      <button
-                        onClick={() => setShowStopConfirm(true)}
-                        disabled={stopUnavailable}
-                        className={`
-                          ${printControlClass}
-                          ${stopUnavailable
-                            ? unavailablePrintActionClass
-                            : 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400 hover:bg-red-500/30'
-                          }
-                        `}
-                        title={!hasPermission('printers:stop') ? t('printers.permission.noControl') : t('printers.stop')}
-                      >
-                        <Square className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                        {t('printers.stop')}
-                      </button>
-                        );
-                      })()}
-                    </div>
+                        {/* Stop button */}
+                        {stopGate.render && (() => {
+                          const stopUnavailable = !isPrinting || isControlBusy || !hasPermission('printers:stop');
+                          return (
+                        <button
+                          onClick={() => setShowStopConfirm(true)}
+                          disabled={stopUnavailable}
+                          className={`
+                            ${printControlClass}
+                            ${stopUnavailable
+                              ? unavailablePrintActionClass
+                              : 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400 hover:bg-red-500/30'
+                            }
+                          `}
+                          title={!hasPermission('printers:stop') ? t('printers.permission.noControl') : t('printers.stop')}
+                        >
+                          <Square className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+                          {t('printers.stop')}
+                        </button>
+                          );
+                        })()}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -5779,7 +5791,7 @@ function PrinterCard({
                                       : ams.dry_filament}
                                   </span>
                                 )}
-                                {!status.drying_screen_only && (
+                                {!status.drying_screen_only && dryingGate.render && (
                                   <button
                                     onClick={() => stopDryingMutation.mutate(ams.id)}
                                     disabled={stopDryingMutation.isPending || !hasPermission('printers:drying')}
@@ -5815,7 +5827,7 @@ function PrinterCard({
                                 </span>
                                 {/* A cycle on a screen-only model was started at the printer
                                     and can only be stopped there (#2533). */}
-                                {!status.drying_screen_only && (
+                                {!status.drying_screen_only && dryingGate.render && (
                                   <button
                                     onClick={() => stopDryingMutation.mutate(ams.id)}
                                     disabled={stopDryingMutation.isPending || !hasPermission('printers:drying')}
@@ -6412,7 +6424,7 @@ function PrinterCard({
                                       : `${ams.dry_time}m`}
                                   </span>
                                 )}
-                                {!status.drying_screen_only && (
+                                {!status.drying_screen_only && dryingGate.render && (
                                   <button
                                     onClick={() => stopDryingMutation.mutate(ams.id)}
                                     disabled={stopDryingMutation.isPending || !hasPermission('printers:drying')}
@@ -6949,43 +6961,43 @@ function PrinterCard({
               <div className="flex-1" />
 
               {smartPlugGate.render && (
-              <div className="flex items-center gap-2">
-                {/* Auto-off */}
-                <button
-                  onClick={() => toggleAutoOffMutation.mutate(!smartPlug.auto_off)}
-                  disabled={toggleAutoOffMutation.isPending || smartPlug.auto_off_executed || !hasPermission('smart_plugs:control')}
-                  title={!hasPermission('smart_plugs:control') ? t('printers.permission.noSmartPlugControl') : (smartPlug.auto_off_executed ? t('printers.autoOffExecuted') : t('printers.autoOffAfterPrint'))}
-                  className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-xs font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                    !hasPermission('smart_plugs:control')
-                      ? 'bg-bambu-dark-tertiary/50 text-bambu-gray/50'
-                      : smartPlug.auto_off || smartPlug.auto_off_executed
-                        ? 'bg-bambu-green/20 text-bambu-green hover:bg-bambu-green/30'
-                        : 'bg-bambu-dark-tertiary text-bambu-gray hover:text-white hover:bg-bambu-dark-tertiary/80'
-                  }`}
-                >
-                  <Clock className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                </button>
-                <button
-                  onClick={() => {
-                    if (plugStatus?.state === 'ON') {
-                      setShowPowerOffConfirm(true);
-                    } else {
-                      setShowPowerOnConfirm(true);
-                    }
-                  }}
-                  disabled={powerControlMutation.isPending || !hasPermission('smart_plugs:control')}
-                  className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                    !hasPermission('smart_plugs:control')
-                      ? 'bg-bambu-dark-tertiary/50 text-bambu-gray/50'
-                      : plugStatus?.state === 'ON'
-                        ? 'bg-bambu-green/20 text-bambu-green hover:bg-bambu-green/30'
-                        : 'bg-bambu-dark-tertiary text-bambu-gray hover:text-white hover:bg-bambu-dark-tertiary/80'
-                  }`}
-                  title={!hasPermission('smart_plugs:control') ? t('printers.permission.noSmartPlugControl') : (plugStatus?.state === 'ON' ? 'Turn off' : 'Turn on')}
-                >
-                  <Zap className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                </button>
-              </div>
+                <div className="flex items-center gap-2">
+                  {/* Auto-off */}
+                  <button
+                    onClick={() => toggleAutoOffMutation.mutate(!smartPlug.auto_off)}
+                    disabled={toggleAutoOffMutation.isPending || smartPlug.auto_off_executed || !hasPermission('smart_plugs:control')}
+                    title={!hasPermission('smart_plugs:control') ? t('printers.permission.noSmartPlugControl') : (smartPlug.auto_off_executed ? t('printers.autoOffExecuted') : t('printers.autoOffAfterPrint'))}
+                    className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-xs font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                      !hasPermission('smart_plugs:control')
+                        ? 'bg-bambu-dark-tertiary/50 text-bambu-gray/50'
+                        : smartPlug.auto_off || smartPlug.auto_off_executed
+                          ? 'bg-bambu-green/20 text-bambu-green hover:bg-bambu-green/30'
+                          : 'bg-bambu-dark-tertiary text-bambu-gray hover:text-white hover:bg-bambu-dark-tertiary/80'
+                    }`}
+                  >
+                    <Clock className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (plugStatus?.state === 'ON') {
+                        setShowPowerOffConfirm(true);
+                      } else {
+                        setShowPowerOnConfirm(true);
+                      }
+                    }}
+                    disabled={powerControlMutation.isPending || !hasPermission('smart_plugs:control')}
+                    className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                      !hasPermission('smart_plugs:control')
+                        ? 'bg-bambu-dark-tertiary/50 text-bambu-gray/50'
+                        : plugStatus?.state === 'ON'
+                          ? 'bg-bambu-green/20 text-bambu-green hover:bg-bambu-green/30'
+                          : 'bg-bambu-dark-tertiary text-bambu-gray hover:text-white hover:bg-bambu-dark-tertiary/80'
+                    }`}
+                    title={!hasPermission('smart_plugs:control') ? t('printers.permission.noSmartPlugControl') : (plugStatus?.state === 'ON' ? 'Turn off' : 'Turn on')}
+                  >
+                    <Zap className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                  </button>
+                </div>
               )}
             </div>
 
@@ -7040,40 +7052,40 @@ function PrinterCard({
                     made choosing between an overlay and a window a trip to
                     another page for something you decide per camera. */}
                 {cameraGate.render && (
-                <div className="flex items-center flex-shrink-0">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => openCameraIn(cameraViewMode)}
-                    disabled={!status?.connected || !hasPermission('camera:view')}
-                    title={!hasPermission('camera:view') ? t('printers.permission.noCamera') : (cameraViewMode === 'embedded' ? t('printers.openCameraOverlay') : t('printers.openCameraWindow'))}
-                    className={webApp ? footerIconButtonClass : `${footerIconButtonClass} !rounded-r-none`}
-                  >
-                    <Video className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                  </Button>
-                  {/* A home-screen web app has only the overlay (#3419). */}
-                  {!webApp && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={(e) => {
-                      // No open/close toggle: the menu's own outside-mousedown
-                      // handler has already dismissed it by the time this lands.
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      setCameraMenuAnchor({ x: rect.left, y: rect.bottom + 4 });
-                    }}
-                    disabled={!status?.connected || !hasPermission('camera:view')}
-                    title={!hasPermission('camera:view') ? t('printers.permission.noCamera') : t('settings.cameraViewMode')}
-                    aria-label={t('settings.cameraViewMode')}
-                    // Not footerIconButtonClass plus an override: both widths
-                    // would carry !important and the stylesheet's own order,
-                    // not this one, would decide which won.
-                    className="!h-8 !min-h-8 !w-6 !px-0 !py-0 !rounded-l-none border-l border-bambu-dark"
-                  >
-                    <ChevronDown className="w-3 h-3" />
-                  </Button>
-                  )}
-                </div>
+                  <div className="flex items-center flex-shrink-0">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => openCameraIn(cameraViewMode)}
+                      disabled={!status?.connected || !hasPermission('camera:view')}
+                      title={!hasPermission('camera:view') ? t('printers.permission.noCamera') : (cameraViewMode === 'embedded' ? t('printers.openCameraOverlay') : t('printers.openCameraWindow'))}
+                      className={webApp ? footerIconButtonClass : `${footerIconButtonClass} !rounded-r-none`}
+                    >
+                      <Video className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                    </Button>
+                    {/* A home-screen web app has only the overlay (#3419). */}
+                    {!webApp && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={(e) => {
+                        // No open/close toggle: the menu's own outside-mousedown
+                        // handler has already dismissed it by the time this lands.
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setCameraMenuAnchor({ x: rect.left, y: rect.bottom + 4 });
+                      }}
+                      disabled={!status?.connected || !hasPermission('camera:view')}
+                      title={!hasPermission('camera:view') ? t('printers.permission.noCamera') : t('settings.cameraViewMode')}
+                      aria-label={t('settings.cameraViewMode')}
+                      // Not footerIconButtonClass plus an override: both widths
+                      // would carry !important and the stylesheet's own order,
+                      // not this one, would decide which won.
+                      className="!h-8 !min-h-8 !w-6 !px-0 !py-0 !rounded-l-none border-l border-bambu-dark"
+                    >
+                      <ChevronDown className="w-3 h-3" />
+                    </Button>
+                    )}
+                  </div>
                 )}
                 {cameraMenuAnchor && !webApp && (
                   <ContextMenu
@@ -7084,16 +7096,16 @@ function PrinterCard({
                   />
                 )}
                 {filesGate.render && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setShowFileManager(true)}
-                  disabled={!hasPermission('printers:files')}
-                  title={!hasPermission('printers:files') ? t('printers.permission.noFiles') : t('printers.browseFiles')}
-                  className={footerIconButtonClass}
-                >
-                  <HardDrive className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setShowFileManager(true)}
+                    disabled={!hasPermission('printers:files')}
+                    title={!hasPermission('printers:files') ? t('printers.permission.noFiles') : t('printers.browseFiles')}
+                    className={footerIconButtonClass}
+                  >
+                    <HardDrive className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                  </Button>
                 )}
                 {/* Shown whatever the printer is doing (#2849): this uploads a
                     file and queues it, which a busy or offline printer is no
@@ -7101,22 +7113,22 @@ function PrinterCard({
                     while the drop zone accepted the same file would have left
                     the two routes into this flow disagreeing. */}
                 {uploadGate.render && queueGate.render && (
-                <Button
-                  size="sm"
-                  onClick={() => setShowUploadForPrint(true)}
-                  disabled={!hasPermission('library:upload') || !hasPermission('queue:create')}
-                  title={
-                    !hasPermission('library:upload')
-                      ? t('fileManager.noPermissionUpload')
-                      : !hasPermission('queue:create')
-                        ? t('fileManager.noPermissionAddToQueue')
-                        : t('common.print')
-                  }
-                  className={`${footerActionButtonClass} !bg-bambu-green hover:!bg-bambu-green/80 !text-white`}
-                >
-                  <PrinterIcon className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                  {t('common.print')}
-                </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => setShowUploadForPrint(true)}
+                    disabled={!hasPermission('library:upload') || !hasPermission('queue:create')}
+                    title={
+                      !hasPermission('library:upload')
+                        ? t('fileManager.noPermissionUpload')
+                        : !hasPermission('queue:create')
+                          ? t('fileManager.noPermissionAddToQueue')
+                          : t('common.print')
+                    }
+                    className={`${footerActionButtonClass} !bg-bambu-green hover:!bg-bambu-green/80 !text-white`}
+                  >
+                    <PrinterIcon className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                    {t('common.print')}
+                  </Button>
                 )}
               </div>
             </div>
@@ -10280,22 +10292,22 @@ export function PrintersPage() {
     <>
       {/* Bulk select toggle */}
       {bulkSelectGate.render && (
-      <button
-        onClick={() => {
-          if (selectionMode) clearSelection();
-          else setIsSelectionMode(true);
-        }}
-        className={`h-8 px-2 rounded-lg border transition-colors ${inMenu ? 'w-full justify-center gap-1.5 text-sm font-medium flex items-center' : ''} ${
-          selectionMode
-            ? 'bg-bambu-green border-bambu-green text-white'
-            : 'bg-bambu-dark border-bambu-dark-tertiary text-white hover:bg-bambu-dark-tertiary'
-        }`}
-        title={t('printers.bulk.select')}
-        disabled={!hasAnyPermission('printers:pause_resume', 'printers:stop', 'printers:maintenance', 'printers:clear_plate')}
-      >
-        <CheckSquare className="w-4 h-4" />
-        {inMenu && <span>{t('printers.bulk.select')}</span>}
-      </button>
+        <button
+          onClick={() => {
+            if (selectionMode) clearSelection();
+            else setIsSelectionMode(true);
+          }}
+          className={`h-8 px-2 rounded-lg border transition-colors ${inMenu ? 'w-full justify-center gap-1.5 text-sm font-medium flex items-center' : ''} ${
+            selectionMode
+              ? 'bg-bambu-green border-bambu-green text-white'
+              : 'bg-bambu-dark border-bambu-dark-tertiary text-white hover:bg-bambu-dark-tertiary'
+          }`}
+          title={t('printers.bulk.select')}
+          disabled={!hasAnyPermission('printers:pause_resume', 'printers:stop', 'printers:maintenance', 'printers:clear_plate')}
+        >
+          <CheckSquare className="w-4 h-4" />
+          {inMenu && <span>{t('printers.bulk.select')}</span>}
+        </button>
       )}
 
       {/* Power dropdown for offline printers with smart plugs */}
@@ -10349,15 +10361,15 @@ export function PrintersPage() {
         </div>
       )}
       {addPrinterGate.render && (
-      <Button
-        onClick={() => setShowAddModal(true)}
-        disabled={!hasPermission('printers:create')}
-        title={!hasPermission('printers:create') ? t('printers.permission.noAdd') : undefined}
-        className={`!h-8 !min-h-8 px-2 py-0 ${inMenu ? 'w-full' : ''}`}
-      >
-        <Plus className="w-4 h-4" />
-        {t('printers.addPrinter')}
-      </Button>
+        <Button
+          onClick={() => setShowAddModal(true)}
+          disabled={!hasPermission('printers:create')}
+          title={!hasPermission('printers:create') ? t('printers.permission.noAdd') : undefined}
+          className={`!h-8 !min-h-8 px-2 py-0 ${inMenu ? 'w-full' : ''}`}
+        >
+          <Plus className="w-4 h-4" />
+          {t('printers.addPrinter')}
+        </Button>
       )}
     </>
   );
@@ -10428,9 +10440,9 @@ export function PrintersPage() {
                 <div className="flex w-48 flex-col gap-2">{renderViewControls(true)}</div>
               </ToolbarMenu>
               {showActionControls && (
-              <ToolbarMenu label={t('printers.toolbar.actions', 'Actions')} icon={<MoreHorizontal className="w-4 h-4" />}>
-                <div className="flex w-48 flex-col gap-2">{renderActionControls(true)}</div>
-              </ToolbarMenu>
+                <ToolbarMenu label={t('printers.toolbar.actions', 'Actions')} icon={<MoreHorizontal className="w-4 h-4" />}>
+                  <div className="flex w-48 flex-col gap-2">{renderActionControls(true)}</div>
+                </ToolbarMenu>
               )}
             </div>
           )}
@@ -10444,14 +10456,14 @@ export function PrintersPage() {
           <CardContent className="text-center py-12">
             <p className="text-bambu-gray mb-4">{t('printers.noPrintersConfigured')}</p>
             {addPrinterGate.render && (
-            <Button
-              onClick={() => setShowAddModal(true)}
-              disabled={!hasPermission('printers:create')}
-              title={!hasPermission('printers:create') ? t('printers.permission.noAdd') : undefined}
-            >
-              <Plus className="w-4 h-4" />
-              {t('printers.addPrinter')}
-            </Button>
+              <Button
+                onClick={() => setShowAddModal(true)}
+                disabled={!hasPermission('printers:create')}
+                title={!hasPermission('printers:create') ? t('printers.permission.noAdd') : undefined}
+              >
+                <Plus className="w-4 h-4" />
+                {t('printers.addPrinter')}
+              </Button>
             )}
           </CardContent>
         </Card>

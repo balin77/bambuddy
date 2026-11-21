@@ -120,7 +120,7 @@ function getHMSHomeUrl(): string {
 }
 
 export function HMSErrorModal({ printerName, errors, onClose, printerId, hasPermission, hideUnpermitted = false, runoutGuidance }: HMSErrorModalProps) {
-  const showControls = hasPermission('printers:control') || !hideUnpermitted;
+  const showControls = hasPermission('printers:maintenance') || !hideUnpermitted;
   const { t } = useTranslation();
   const { showToast } = useToast();
   const queryClient = useQueryClient();

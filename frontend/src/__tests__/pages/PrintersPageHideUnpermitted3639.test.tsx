@@ -185,7 +185,7 @@ describe('PrintersPage hides controls a restricted user cannot use (#3639)', () 
     });
 
     it('shows the controls the user does have, and keeps one that is disabled for another reason', async () => {
-      auth.granted = new Set(['printers:read', 'printers:control', 'printers:clear_plate']);
+      auth.granted = new Set(['printers:read', 'printers:tune', 'printers:stop', 'printers:clear_plate']);
       setup({ awaiting_plate_clear: true });
       await waitForBed();
 
@@ -335,8 +335,8 @@ describe('PrintersPage hides controls a restricted user cannot use (#3639)', () 
       expect(screen.getByRole('button', { name: /^Print$/ })).toBeEnabled();
     });
 
-    it('keeps a readout tile clickable for a user who may control the printer', async () => {
-      auth.granted = new Set(['printers:read', 'printers:control']);
+    it('keeps a readout tile clickable for a user who may tune the printer', async () => {
+      auth.granted = new Set(['printers:read', 'printers:tune']);
       setup();
       const bed = (await screen.findByText('Bed')).parentElement!;
       expect(bed.className).toContain('cursor-pointer');
@@ -370,7 +370,7 @@ describe('PrintersPage hides controls a restricted user cannot use (#3639)', () 
 
     it('keeps the button and its reserved space with the permission', async () => {
       auth.hide = true;
-      auth.granted = new Set(['printers:read', 'printers:control']);
+      auth.granted = new Set(['printers:read', 'printers:stop']);
       server.use(objects());
       setup(printing);
       expect(await screen.findByText('2')).toBeInTheDocument();
@@ -434,6 +434,128 @@ describe('PrintersPage hides controls a restricted user cannot use (#3639)', () 
       auth.granted = new Set(['printers:read', 'firmware:update']);
       await openDialog();
       expect(screen.getByText('Available versions')).toBeInTheDocument();
+    });
+  });
+
+  describe('farm: the fine printer permissions (#3248)', () => {
+    const emptyChanger = { ...printer, plate_capacity: 5, plates_remaining: 0 };
+    const REFILL = 'Refilled / Emptied';
+    const scheduledRow = {
+      id: 1,
+      printer_id: 4,
+      ams_id: 0,
+      temp: 45,
+      duration_hours: 12,
+      filament: 'PLA',
+      rotate_tray: false,
+      start_after: '2026-07-25T23:24:00',
+      status: 'pending',
+      waiting_reason: null,
+      error_message: null,
+      created_at: '2026-07-25T20:00:00',
+      started_at: null,
+      completed_at: null,
+    };
+
+    beforeEach(() => {
+      auth.hide = true;
+    });
+
+    it('a helper with pause/resume and clear plate sees Pause and no Stop, and no left-hand controls', async () => {
+      auth.granted = new Set(['printers:read', 'printers:pause_resume', 'printers:clear_plate']);
+      setup({ awaiting_plate_clear: true });
+      await waitForBed();
+
+      expect(screen.getByText('Controls')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Pause' })).toBeDisabled();
+      expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
+      expect(screen.queryByTitle(LIGHT)).toBeNull();
+      expect(screen.queryByTestId('speed-control')).toBeNull();
+      expect(screen.getByRole('button', { name: CLEAR_PLATE })).toBeEnabled();
+      // Reconnect needs printers:admin, Edit and Delete their own rights
+      fireEvent.click(screen.getByTitle(/more/i));
+      expect(await screen.findByText('Printer Information')).toBeInTheDocument();
+      expect(screen.queryByText('Reconnect')).toBeNull();
+      expect(screen.queryByText('Delete')).toBeNull();
+    });
+
+    it('a helper with only stop gets the Stop group and no Pause', async () => {
+      auth.granted = new Set(['printers:read', 'printers:stop']);
+      setup();
+      await waitForBed();
+
+      expect(screen.getByRole('button', { name: 'Stop' })).toBeDisabled();
+      expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull();
+    });
+
+    it('a helper with only tune gets the left-hand tiles and no print buttons', async () => {
+      auth.granted = new Set(['printers:read', 'printers:tune']);
+      setup();
+      await waitForBed();
+
+      expect(screen.getByText('Controls')).toBeInTheDocument();
+      expect(screen.getByTitle(LIGHT)).toBeEnabled();
+      expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
+    });
+
+    it('leaves out the Refill button of an empty plate changer without clear plate, and keeps the count', async () => {
+      auth.granted = new Set(['printers:read']);
+      setup({}, [emptyChanger]);
+      await waitForBed();
+
+      expect(screen.queryByRole('button', { name: REFILL })).toBeNull();
+      // The chip stays as a read-only count
+      expect(screen.getAllByText('0/5').length).toBeGreaterThan(0);
+      expect(screen.queryAllByRole('button').filter((b) => b.textContent?.includes('0/5'))).toHaveLength(0);
+    });
+
+    it('keeps the Refill button with clear plate, and greyed out without the option', async () => {
+      auth.granted = new Set(['printers:read', 'printers:clear_plate']);
+      setup({}, [emptyChanger]);
+      await waitForBed();
+      expect(screen.getByRole('button', { name: REFILL })).toBeEnabled();
+    });
+
+    it('greys the Refill button out when the option is off', async () => {
+      auth.hide = false;
+      auth.granted = new Set(['printers:read']);
+      setup({}, [emptyChanger]);
+      await waitForBed();
+      expect(screen.getByRole('button', { name: REFILL })).toBeDisabled();
+    });
+
+    it('the scheduled-drying banner has no cancel button without printers:drying', async () => {
+      auth.granted = new Set(['printers:read']);
+      server.use(http.get('/api/v1/scheduled-dryings', () => HttpResponse.json([scheduledRow])));
+      setup();
+      await screen.findByTestId('scheduled-drying-pending');
+      expect(screen.queryByTitle('Cancel scheduled drying')).toBeNull();
+      expect(screen.queryByTitle(NO_CONTROL)).toBeNull();
+    });
+
+    it('the scheduled-drying banner keeps its cancel button with printers:drying, and greyed without the option', async () => {
+      auth.granted = new Set(['printers:read', 'printers:drying']);
+      server.use(http.get('/api/v1/scheduled-dryings', () => HttpResponse.json([scheduledRow])));
+      setup();
+      await screen.findByTestId('scheduled-drying-pending');
+      expect(screen.getByTitle('Cancel scheduled drying')).toBeEnabled();
+    });
+
+    it('the scheduled-drying cancel button is greyed out when the option is off', async () => {
+      auth.hide = false;
+      auth.granted = new Set(['printers:read']);
+      server.use(http.get('/api/v1/scheduled-dryings', () => HttpResponse.json([scheduledRow])));
+      setup();
+      const banner = await screen.findByTestId('scheduled-drying-pending');
+      expect(within(banner).getByTitle(NO_CONTROL)).toBeDisabled();
+    });
+
+    it('offers bulk select to a user with any of the four printer rights', async () => {
+      auth.granted = new Set(['printers:read', 'printers:maintenance']);
+      setup();
+      await waitForBed();
+      expect(screen.getByTitle('Select')).toBeInTheDocument();
     });
   });
 

@@ -160,7 +160,7 @@ def _apply_hide_unpermitted_controls(group: Group, hide: bool | None) -> None:
     """
     if hide is None or hide == bool(group.hide_unpermitted_controls):
         return
-    if hide and group.name == ADMIN_GROUP_NAME:
+    if hide and group.name == "Administrators":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Administrators always see every control",

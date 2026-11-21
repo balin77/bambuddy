@@ -115,6 +115,12 @@ describe('HMSErrorModal', () => {
       expect(screen.getByText(withActions.description!)).toBeInTheDocument();
     });
 
+    it('keeps clear for a user who holds printers:maintenance, which farm gates it on (#3639)', () => {
+      const maintenanceOnly = vi.fn((p: string) => p === 'printers:maintenance') as unknown as (permission: 'printers:control') => boolean;
+      render(<HMSErrorModal {...defaultProps} hasPermission={maintenanceOnly} hideUnpermitted />);
+      expect(screen.getByText('Clear Errors').closest('button')).toBeEnabled();
+    });
+
     it('keeps them, disabled, without that option (#3639)', () => {
       const noPermission = vi.fn().mockReturnValue(false) as unknown as (permission: 'printers:control') => boolean;
       const withActions = { ...knownError, actions: ['IGNORE_RESUME'] };
