@@ -5917,6 +5917,7 @@ export default {
     inventoryPanelHint: 'Scegli un colore dall\'inventario non ancora caricato. I colori che non tocchi restano automatici.',
     asapBlockedInventory: 'Un colore dell\'inventario non è ancora caricato. Metti il lavoro in coda o programmalo, oppure scegli uno slot caricato.',
     slotGroupInventory: 'Dall\'inventario (non caricato)',
+    slotInventoryNowHint: 'I colori dell\'inventario si possono scegliere con {{queue}} o {{schedule}}.',
     statusWaitsForFilament: 'Attende il filamento',
     inventoryWaitHint: 'Il lavoro attende che questo filamento sia caricato su {{printer}}.',
     inventoryWaitHintEach: 'Il lavoro attende che questo filamento sia caricato su ciascuna stampante selezionata.',

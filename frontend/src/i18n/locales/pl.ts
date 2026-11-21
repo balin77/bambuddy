@@ -5978,6 +5978,7 @@ export default {
     inventoryPanelHint: 'Wybierz kolor z magazynu, który nie jest jeszcze załadowany. Kolory, których nie zmienisz, pozostają automatyczne.',
     asapBlockedInventory: 'Kolor z magazynu nie jest jeszcze załadowany. Dodaj zadanie do kolejki lub zaplanuj je albo wybierz załadowany slot.',
     slotGroupInventory: 'Z magazynu (niezaładowane)',
+    slotInventoryNowHint: 'Kolory z magazynu można wybrać w trybie {{queue}} lub {{schedule}}.',
     statusWaitsForFilament: 'Czeka na filament',
     inventoryWaitHint: 'Zadanie czeka, aż ten filament zostanie załadowany do {{printer}}.',
     inventoryWaitHintEach: 'Zadanie czeka, aż ten filament zostanie załadowany do każdej wybranej drukarki.',

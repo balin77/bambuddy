@@ -5976,6 +5976,7 @@ export default {
     inventoryPanelHint: 'Kies een kleur uit de voorraad die nog niet is geladen. Kleuren die u niet aanpast, blijven automatisch.',
     asapBlockedInventory: 'Een kleur uit de voorraad is nog niet geladen. Zet de taak in de wachtrij of plan hem in, of kies een geladen slot.',
     slotGroupInventory: 'Uit voorraad (niet geladen)',
+    slotInventoryNowHint: 'Kleuren uit de voorraad kun je kiezen met {{queue}} of {{schedule}}.',
     statusWaitsForFilament: 'Wacht op filament',
     inventoryWaitHint: 'De taak wacht tot dit filament in {{printer}} is geladen.',
     inventoryWaitHintEach: 'De taak wacht tot dit filament in elke geselecteerde printer is geladen.',

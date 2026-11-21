@@ -5931,6 +5931,7 @@ export default {
     inventoryPanelHint: 'Wählen Sie eine Farbe aus dem Lager, die noch nicht geladen ist. Nicht geänderte Farben bleiben automatisch.',
     asapBlockedInventory: 'Eine Farbe aus dem Lager ist noch nicht geladen. Reihen Sie den Auftrag in die Warteschlange ein oder planen Sie ihn, oder wählen Sie einen geladenen Slot.',
     slotGroupInventory: 'Aus dem Lager (nicht geladen)',
+    slotInventoryNowHint: 'Farben aus dem Lager lassen sich mit {{queue}} oder {{schedule}} wählen.',
     statusWaitsForFilament: 'Wartet auf Filament',
     inventoryWaitHint: 'Der Auftrag wartet, bis dieses Filament in {{printer}} geladen ist.',
     inventoryWaitHintEach: 'Der Auftrag wartet, bis dieses Filament in jedem ausgewählten Drucker geladen ist.',

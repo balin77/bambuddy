@@ -6007,6 +6007,7 @@ errors: {
     inventoryPanelHint: 'Välj en färg från lagret som inte är laddad än. Färger du lämnar orörda förblir automatiska.',
     asapBlockedInventory: 'En färg från lagret är inte laddad än. Köa eller schemalägg jobbet, eller välj en laddad plats.',
     slotGroupInventory: 'Från lagret (inte laddat)',
+    slotInventoryNowHint: 'Färger från lagret kan väljas med {{queue}} eller {{schedule}}.',
     statusWaitsForFilament: 'Väntar på filament',
     inventoryWaitHint: 'Jobbet väntar tills det här filamentet är laddat i {{printer}}.',
     inventoryWaitHintEach: 'Jobbet väntar tills det här filamentet är laddat i varje vald skrivare.',

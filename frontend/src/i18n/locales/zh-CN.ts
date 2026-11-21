@@ -5917,6 +5917,7 @@ export default {
     inventoryPanelHint: '从库存中选择尚未装载的颜色。未改动的颜色保持自动匹配。',
     asapBlockedInventory: '库存中的某个颜色尚未装载。请将任务加入队列或定时，或选择已装载的槽位。',
     slotGroupInventory: '来自库存（未装载）',
+    slotInventoryNowHint: '库存中的颜色可在{{queue}}或{{schedule}}模式下选择。',
     statusWaitsForFilament: '等待耗材',
     inventoryWaitHint: '任务将等待此耗材装载到 {{printer}}。',
     inventoryWaitHintEach: '任务将等待此耗材装载到每台所选打印机。',

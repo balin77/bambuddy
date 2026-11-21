@@ -5917,6 +5917,7 @@ export default {
     inventoryPanelHint: '從庫存中選擇尚未裝載的顏色。未更動的顏色維持自動配對。',
     asapBlockedInventory: '庫存中的某個顏色尚未裝載。請將工作加入佇列或排程，或選擇已裝載的槽位。',
     slotGroupInventory: '來自庫存（未載入）',
+    slotInventoryNowHint: '庫存中的顏色可在{{queue}}或{{schedule}}模式下選擇。',
     statusWaitsForFilament: '等待耗材',
     inventoryWaitHint: '工作將等待此耗材裝載到 {{printer}}。',
     inventoryWaitHintEach: '工作將等待此耗材裝載到每台所選印表機。',
