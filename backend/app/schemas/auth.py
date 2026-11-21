@@ -90,6 +90,8 @@ class UserResponse(BaseModel):
     auth_source: str = "local"  # "local" or "ldap"
     groups: list[GroupBrief] = []
     permissions: list[str] = []  # All permissions from groups
+    # Display option (#3639): leave out the controls this user cannot use.
+    hide_unpermitted_controls: bool = False
     created_at: str
 
     class Config:

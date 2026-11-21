@@ -24,6 +24,7 @@ def test_the_login_response_carries_the_auth_source(source):
         is_admin=False,
         auth_source=source,
         groups=[],
+        hide_unpermitted_controls=False,
         get_permissions=lambda: set(),
         created_at=datetime(2026, 10, 1),
     )

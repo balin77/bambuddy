@@ -28,6 +28,8 @@ class GroupCreate(BaseModel):
     restrict_printers: bool = False
     printer_ids: list[int] = []
     locations: list[str] = []
+    # Display option (#3639): members see no controls they lack the permission for.
+    hide_unpermitted_controls: bool = False
 
 
 class GroupUpdate(IgnoresNullForRequiredColumns):
@@ -41,6 +43,7 @@ class GroupUpdate(IgnoresNullForRequiredColumns):
     restrict_printers: bool | None = None
     printer_ids: list[int] | None = None
     locations: list[str] | None = None
+    hide_unpermitted_controls: bool | None = None
 
 
 class GroupResponse(BaseModel):
@@ -54,6 +57,7 @@ class GroupResponse(BaseModel):
     restrict_printers: bool = False
     printer_ids: list[int] = []
     locations: list[str] = []
+    hide_unpermitted_controls: bool = False
     user_count: int = 0
     created_at: datetime
     updated_at: datetime

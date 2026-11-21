@@ -67,6 +67,9 @@ class Group(Base):
     permissions: Mapped[list[str]] = mapped_column(JSON, default=list)
     is_system: Mapped[bool] = mapped_column(Boolean, default=False)
     restrict_printers: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # Display option (#3639): members of this group get a printer page without
+    # the controls they cannot use. The server still checks every permission.
+    hide_unpermitted_controls: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 

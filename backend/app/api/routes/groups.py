@@ -152,6 +152,22 @@ async def _apply_printer_scope(
     return changed
 
 
+def _apply_hide_unpermitted_controls(group: Group, hide: bool | None) -> None:
+    """Store the display option (#3639).
+
+    The Administrators group can't have it: admins keep every control, so the
+    setting would only mislead.
+    """
+    if hide is None or hide == bool(group.hide_unpermitted_controls):
+        return
+    if hide and group.name == ADMIN_GROUP_NAME:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Administrators always see every control",
+        )
+    group.hide_unpermitted_controls = hide
+
+
 def _group_response(group: Group, printer_ids: list[int], locations: list[str], user_count: int) -> GroupResponse:
     return GroupResponse(
         id=group.id,
@@ -162,6 +178,7 @@ def _group_response(group: Group, printer_ids: list[int], locations: list[str], 
         restrict_printers=bool(group.restrict_printers),
         printer_ids=printer_ids,
         locations=locations,
+        hide_unpermitted_controls=bool(group.hide_unpermitted_controls),
         user_count=user_count,
         created_at=group.created_at,
         updated_at=group.updated_at,
@@ -237,10 +254,12 @@ async def create_group(
         permissions=group_data.permissions,
         is_system=False,  # User-created groups are not system groups
         restrict_printers=False,
+        hide_unpermitted_controls=False,
     )
     db.add(group)
     await db.flush()
     await _apply_printer_scope(db, group, group_data.restrict_printers, group_data.printer_ids, group_data.locations)
+    _apply_hide_unpermitted_controls(group, group_data.hide_unpermitted_controls)
     await db.commit()
     await db.refresh(group)
 
@@ -272,6 +291,7 @@ async def get_group(
         restrict_printers=bool(group.restrict_printers),
         printer_ids=await group_printer_ids(db, group.id),
         locations=await group_location_names(db, group.id),
+        hide_unpermitted_controls=bool(group.hide_unpermitted_controls),
         user_count=len(group.users),
         created_at=group.created_at,
         updated_at=group.updated_at,
@@ -338,6 +358,7 @@ async def update_group(
     scope_changed = await _apply_printer_scope(
         db, group, group_data.restrict_printers, group_data.printer_ids, group_data.locations
     )
+    _apply_hide_unpermitted_controls(group, group_data.hide_unpermitted_controls)
 
     await db.commit()
     await db.refresh(group)

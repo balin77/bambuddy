@@ -93,6 +93,7 @@ def _user_to_response(user: User) -> UserResponse:
         auth_source=getattr(user, "auth_source", "local"),
         groups=[GroupBrief(id=g.id, name=g.name) for g in user.groups],
         permissions=sorted(user.get_permissions()),
+        hide_unpermitted_controls=user.hide_unpermitted_controls,
         created_at=user.created_at.isoformat(),
     )
 
