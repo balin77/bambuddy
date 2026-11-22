@@ -275,7 +275,8 @@ class TodoJob:
     model_key: str | None
     model_label: str | None
     manual_start: bool
-    # Whether the caller may start it now (only read for staged jobs).
+    # Whether the caller may start it now (only read for a staged job, or a job
+    # that waits only for a short spool, #3659).
     can_start: bool = False
 
 
@@ -678,6 +679,18 @@ def _paused_dict(info: PausedInfo) -> dict:
     }
 
 
+def _waits_only_for_short_spool(job: TodoJob, holds: Iterable[FilamentHold]) -> bool:
+    """Whether a waiting (not staged) job is held only because spools are short (#3659).
+
+    Every filament of every hold is loaded but too little of it. A job that
+    misses a filament altogether, on any printer, has no "Print anyway".
+    """
+    if job.manual_start:
+        return False
+    filaments = [f for hold in holds for f in hold.filaments]
+    return bool(filaments) and all(f.short for f in filaments)
+
+
 def build_todo(
     jobs: list[TodoJob],
     printers: Mapping[int, str],
@@ -747,8 +760,15 @@ def build_todo(
             if _more_urgent(state, (entry["priority"], entry["priority_hours"]) if entry["priority"] else None):
                 entry["priority"], entry["priority_hours"] = state
         if all(j["id"] != job.id for j in entry["jobs"]):
+            # A job that waits only for a short spool can be started anyway (#3659).
+            short_only = kind == KIND_LOAD_FILAMENT and _waits_only_for_short_spool(job, holds.get(job.id, []))
             entry["jobs"].append(
-                {"id": job.id, "name": job.name, "can_start": kind == KIND_START_STAGED and job.can_start}
+                {
+                    "id": job.id,
+                    "name": job.name,
+                    "can_start": (kind == KIND_START_STAGED or short_only) and job.can_start,
+                    "short_only": short_only,
+                }
             )
 
     # A paused print waits for a person whatever is queued, so its group needs no

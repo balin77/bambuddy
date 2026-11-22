@@ -1042,7 +1042,8 @@ async def queue_todo(
             )
             key = model_key(item.target_model)
             label = item.target_model
-        can_start = bool(item.manual_start) and _may_start_item(actor, item, can_update_all, printer_scope)
+        # Read for a staged job and for one that waits only for a short spool (#3659).
+        can_start = _may_start_item(actor, item, can_update_all, printer_scope)
         jobs.append(
             TodoJob(
                 item.id,

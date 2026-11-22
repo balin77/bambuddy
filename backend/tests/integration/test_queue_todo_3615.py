@@ -104,7 +104,7 @@ class TestTodoEntries:
         assert group["entries"] == [
             {
                 "kind": "start_staged",
-                "jobs": [{"id": item.id, "name": "Benchy", "can_start": True}],
+                "jobs": [{"id": item.id, "name": "Benchy", "can_start": True, "short_only": False}],
                 "printers": [],
                 "filaments": [],
                 "detail": None,
@@ -196,7 +196,7 @@ class TestTodoEntries:
         assert [g["printer_id"] for g in body["groups"]] == [a.id]  # B has nothing waiting
         entry = _only_entries(body)[0]
         assert entry["kind"] == "plate_clear"
-        assert entry["jobs"] == [{"id": item.id, "name": "Waiting", "can_start": False}]
+        assert entry["jobs"] == [{"id": item.id, "name": "Waiting", "can_start": False, "short_only": False}]
 
     async def test_plate_clear_off_for_the_printer_shows_nothing(self, async_client, printer_factory, make_item):
         a = await printer_factory()

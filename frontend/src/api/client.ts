@@ -2956,7 +2956,8 @@ export interface QueueTodoPaused {
 }
 export interface QueueTodoEntry {
   kind: QueueTodoKind;
-  jobs: { id: number; name: string; can_start: boolean }[];
+  // `short_only`: a waiting job held only by short spools, which Print anyway can start (#3659).
+  jobs: { id: number; name: string; can_start: boolean; short_only?: boolean }[];
   filaments: QueueTodoFilament[];
   // Model-group load_filament: printers where loading lets the job start.
   printers: { id: number; name: string }[];

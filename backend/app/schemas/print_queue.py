@@ -607,8 +607,10 @@ class QueueTodoFilament(BaseModel):
 class QueueTodoJob(BaseModel):
     id: int
     name: str
-    # Whether the caller may start it now; only meaningful for a staged job.
+    # Whether the caller may start it now; only meaningful for a staged job or a short_only one.
     can_start: bool = False
+    # Waiting (not staged) and held only because spools are short: "Print anyway" can start it (#3659).
+    short_only: bool = False
 
 
 class QueueTodoPrinter(BaseModel):

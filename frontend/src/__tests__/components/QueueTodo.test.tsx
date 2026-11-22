@@ -247,6 +247,62 @@ describe('QueueTodoList', () => {
     expect(await screen.findByText(/PLA Red/)).toBeInTheDocument();
   });
 
+  describe('Print anyway for a job waiting on a short spool (#3659)', () => {
+    const shortEntry = (jobs: { id: number; name: string; can_start: boolean; short_only?: boolean }[]): QueueTodo => ({
+      count: 1,
+      groups: [{
+        printer_id: 2,
+        printer_name: 'Beta',
+        target_model: null,
+        entries: [{
+          kind: 'load_filament',
+          jobs,
+          filaments: [{ type: 'PLA', color: '#CC0000', color_name: 'Lava Red', no_stock: false, short: true, required_grams: 40, short_trays: [{ ams_id: 0, tray_id: 1, remaining_grams: 12 }] }],
+          printers: [],
+          detail: null,
+        }],
+      }],
+    });
+
+    it('offers it for a job held only by a short spool and asks the shortage question first', async () => {
+      const calls: string[] = [];
+      server.use(
+        http.post('/api/v1/queue/30/start', ({ request }) => {
+          const url = new URL(request.url);
+          calls.push(url.search);
+          if (url.searchParams.get('skip_filament_check')) return HttpResponse.json({ id: 30 });
+          return HttpResponse.json(
+            { detail: { code: 'insufficient_filament', message: 'short', deficit: [{ slot_id: 1, required_grams: 40, remaining_grams: 12, printer_name: 'P1S-1' }] } },
+            { status: 409 },
+          );
+        }),
+      );
+      render(<QueueTodoList todo={shortEntry([{ id: 30, name: 'Benchy', can_start: true, short_only: true }])} />);
+      fireEvent.click(screen.getByTestId('todo-print-anyway'));
+      expect(await screen.findByText(/P1S-1: /)).toBeInTheDocument();
+      fireEvent.click(screen.getAllByRole('button', { name: 'Print Anyway' })[0]);
+      await waitFor(() => expect(calls).toEqual(['', '?skip_filament_check=true']));
+    });
+
+    it('names the job when several wait', () => {
+      render(<QueueTodoList todo={shortEntry([
+        { id: 30, name: 'Benchy', can_start: true, short_only: true },
+        { id: 31, name: 'Cube', can_start: true, short_only: true },
+      ])} />);
+      expect(screen.getByRole('button', { name: 'Print Anyway: Benchy' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Print Anyway: Cube' })).toBeInTheDocument();
+    });
+
+    it('shows none for a job that misses a filament, or one the caller may not start', () => {
+      render(<QueueTodoList todo={shortEntry([
+        { id: 30, name: 'Benchy', can_start: false, short_only: true },
+        { id: 31, name: 'Cube', can_start: true, short_only: false },
+        { id: 32, name: 'Old', can_start: true },
+      ])} />);
+      expect(screen.queryByTestId('todo-print-anyway')).not.toBeInTheDocument();
+    });
+  });
+
   it('renders a model-group load entry with links to the printers', () => {
     render(<QueueTodoList todo={todo} />);
     const entry = screen.getAllByTestId('todo-entry-load_filament')[1];

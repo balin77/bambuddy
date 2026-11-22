@@ -311,6 +311,8 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZInd
     : t('queue.permissions.noStartPrint');
 
   const jobs = entry.jobs;
+  // Jobs that wait only for a short spool and that the caller may start (#3659).
+  const printAnywayJobs = jobs.filter((j) => j.short_only && j.can_start);
   const modelPrinters = entry.kind === 'load_filament' && group.printer_id == null ? entry.printers : [];
   const jobLabel = jobs.length > 2
     ? t('queueTodo.jobCount', { count: jobs.length })
@@ -487,6 +489,32 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZInd
           </div>
         )}
         {action}
+        {/* A job that waits only for a short spool has no Start; this asks the
+            same "Insufficient filament" question as the queue row (#3659). */}
+        {entry.kind === 'load_filament' && printAnywayJobs.length > 0 && (
+          <div className="flex flex-wrap gap-2 min-w-0">
+            {printAnywayJobs.map((job) => {
+              const label = printAnywayJobs.length > 1
+                ? `${t('queue.filamentShort.printAnyway')}: ${job.name}`
+                : t('queue.filamentShort.printAnyway');
+              return (
+                <button
+                  key={job.id}
+                  type="button"
+                  data-testid="todo-print-anyway"
+                  onClick={() => onStart(job.id)}
+                  disabled={startPending}
+                  title={label}
+                  aria-label={label}
+                  className="flex items-center gap-1.5 min-w-0 max-w-full px-3 py-1.5 min-h-[36px] text-sm rounded-md bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Play className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">{label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
       {showRefillConfirm && entry.plate_capacity != null && (
         <ConfirmModal
