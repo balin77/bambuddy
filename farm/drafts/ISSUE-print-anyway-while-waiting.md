@@ -1,6 +1,6 @@
 # Issue draft – "Print anyway" for a job that waits for more filament
 
-**Status:** Posted on 22 November 2026 as maziggy/bambuddy#3659. Not assigned yet. Follow-up to #3587 (PR #3627, merged) and #1496. Searched before: "print anyway waiting for filament loaded filament first", "needs more filament start anyway" (no match).
+**Status:** Posted on 22 November 2026 as maziggy/bambuddy#3659; fixed by the maintainer in dev (3a38447a6) the same day. Follow-up to #3587 (PR #3627, merged) and #1496. Searched before: "print anyway waiting for filament loaded filament first", "needs more filament start anyway" (no match).
 
 ---
 
