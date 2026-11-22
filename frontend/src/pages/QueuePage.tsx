@@ -96,7 +96,7 @@ import { BatchOrdersView } from '../components/BatchOrdersView';
 import { ThumbnailHoverPreview } from '../components/ThumbnailHoverPreview';
 import { buildLoadedFilaments, type LoadedFilament } from '../hooks/useFilamentMapping';
 import { hasGcodeSnippets, useUiSettings } from '../hooks/useUiSettings';
-import { formatWaitingReason } from '../utils/waitingReason';
+import { formatWaitingReason, isShortFilamentWaitingReason } from '../utils/waitingReason';
 
 // The scheduler's MODEL_GATE_WAIT_REASON (print_scheduler.py).
 const MODEL_GATE_WAIT_REASON = 'The last print failed on every free matching printer';
@@ -1179,6 +1179,28 @@ function SortableQueueItem({
                           : t('queue.actions.startPrint')
                     }
                     className="text-bambu-green hover:text-bambu-green-light hover:bg-bambu-green/10 p-1.5 sm:p-2"
+                  >
+                    <Play className="w-4 h-4" />
+                  </Button>
+                )}
+                {/* Waiting for a spool that is too short (Loaded filament
+                    first, #3587) is not staged, so there is no Start: this
+                    asks the same "Insufficient filament" question (#3659). */}
+                {!item.manual_start && isShortFilamentWaitingReason(item.waiting_reason) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={onStart}
+                    disabled={awaitingReview || !canModify('queue', 'update', item.created_by_id)}
+                    title={
+                      awaitingReview
+                        ? t('queue.permissions.awaitingReview')
+                        : !canModify('queue', 'update', item.created_by_id)
+                          ? t('queue.permissions.noStartPrint')
+                          : t('queue.filamentShort.printAnyway')
+                    }
+                    aria-label={t('queue.filamentShort.printAnyway')}
+                    className="text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-500/10 p-1.5 sm:p-2"
                   >
                     <Play className="w-4 h-4" />
                   </Button>
