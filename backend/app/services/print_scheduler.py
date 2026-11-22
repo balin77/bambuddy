@@ -6325,7 +6325,6 @@ class PrintScheduler:
         required_types, _overrides = _filament_constraints(candidates[0])
         # Called from a request, as missing_filament_for_start.
         self._filament_req_memo.clear()
-        self._filament_scope_memo.clear()
         result: list[dict] = []
         for printer in await self._printers_for_model(db, item.target_model, item.target_location, scope):
             if required_types and self._get_missing_filament_types(printer.id, required_types):
