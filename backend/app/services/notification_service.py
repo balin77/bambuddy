@@ -32,11 +32,15 @@ from backend.app.services.email_service import add_required_headers
 from backend.app.services.notification_content import (
     DEFAULT_EMBED_COLOR,
     DISCORD_MAX_EMBED_TOTAL,
+    IdleJob,
     NotificationFilament,
     NotificationPresentation,
     discord_fields,
     embed_color,
     filament_variables,
+    idle_jobs_text,
+    idle_jobs_wait,
+    idle_load_lines,
     is_unmodified_template,
 )
 from backend.app.services.notify_client import NotifyClient, NotifyError, notify_credentials, notify_supports_photos
@@ -1111,11 +1115,12 @@ class NotificationService:
         image_data: bytes | None = None,
         fields: tuple[tuple[str, str], ...] | None = None,
         color: int | None = None,
+        description: str | None = None,
     ) -> tuple[bool, str]:
         """Send notification via Discord webhook.
 
-        *fields* and *color* come from a :class:`NotificationPresentation`; without
-        them the embed is the plain title and description in Bambu green.
+        *fields*, *color* and *description* come from a :class:`NotificationPresentation`;
+        without them the embed is the plain title and description in Bambu green.
         """
         webhook_url = config.get("webhook_url", "").strip()
 
@@ -1129,6 +1134,8 @@ class NotificationService:
             return False, "Invalid Discord webhook URL"
 
         # Discord embed format for nicer messages
+        if description:
+            message = description
         embed = {
             "title": title,
             "description": message,
@@ -1554,6 +1561,7 @@ class NotificationService:
                     image_data=image_data,
                     fields=presentation.fields if presentation else None,
                     color=presentation.color if presentation else None,
+                    description=presentation.description if presentation else None,
                 )
             elif provider.provider_type == "webhook":
                 # Only Slack format needs a URL — generic format gets the
@@ -3116,6 +3124,66 @@ class NotificationService:
         title, message = await self._build_message_from_template(db, "queue_job_waiting", variables)
         await self._send_to_providers(
             providers, title, message, db, "queue_job_waiting", variables=variables, presentation=presentation
+        )
+
+    async def on_printer_idle_for_filament(
+        self,
+        printer_id: int,
+        printer_name: str,
+        jobs: Sequence[IdleJob],
+        db: AsyncSession,
+    ):
+        """A printer has stood idle for a while because every job waiting for it lacks filament (#3725).
+
+        *jobs* are those jobs with the filaments each lacks, as data; the message
+        lists each filament once and each job once.
+        """
+        providers = await self._get_providers_for_event(db, "on_printer_idle_for_filament", printer_id)
+        if not providers:
+            return
+
+        load_lines = idle_load_lines(jobs)
+        filaments: list[NotificationFilament] = []
+        for job in jobs:
+            for need in job.needs:
+                if need.filament not in filaments:
+                    filaments.append(need.filament)
+        jobs_text = idle_jobs_text(jobs)
+        variables = {
+            "printer": printer_name,
+            "job_count": str(len(jobs)),
+            "jobs_wait": idle_jobs_wait(len(jobs)),
+            "jobs": jobs_text,
+            "load": "\n".join(load_lines),
+            # Telegram Markdown v1: only "_" is escaped (telegram_markdown_escape), as for every variable (pre-existing).
+            **filament_variables(filaments),
+        }
+
+        title, message = await self._build_message_from_template(db, "printer_idle_for_filament", variables)
+        if not load_lines:
+            # No filament to name: the template's line for it would be an empty one.
+            message = "\n".join(line for line in message.split("\n") if line.strip())
+
+        fields = [("Printer", printer_name)]
+        if load_lines:
+            fields.append(("Load", "\n".join(load_lines)))
+        fields.append(("Jobs", jobs_text))
+        # The first sentence stands in for the whole text: the fields carry the rest.
+        presentation = NotificationPresentation(
+            fields=tuple(fields),
+            color=embed_color(filaments),
+            description=message.split("\n", 1)[0],
+        )
+        await self._send_to_providers(
+            providers,
+            title,
+            message,
+            db,
+            "printer_idle_for_filament",
+            printer_id,
+            printer_name,
+            variables=variables,
+            presentation=presentation,
         )
 
     @staticmethod

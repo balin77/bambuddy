@@ -230,6 +230,12 @@ DEFAULT_TEMPLATES = [
         "body_template": "{job_name} waiting for {target_model}\n{waiting_reason}",
     },
     {
+        "event_type": "printer_idle_for_filament",
+        "name": "Printer Idle: Waiting for Filament",
+        "title_template": "Printer idle: waiting for filament",
+        "body_template": "{printer} has nothing it can print. {jobs_wait} for filament.\n{load}\nJobs: {jobs}",
+    },
+    {
         "event_type": "queue_job_skipped",
         "name": "Queue Job Skipped",
         "title_template": "Job Skipped",

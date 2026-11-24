@@ -181,6 +181,8 @@ class NotificationProvider(Base):
     on_queue_job_waiting: Mapped[bool | None] = mapped_column(
         Boolean, default=True
     )  # Job waiting for filament or printer
+    # A printer idle for five minutes whose waiting jobs all lack filament (#3725)
+    on_printer_idle_for_filament: Mapped[bool | None] = mapped_column(Boolean, default=True, server_default=true())
     on_queue_job_skipped: Mapped[bool | None] = mapped_column(
         Boolean, default=True
     )  # Job skipped (previous print failed)

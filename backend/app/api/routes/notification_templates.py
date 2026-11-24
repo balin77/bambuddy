@@ -58,6 +58,7 @@ EVENT_NAMES = {
     "queue_job_assigned": "Queue Job Assigned",
     "queue_job_started": "Queue Job Started",
     "queue_job_waiting": "Queue Job Waiting",
+    "printer_idle_for_filament": "Printer Idle: Waiting for Filament",
     "queue_job_skipped": "Queue Job Skipped",
     "queue_job_failed": "Queue Job Failed",
     "queue_completed": "Queue Completed",

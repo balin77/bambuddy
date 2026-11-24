@@ -6168,6 +6168,23 @@ async def _run_migrations(conn):
     # of require_plate_clear above.
     await _migrate_farm_plate_clear_override(conn)
 
+    # Migration: the "printer idle: waiting for filament" event (#3725). On by
+    # default, like the other queue-waiting event, so a channel that already hears
+    # about waiting jobs hears about a standing printer. The backfill covers a
+    # table create_all() already gave the column (the ALTER is then swallowed as
+    # a duplicate and existing rows keep NULL, which reads as off).
+    await _safe_execute(
+        conn, "ALTER TABLE notification_providers ADD COLUMN on_printer_idle_for_filament BOOLEAN DEFAULT TRUE"
+    )
+    async with conn.begin_nested():
+        await conn.execute(
+            text(
+                "UPDATE notification_providers SET on_printer_idle_for_filament = :on "
+                "WHERE on_printer_idle_for_filament IS NULL"
+            ),
+            {"on": True},
+        )
+
     await _backfill_archive_run_photos(conn)
     await _migrate_h3c_queue_tray_ids(conn)
 
@@ -6447,6 +6464,7 @@ _PG_COLUMNS_SET_FROM_MODEL = (
     ("notification_providers", "on_plate_clear_required"),
     ("notification_providers", "on_print_confirm_request"),
     ("notification_providers", "on_print_pause_upcoming"),
+    ("notification_providers", "on_printer_idle_for_filament"),
     ("notification_providers", "on_stock_break_alert"),
     ("notification_providers", "on_stock_reorder_alert"),
     ("notification_providers", "telegram_verdict_mode"),
