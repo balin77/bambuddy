@@ -523,15 +523,21 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZInd
             {jobLabel}
           </div>
         )}
-        {/* A filament with none left in stock: add a spool, or change the job (#3726). */}
-        {entry.kind === 'load_filament' && entry.filaments.some((f) => f.no_stock) && (
+        {/* A missing filament (not a short spool): add a spool, or change the job (#3726). */}
+        {entry.kind === 'load_filament' && entry.filaments.some((f) => !f.short) && (
           <>
-            <AddSpoolActions filaments={entry.filaments} overlayZIndex={overlayZIndex} />
-            <JobActions jobs={jobs} overlayZIndex={overlayZIndex} />
+            <AddSpoolActions filaments={entry.filaments} main={!hasPicture} overlayZIndex={overlayZIndex} />
+            <JobActions jobs={jobs} canMove={group.printer_id != null} overlayZIndex={overlayZIndex} />
           </>
         )}
-        {entry.kind === 'power_on_failed' && group.printer_id != null && <PowerOnAgain printerId={group.printer_id} />}
-        {action}
+        {entry.kind === 'power_on_failed' && group.printer_id != null ? (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <PowerOnAgain printerId={group.printer_id} />
+            {action}
+          </div>
+        ) : (
+          action
+        )}
         {/* A job that waits only for a short spool has no Start; this asks the
             same "Insufficient filament" question as the queue row (#3659). */}
         {entry.kind === 'load_filament' && printAnywayJobs.length > 0 && (

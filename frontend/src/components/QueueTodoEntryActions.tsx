@@ -13,8 +13,11 @@ import { PrintModal } from './PrintModal';
 import { SpoolFormModal } from './SpoolFormModal';
 
 // 44 px high on a phone, as the other buttons of an entry (#3726).
-const buttonClass =
-  'min-h-[44px] sm:min-h-[36px] px-4 rounded-lg text-sm font-semibold break-words text-left border border-bambu-green text-bambu-green hover:bg-bambu-green/10 disabled:opacity-50 disabled:cursor-not-allowed';
+const baseClass =
+  'min-h-[44px] sm:min-h-[36px] px-4 rounded-lg text-sm font-semibold break-words text-left disabled:opacity-50 disabled:cursor-not-allowed';
+// Filled: the main action of an entry. Outlined: a further one (mockup 4).
+const buttonClass = `${baseClass} border border-bambu-green text-bambu-green hover:bg-bambu-green/10`;
+const mainClass = `${baseClass} bg-bambu-green text-black hover:bg-bambu-green/90`;
 
 // "Switch on again" for a printer whose smart plug did not switch on: the plug
 // is looked up the way the printer card does, and switched with the same call
@@ -39,7 +42,7 @@ export function PowerOnAgain({ printerId }: { printerId: number }) {
   });
   if (!hasPermission('smart_plugs:control')) return null;
   return (
-    <button type="button" onClick={() => mutation.mutate()} disabled={mutation.isPending} className={buttonClass}>
+    <button type="button" onClick={() => mutation.mutate()} disabled={mutation.isPending} className={mainClass}>
       {t('queueTodo.actions.powerOnAgain')}
     </button>
   );
@@ -47,15 +50,17 @@ export function PowerOnAgain({ printerId }: { printerId: number }) {
 
 interface JobActionsProps {
   jobs: { id: number; name: string }[];
+  // Moving is for jobs pinned to a printer; an "Any <model>" job already goes to any of them.
+  canMove: boolean;
   overlayZIndex?: string;
 }
 
 // "Edit job" and "Move to another printer" for the jobs of an entry that
-// loading cannot satisfy (#3726). Both open the queue's own edit dialog, which
+// waits for a missing filament (#3726). Both open the queue's own edit dialog, which
 // holds the filament choice and the printer choice. A button is there for a
 // job the user may edit, as on the Queue page: queue:update_all, or
 // queue:update_own for their own jobs.
-export function JobActions({ jobs, overlayZIndex }: JobActionsProps) {
+export function JobActions({ jobs, canMove, overlayZIndex }: JobActionsProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { hasAnyPermission, canModify } = useAuth();
@@ -76,7 +81,7 @@ export function JobActions({ jobs, overlayZIndex }: JobActionsProps) {
   return (
     <div data-testid="todo-job-actions" data-todo-modal-open={editing ? 'true' : undefined} className="flex flex-wrap gap-2 min-w-0">
       {items.map((item) =>
-        (['edit', 'move'] as const).map((kind) => {
+        (canMove ? (['edit', 'move'] as const) : (['edit'] as const)).map((kind) => {
           const base = t(kind === 'edit' ? 'queueTodo.actions.editJob' : 'queueTodo.actions.moveJob');
           return (
             <button key={`${item.id}-${kind}`} type="button" onClick={() => setEditing(item)} className={buttonClass}>
@@ -106,7 +111,7 @@ const rgbaOf = (color: string) => (/^#[0-9a-f]{6}$/i.test(color) ? `${color.slic
 // "Add spool" for a filament with none left in the inventory (#3726): the
 // new-spool form, started with the filament's type and colour. Built-in
 // inventory only: with Spoolman the spools are made there.
-export function AddSpoolActions({ filaments, overlayZIndex }: { filaments: QueueTodoFilament[]; overlayZIndex?: string }) {
+export function AddSpoolActions({ filaments, main, overlayZIndex }: { filaments: QueueTodoFilament[]; main: boolean; overlayZIndex?: string }) {
   const { t } = useTranslation();
   const { hasPermission } = useAuth();
   const canCreate = hasPermission('inventory:create');
@@ -126,7 +131,7 @@ export function AddSpoolActions({ filaments, overlayZIndex }: { filaments: Queue
       {missing.map((f, i) => {
         const name = [f.type, f.color_name || f.color].filter(Boolean).join(' ');
         return (
-          <button key={i} type="button" onClick={() => setAdding(f)} className={buttonClass}>
+          <button key={i} type="button" onClick={() => setAdding(f)} className={main ? mainClass : buttonClass}>
             {missing.length > 1 ? t('queueTodo.actions.addSpoolFor', { filament: name }) : t('queueTodo.actions.addSpool')}
           </button>
         );

@@ -8918,7 +8918,7 @@ export default {
       powerOnSent: "Einschaltbefehl gesendet",
       noPlug: "Keine Steckdose für diesen Drucker gefunden",
       editJob: "Auftrag bearbeiten",
-      moveJob: "Auf anderen Drucker verschieben",
+      moveJob: "Verschieben",
       addSpool: "Spule anlegen",
       addSpoolFor: "Spule anlegen: {{filament}}",
     },

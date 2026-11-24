@@ -54,9 +54,15 @@ const noStock: QueueTodoEntry = {
   kind: 'load_filament',
   filaments: [{ type: 'PLA', color: '#C8102E', color_name: 'Lava Red', no_stock: true }],
 };
+// Missing from the printer, but in stock.
 const inStock: QueueTodoEntry = {
   ...noStock,
   filaments: [{ type: 'PLA', color: '#C8102E', color_name: 'Lava Red', no_stock: false }],
+};
+// Loaded, only too little of it.
+const shortOnly: QueueTodoEntry = {
+  ...noStock,
+  filaments: [{ type: 'PLA', color: '#C8102E', color_name: 'Lava Red', no_stock: false, short: true }],
 };
 const powerOff: QueueTodoEntry = { ...base, kind: 'power_on_failed' };
 const interlock: QueueTodoEntry = { ...base, kind: 'sensor_interlock', detail: 'Enclosure Door' };
@@ -162,11 +168,32 @@ describe('Edit job and Move to another printer', () => {
     expect(await screen.findByRole('button', { name: 'Edit job' })).toBeInTheDocument();
   });
 
-  it('is not offered on an entry whose filament is in stock', async () => {
+  it('is offered on a missing filament that is in stock too', async () => {
     perms.granted = new Set(['queue:update_all']);
     renderList([inStock]);
+    expect(await screen.findByRole('button', { name: 'Edit job' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Move to another printer' })).toBeInTheDocument();
+  });
+
+  it('is not offered on an entry that only has a short spool', async () => {
+    perms.granted = new Set(['queue:update_all']);
+    renderList([shortOnly]);
     await waitFor(() => expect(screen.getByTestId('todo-entry-load_filament')).toBeInTheDocument());
     expect(screen.queryByRole('button', { name: 'Edit job' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Move to another printer' })).toBeNull();
+  });
+
+  it('offers no move for an "Any model" job, only edit', async () => {
+    perms.granted = new Set(['queue:update_all']);
+    client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const todo: QueueTodo = { count: 1, groups: [{ printer_id: null, printer_name: 'X1C', target_model: 'X1C', prepare: [], entries: [{ ...inStock, printers: [{ id: 3, name: 'Shelf X1C' }] }] }] };
+    rtlRender(
+      <QueryClientProvider client={client}>
+        <MemoryRouter><ToastProvider><QueueTodoList todo={todo} /></ToastProvider></MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByRole('button', { name: 'Edit job' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Move to another printer' })).toBeNull();
   });
 });
 
@@ -198,6 +225,7 @@ describe('Add spool', () => {
   });
 
   it('is absent on an entry whose filament is in stock', async () => {
+    // (missing from the printer, but there is a spool to load)
     perms.granted = new Set(['inventory:create']);
     renderList([inStock]);
     await waitFor(() => expect(screen.getByTestId('todo-entry-load_filament')).toBeInTheDocument());
