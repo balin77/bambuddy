@@ -7507,6 +7507,8 @@ export default {
     jobStartedDescription: 'Trabalho da fila começou a imprimir',
     jobWaiting: 'Trabalho Aguardando',
     jobWaitingDescription: 'Trabalho aguardando filamento ou impressora',
+    printerIdleForFilament: 'Impressora parada: aguardando filamento',
+    printerIdleForFilamentDescription: 'Uma impressora está parada há 5 minutos porque falta filamento para seus trabalhos em espera',
     jobSkipped: 'Trabalho Pulado',
     jobSkippedDescription: 'Trabalho pulado (anterior falhou)',
     jobFailed: 'Trabalho Falhou',

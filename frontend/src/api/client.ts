@@ -3401,6 +3401,7 @@ export interface NotificationProvider {
   on_queue_job_assigned: boolean;
   on_queue_job_started: boolean;
   on_queue_job_waiting: boolean;
+  on_printer_idle_for_filament: boolean;
   on_queue_job_skipped: boolean;
   on_queue_job_failed: boolean;
   on_queue_completed: boolean;
@@ -3472,6 +3473,7 @@ export interface NotificationProviderCreate {
   on_queue_job_assigned?: boolean;
   on_queue_job_started?: boolean;
   on_queue_job_waiting?: boolean;
+  on_printer_idle_for_filament?: boolean;
   on_queue_job_skipped?: boolean;
   on_queue_job_failed?: boolean;
   on_queue_completed?: boolean;
@@ -3536,6 +3538,7 @@ export interface NotificationProviderUpdate {
   on_queue_job_assigned?: boolean;
   on_queue_job_started?: boolean;
   on_queue_job_waiting?: boolean;
+  on_printer_idle_for_filament?: boolean;
   on_queue_job_skipped?: boolean;
   on_queue_job_failed?: boolean;
   on_queue_completed?: boolean;

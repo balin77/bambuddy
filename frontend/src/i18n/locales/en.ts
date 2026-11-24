@@ -7573,6 +7573,8 @@ export default {
     jobStartedDescription: 'Queue job started printing',
     jobWaiting: 'Job Waiting',
     jobWaitingDescription: 'Job waiting for filament or printer',
+    printerIdleForFilament: 'Printer Idle: Waiting for Filament',
+    printerIdleForFilamentDescription: 'A printer has been idle for 5 minutes because its waiting jobs lack filament',
     jobSkipped: 'Job Skipped',
     jobSkippedDescription: 'Job skipped (previous failed)',
     jobFailed: 'Job Failed',

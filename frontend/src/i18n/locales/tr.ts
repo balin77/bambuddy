@@ -7474,6 +7474,8 @@ export default {
     jobStartedDescription: 'Kuyruk işi yazdırmaya başladı',
     jobWaiting: 'İş Bekliyor',
     jobWaitingDescription: 'İş filament veya yazıcı için bekliyor',
+    printerIdleForFilament: 'Yazıcı boşta: filament bekliyor',
+    printerIdleForFilamentDescription: 'Bekleyen işlerinde filament eksik olduğu için bir yazıcı 5 dakikadır boşta',
     jobSkipped: 'İş Atlandı',
     jobSkippedDescription: 'İş atlandı (önceki başarısız oldu)',
     jobFailed: 'İş Başarısız',

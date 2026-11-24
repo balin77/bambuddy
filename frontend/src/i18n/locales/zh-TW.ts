@@ -7506,6 +7506,8 @@ export default {
     jobStartedDescription: '佇列任務已開始列印',
     jobWaiting: '任務等待中',
     jobWaitingDescription: '任務正在等待耗材或印表機',
+    printerIdleForFilament: '印表機閒置：等待耗材',
+    printerIdleForFilamentDescription: '等待中的工作缺少耗材，印表機已閒置 5 分鐘',
     jobSkipped: '任務已跳過',
     jobSkippedDescription: '任務已跳過（上一個失敗）',
     jobFailed: '任務失敗',
