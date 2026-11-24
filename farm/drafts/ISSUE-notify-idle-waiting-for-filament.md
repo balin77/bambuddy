@@ -1,6 +1,6 @@
 # Issue draft – notify when a printer stands idle for filament
 
-**Status:** Draft, not posted. Follow-up to #3587 (merged) and #3641/#3642 (ours, assigned, PRs not opened yet). Searched before: "notification printer idle waiting for filament" (no match).
+**Status:** Posted on 24 November 2026 as maziggy/bambuddy#3725. Not assigned yet. Follow-up to #3587 (merged) and #3641/#3642 (ours, assigned, PRs not opened yet). Searched before: "notification printer idle waiting for filament" (no match).
 
 ---
 

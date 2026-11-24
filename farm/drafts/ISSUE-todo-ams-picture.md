@@ -1,6 +1,6 @@
 # Issue draft – To do list: AMS picture and actions in place
 
-**Status:** Draft, not posted. Follow-up to #3615 (PR #3622), #3634, #3640, #3648. Searched before: "to do list assign spool AMS slot picture" (no match).
+**Status:** Posted on 24 November 2026 as maziggy/bambuddy#3726. Not assigned yet. Follow-up to #3615 (PR #3622), #3634, #3640, #3648. Searched before: "to do list assign spool AMS slot picture" (no match).
 
 ---
 
