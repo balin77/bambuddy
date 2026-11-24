@@ -2954,6 +2954,57 @@ export interface QueueTodoPaused {
   error: { code: string; description: string | null } | null;
   more_errors: number;
 }
+// The AMS picture of an entry (#3726): every slot of the printer, and the filaments to load on the slot they go to.
+export type QueueTodoPictureState = 'keep' | 'out' | 'empty' | 'fits' | 'locked' | 'unknown';
+export interface QueueTodoPictureSlot {
+  // Keyed as the inventory stores a slot: the external holder is unit 255.
+  ams_id: number;
+  tray_id: number;
+  is_ht: boolean;
+  is_external: boolean;
+  ams_type: number | null;
+  type: string;
+  color: string;
+  extra_colors: string;
+  effect_type: string;
+  subtype: string;
+  color_name: string;
+  tray_sub_brands: string;
+  tray_info_idx: string;
+  // Grams left when the inventory or the entry knows them; the printer's own percentage otherwise.
+  remaining_g: number | null;
+  remain_percent: number | null;
+  rfid: boolean;
+  state: QueueTodoPictureState;
+  incoming: {
+    // Position in the entry's `filaments`.
+    filament_index: number;
+    type: string;
+    color: string;
+    color_name: string;
+    required_g: number | null;
+    // Spools in stock (built-in inventory only); null when not counted.
+    stock_count: number | null;
+  } | null;
+}
+export interface QueueTodoPictureUnit {
+  ams_id: number;
+  ams_type: number | null;
+  kind: 'ams' | 'ams_lite' | 'ht' | 'ams3h' | 'external';
+  // Dual-nozzle printer: the nozzle the unit feeds.
+  nozzle: 'left' | 'right' | null;
+  // Nothing goes into it: folded behind a toggle.
+  collapsed: boolean;
+  slots: QueueTodoPictureSlot[];
+}
+export interface QueueTodoPicture {
+  printer_id: number;
+  printer_name: string;
+  compact: boolean;
+  units: QueueTodoPictureUnit[];
+  // Filaments (indexes into the entry's) with no slot to go to.
+  unplaced: number[];
+}
 export interface QueueTodoEntry {
   kind: QueueTodoKind;
   // `short_only`: a waiting job held only by short spools, which Print anyway can start (#3659).
@@ -2973,6 +3024,10 @@ export interface QueueTodoEntry {
   slot_hints?: (QueueTodoSlotHint & { printer_id: number })[];
   // Only on a print_paused entry.
   paused?: QueueTodoPaused | null;
+  // load_filament of a printer: its AMS with where the filaments go; null while it reports no slots (#3726).
+  ams_picture?: QueueTodoPicture | null;
+  // load_filament of an "Any <model>" group: one per listed printer, the one likely to take the job first at the front.
+  ams_pictures?: QueueTodoPicture[];
 }
 // What to prepare for one of a printer's next jobs (#3640). Not a to do the queue waits on, and not counted.
 export interface QueueTodoPrepare {
@@ -2982,6 +3037,8 @@ export interface QueueTodoPrepare {
   filaments: QueueTodoFilament[];
   // Where they can go without touching the running print or a nearer job.
   slot_hint: QueueTodoSlotHint | null;
+  // The same as a compact picture (#3726).
+  ams_picture?: QueueTodoPicture | null;
 }
 export interface QueueTodoGroup {
   printer_id: number | null;
