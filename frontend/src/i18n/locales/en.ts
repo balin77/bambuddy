@@ -8967,6 +8967,8 @@ export default {
     openQueue: "Open queue",
     actionFailed: "Action failed",
     actions: {
+      noPermissionPlug: "You do not have permission to switch smart plugs",
+      noPermissionEdit: "You do not have permission to edit queue jobs",
       powerOnAgain: "Switch on again",
       powerOnSent: "Switch-on command sent",
       noPlug: "No smart plug found for this printer",

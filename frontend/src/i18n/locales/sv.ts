@@ -8996,6 +8996,8 @@ errors: {
     openQueue: "Öppna kön",
     actionFailed: "Åtgärden misslyckades",
     actions: {
+      noPermissionPlug: "Du har inte behörighet att styra smarta uttag",
+      noPermissionEdit: "Du har inte behörighet att redigera köjobb",
       powerOnAgain: "Slå på igen",
       powerOnSent: "Kommando för att slå på skickat",
       noPlug: "Ingen smart kontakt hittades för den här skrivaren",

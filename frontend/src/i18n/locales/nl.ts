@@ -8965,6 +8965,8 @@ export default {
     openQueue: "Wachtrij openen",
     actionFailed: "Actie mislukt",
     actions: {
+      noPermissionPlug: "Je hebt geen toestemming om slimme stekkers te schakelen",
+      noPermissionEdit: "Je hebt geen toestemming om wachtrijtaken te bewerken",
       powerOnAgain: "Opnieuw inschakelen",
       powerOnSent: "Inschakelcommando verzonden",
       noPlug: "Geen slimme stekker gevonden voor deze printer",

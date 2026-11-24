@@ -8913,6 +8913,8 @@ export default {
     openQueue: "キューを開く",
     actionFailed: "操作に失敗しました",
     actions: {
+      noPermissionPlug: "スマートプラグを操作する権限がありません",
+      noPermissionEdit: "キューのジョブを編集する権限がありません",
       powerOnAgain: "もう一度オンにする",
       powerOnSent: "オンにするコマンドを送信しました",
       noPlug: "このプリンターのスマートプラグが見つかりません",

@@ -10,7 +10,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { ToastProvider } from '../../contexts/ToastContext';
 import type { PrintQueueItem, QueueTodo, QueueTodoEntry } from '../../api/client';
 
-const perms = { granted: new Set<string>(), ownerOk: (_owner: number | null | undefined) => true };
+const perms = { granted: new Set<string>(), hide: false, ownerOk: (_owner: number | null | undefined) => true };
 
 vi.mock('../../contexts/AuthContext', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../contexts/AuthContext')>();
@@ -22,6 +22,7 @@ vi.mock('../../contexts/AuthContext', async (importOriginal) => {
       loading: false,
       isAdmin: false,
       hasPermission: (p: string) => perms.granted.has(p),
+      hideUnpermitted: perms.hide,
       hasAnyPermission: (...ps: string[]) => ps.some((p) => perms.granted.has(p)),
       canModify: (_r: string, _a: string, owner: number | null | undefined) =>
         (perms.granted.has('queue:update_all') || perms.granted.has('queue:update_own')) && perms.ownerOk(owner),
@@ -95,6 +96,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   perms.granted = new Set();
   perms.ownerOk = () => true;
+  perms.hide = false;
+  vi.spyOn(api, 'getSmartPlugByPrinter').mockResolvedValue(null as never);
   vi.spyOn(api, 'getQueue').mockResolvedValue([queueItem]);
   vi.spyOn(api, 'getSpoolmanStatus').mockResolvedValue({ enabled: false, connected: false } as never);
 });
@@ -122,7 +125,16 @@ describe('Switch on again', () => {
     expect(control).not.toHaveBeenCalled();
   });
 
-  it('is absent without smart_plugs:control, the entry stays as it was', () => {
+  it('is greyed out without smart_plugs:control, with the reason', () => {
+    renderList([powerOff]);
+    const button = screen.getByRole('button', { name: 'Switch on again' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('title', 'You do not have permission to switch smart plugs');
+    expect(api.getSmartPlugByPrinter).not.toHaveBeenCalled();
+  });
+
+  it('is absent without smart_plugs:control when the hide option is on, the entry stays as it was', () => {
+    perms.hide = true;
     renderList([powerOff]);
     expect(screen.queryByRole('button', { name: 'Switch on again' })).toBeNull();
     expect(screen.getByTestId('todo-entry-power_on_failed')).toBeInTheDocument();
@@ -144,7 +156,17 @@ describe('Edit job and Move to another printer', () => {
     await waitFor(() => expect(screen.queryByTestId('print-modal')).toBeNull());
   });
 
-  it('is absent without a queue update permission', async () => {
+  it('is greyed out without a queue update permission, and reads no queue', async () => {
+    renderList([noStock]);
+    const edit = await screen.findByRole('button', { name: 'Edit job' });
+    expect(edit).toBeDisabled();
+    expect(edit).toHaveAttribute('title', 'You do not have permission to edit queue jobs');
+    expect(screen.getByRole('button', { name: 'Move to another printer' })).toBeDisabled();
+    expect(api.getQueue).not.toHaveBeenCalled();
+  });
+
+  it('is absent without a queue update permission when the hide option is on', async () => {
+    perms.hide = true;
     renderList([noStock]);
     await waitFor(() => expect(screen.getByTestId('todo-entry-load_filament')).toBeInTheDocument());
     expect(screen.queryByRole('button', { name: 'Edit job' })).toBeNull();
@@ -210,9 +232,19 @@ describe('Add spool', () => {
     });
   });
 
-  it('is absent without inventory:create', async () => {
+  it('is greyed out without inventory:create, with the reason', async () => {
+    vi.spyOn(api, 'getSpoolmanStatus').mockResolvedValue({ enabled: false, connected: false } as never);
     renderList([noStock]);
-    await waitFor(() => expect(screen.getByTestId('todo-entry-load_filament')).toBeInTheDocument());
+    const add = await screen.findByRole('button', { name: 'Add spool' });
+    expect(add).toBeDisabled();
+    expect(add).toHaveAttribute('title', 'You do not have permission to add spools');
+  });
+
+  it('is absent without inventory:create when the hide option is on', async () => {
+    perms.hide = true;
+    vi.spyOn(api, 'getSpoolmanStatus').mockResolvedValue({ enabled: false, connected: false } as never);
+    renderList([noStock]);
+    await waitFor(() => expect(api.getSpoolmanStatus).toHaveBeenCalled());
     expect(screen.queryByRole('button', { name: 'Add spool' })).toBeNull();
   });
 

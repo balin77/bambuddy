@@ -6,6 +6,7 @@ import type { PrintQueueItem, QueueTodoFilament } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { QUEUE_TODO_KEY } from '../hooks/useQueueTodo';
+import { usePermissionGate } from '../hooks/usePermissionGate';
 import { useUiSettings } from '../hooks/useUiSettings';
 import { getCurrencySymbol } from '../utils/currency';
 import { queueItemDisplayName } from '../utils/queueItemName';
@@ -24,7 +25,7 @@ const mainClass = `${baseClass} bg-bambu-green text-black hover:bg-bambu-green/9
 // as the plug's own controls.
 export function PowerOnAgain({ printerId }: { printerId: number }) {
   const { t } = useTranslation();
-  const { hasPermission } = useAuth();
+  const plugGate = usePermissionGate()('smart_plugs:control');
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const mutation = useMutation({
@@ -40,9 +41,15 @@ export function PowerOnAgain({ printerId }: { printerId: number }) {
     onError: (error: unknown) =>
       showToast(error instanceof Error && error.message ? error.message : t('queueTodo.actionFailed'), 'error'),
   });
-  if (!hasPermission('smart_plugs:control')) return null;
+  if (!plugGate.render) return null;
   return (
-    <button type="button" onClick={() => mutation.mutate()} disabled={mutation.isPending} className={mainClass}>
+    <button
+      type="button"
+      onClick={() => mutation.mutate()}
+      disabled={!plugGate.allowed || mutation.isPending}
+      title={!plugGate.allowed ? t('queueTodo.actions.noPermissionPlug') : undefined}
+      className={mainClass}
+    >
       {t('queueTodo.actions.powerOnAgain')}
     </button>
   );
@@ -63,8 +70,9 @@ interface JobActionsProps {
 export function JobActions({ jobs, canMove, overlayZIndex }: JobActionsProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const { hasAnyPermission, canModify } = useAuth();
-  const mayEdit = hasAnyPermission('queue:update_all', 'queue:update_own');
+  const { canModify } = useAuth();
+  const editGate = usePermissionGate()(['queue:update_all', 'queue:update_own']);
+  const mayEdit = editGate.allowed;
   const [editing, setEditing] = useState<PrintQueueItem | null>(null);
   // Owner and file of a job are not in the To do list: read from the queue.
   const { data: queue } = useQuery({
@@ -72,20 +80,31 @@ export function JobActions({ jobs, canMove, overlayZIndex }: JobActionsProps) {
     queryFn: () => api.getQueue(undefined, 'pending'),
     enabled: mayEdit,
   });
-  if (!mayEdit) return null;
-  const items = jobs
-    .map((job) => queue?.find((item) => item.id === job.id))
-    .filter((item): item is PrintQueueItem => !!item && canModify('queue', 'update', item.created_by_id));
+  if (!editGate.render) return null;
+  // Without the permission the buttons are drawn greyed out from the entry's own jobs.
+  const items: { id: number; name: string; item: PrintQueueItem | null }[] = mayEdit
+    ? jobs
+        .map((job) => queue?.find((q) => q.id === job.id))
+        .filter((q): q is PrintQueueItem => !!q && canModify('queue', 'update', q.created_by_id))
+        .map((q) => ({ id: q.id, name: queueItemDisplayName(q, (n) => t('common.plusNMore', { count: n })), item: q }))
+    : jobs.map((job) => ({ id: job.id, name: job.name, item: null }));
   if (items.length === 0) return null;
   const nameOf = (item: PrintQueueItem) => queueItemDisplayName(item, (n) => t('common.plusNMore', { count: n }));
   return (
     <div data-testid="todo-job-actions" data-todo-modal-open={editing ? 'true' : undefined} className="flex flex-wrap gap-2 min-w-0">
-      {items.map((item) =>
+      {items.map((entry) =>
         (canMove ? (['edit', 'move'] as const) : (['edit'] as const)).map((kind) => {
           const base = t(kind === 'edit' ? 'queueTodo.actions.editJob' : 'queueTodo.actions.moveJob');
           return (
-            <button key={`${item.id}-${kind}`} type="button" onClick={() => setEditing(item)} className={buttonClass}>
-              {items.length > 1 ? `${base}: ${nameOf(item)}` : base}
+            <button
+              key={`${entry.id}-${kind}`}
+              type="button"
+              onClick={() => entry.item && setEditing(entry.item)}
+              disabled={!mayEdit}
+              title={!mayEdit ? t('queueTodo.actions.noPermissionEdit') : undefined}
+              className={buttonClass}
+            >
+              {items.length > 1 ? `${base}: ${entry.name}` : base}
             </button>
           );
         }),
@@ -113,25 +132,30 @@ const rgbaOf = (color: string) => (/^#[0-9a-f]{6}$/i.test(color) ? `${color.slic
 // inventory only: with Spoolman the spools are made there.
 export function AddSpoolActions({ filaments, main, overlayZIndex }: { filaments: QueueTodoFilament[]; main: boolean; overlayZIndex?: string }) {
   const { t } = useTranslation();
-  const { hasPermission } = useAuth();
-  const canCreate = hasPermission('inventory:create');
+  const createGate = usePermissionGate()('inventory:create');
   const [adding, setAdding] = useState<QueueTodoFilament | null>(null);
   const { data: spoolman } = useQuery({
     queryKey: ['spoolman-status'],
     queryFn: api.getSpoolmanStatus,
     staleTime: 60 * 1000,
-    enabled: canCreate,
   });
   const { data: settings } = useUiSettings({ enabled: adding !== null });
   const missing = filaments.filter((f) => f.no_stock && f.type);
   // Until the Spoolman status is known the inventory is not known either.
-  if (!canCreate || spoolman === undefined || spoolman.enabled || missing.length === 0) return null;
+  if (!createGate.render || spoolman === undefined || spoolman.enabled || missing.length === 0) return null;
   return (
     <div data-testid="todo-add-spool" data-todo-modal-open={adding ? 'true' : undefined} className="flex flex-wrap gap-2 min-w-0">
       {missing.map((f, i) => {
         const name = [f.type, f.color_name || f.color].filter(Boolean).join(' ');
         return (
-          <button key={i} type="button" onClick={() => setAdding(f)} className={main ? mainClass : buttonClass}>
+          <button
+            key={i}
+            type="button"
+            onClick={() => setAdding(f)}
+            disabled={!createGate.allowed}
+            title={!createGate.allowed ? t('queueTodo.assign.noPermissionCreate') : undefined}
+            className={main ? mainClass : buttonClass}
+          >
             {missing.length > 1 ? t('queueTodo.actions.addSpoolFor', { filament: name }) : t('queueTodo.actions.addSpool')}
           </button>
         );

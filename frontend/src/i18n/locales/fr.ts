@@ -8900,6 +8900,8 @@ export default {
     openQueue: "Ouvrir la file",
     actionFailed: "Échec de l'action",
     actions: {
+      noPermissionPlug: "Vous n'avez pas la permission de commander les prises connectées",
+      noPermissionEdit: "Vous n'avez pas la permission de modifier les tâches de la file",
       powerOnAgain: "Rallumer",
       powerOnSent: "Commande d'allumage envoyée",
       noPlug: "Aucune prise connectée trouvée pour cette imprimante",

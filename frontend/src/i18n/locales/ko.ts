@@ -8537,6 +8537,8 @@ export default {
     openQueue: "대기열 열기",
     actionFailed: "작업에 실패했습니다",
     actions: {
+      noPermissionPlug: "스마트 플러그를 제어할 권한이 없습니다",
+      noPermissionEdit: "대기열 작업을 편집할 권한이 없습니다",
       powerOnAgain: "다시 켜기",
       powerOnSent: "켜기 명령을 보냈습니다",
       noPlug: "이 프린터의 스마트 플러그를 찾을 수 없습니다",

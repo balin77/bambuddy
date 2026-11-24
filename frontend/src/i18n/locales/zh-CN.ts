@@ -8897,6 +8897,8 @@ export default {
     openQueue: "打开队列",
     actionFailed: "操作失败",
     actions: {
+      noPermissionPlug: "你没有控制智能插座的权限",
+      noPermissionEdit: "你没有编辑队列任务的权限",
       powerOnAgain: "重新开启",
       powerOnSent: "已发送开启指令",
       noPlug: "未找到此打印机的智能插座",

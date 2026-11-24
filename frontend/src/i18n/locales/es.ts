@@ -8922,6 +8922,8 @@ export default {
     openQueue: "Abrir cola",
     actionFailed: "La acción falló",
     actions: {
+      noPermissionPlug: "No tienes permiso para controlar enchufes inteligentes",
+      noPermissionEdit: "No tienes permiso para editar trabajos de la cola",
       powerOnAgain: "Volver a encender",
       powerOnSent: "Orden de encendido enviada",
       noPlug: "No se encontró ningún enchufe inteligente para esta impresora",

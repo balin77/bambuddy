@@ -8899,6 +8899,8 @@ export default {
     openQueue: "Apri coda",
     actionFailed: "Azione non riuscita",
     actions: {
+      noPermissionPlug: "Non hai il permesso di comandare le prese smart",
+      noPermissionEdit: "Non hai il permesso di modificare i lavori in coda",
       powerOnAgain: "Riaccendi",
       powerOnSent: "Comando di accensione inviato",
       noPlug: "Nessuna presa smart trovata per questa stampante",
