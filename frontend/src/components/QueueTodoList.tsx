@@ -20,6 +20,7 @@ import { useToast } from '../contexts/ToastContext';
 import { PlateClearedIcon } from './icons/PlateClearedIcon';
 import { QUEUE_TODO_KEY } from '../hooks/useQueueTodo';
 import { useStartQueueItem } from '../hooks/useStartQueueItem';
+import { AmsPicture, AmsPictures } from './QueueTodoAmsPicture';
 import { formatSlotLabel } from '../utils/amsHelpers';
 import { getColorName } from '../utils/colors';
 
@@ -155,7 +156,12 @@ function PrepareRows({ lines, first }: { lines: QueueTodoPrepare[]; first: boole
                 filaments: line.filaments.filter((f) => filamentName(f) !== '').map((f) => filamentText(t, f)).join(', '),
               })}
             </div>
-            {line.slot_hint && (
+            {line.ams_picture && (
+              <div className="mt-1.5">
+                <AmsPicture picture={line.ams_picture} filaments={line.filaments} />
+              </div>
+            )}
+            {!line.ams_picture && line.slot_hint && (
               <div data-testid="todo-prepare-hint" className="space-y-0.5 text-bambu-gray">
                 {hintText(t, line.slot_hint).lines.map((text, i) => <div key={i} className="break-words">{text}</div>)}
               </div>
@@ -211,6 +217,14 @@ function SlotHints({ entry }: { entry: QueueTodoEntry }) {
   );
 }
 
+// What a load entry with a picture is called: a short spool is replaced,
+// several filaments are counted, one is loaded.
+function loadTitle(t: TFn, filaments: QueueTodoFilament[]): string {
+  if (filaments.length > 0 && filaments.every((f) => f.short)) return t('queueTodo.picture.titleReplace');
+  if (filaments.length > 1) return t('queueTodo.picture.titleSeveral', { count: filaments.length });
+  return t(KIND_TEXT_KEY.load_filament);
+}
+
 function EntryRow({ group, entry, onNavigate, onStart, startPending }: {
   group: QueueTodoGroup;
   entry: QueueTodoEntry;
@@ -246,6 +260,10 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending }: {
     : t('queue.permissions.noStartPrint');
 
   const jobs = entry.jobs;
+  // The AMS picture stands in for the slot sentence (#3726).
+  const picture = entry.kind === 'load_filament' ? entry.ams_picture ?? null : null;
+  const pictures = entry.kind === 'load_filament' ? entry.ams_pictures ?? [] : [];
+  const hasPicture = picture !== null || pictures.length > 0;
   const modelPrinters = entry.kind === 'load_filament' && group.printer_id == null ? entry.printers : [];
   const jobLabel = jobs.length > 2
     ? t('queueTodo.jobCount', { count: jobs.length })
@@ -331,6 +349,8 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending }: {
                 </span>
               ))}
             </>
+          ) : hasPicture ? (
+            loadTitle(t, entry.filaments)
           ) : (
             t(KIND_TEXT_KEY[entry.kind])
           )}
@@ -371,7 +391,9 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending }: {
             ))}
           </ul>
         )}
-        {entry.kind === 'load_filament' && <SlotHints entry={entry} />}
+        {picture && <AmsPicture picture={picture} filaments={entry.filaments} />}
+        {pictures.length > 0 && <AmsPictures pictures={pictures} filaments={entry.filaments} />}
+        {entry.kind === 'load_filament' && !hasPicture && <SlotHints entry={entry} />}
         <div className="text-xs text-bambu-gray truncate max-w-full" title={jobs.map((j) => j.name).join(', ')}>
           {jobLabel}
         </div>
