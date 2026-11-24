@@ -645,6 +645,66 @@ class QueueTodoSlotHint(BaseModel):
     by_nozzle: list[QueueTodoNozzleHint] = []
 
 
+class QueueTodoPictureIncoming(BaseModel):
+    """A filament to load, drawn above the slot it goes into (#3726)."""
+
+    # Position in the entry's ``filaments``.
+    filament_index: int
+    type: str = ""
+    color: str = ""
+    color_name: str = ""
+    required_g: float | None = None
+    # Spools in stock for it (built-in inventory only); None when not counted.
+    stock_count: int | None = None
+
+
+class QueueTodoPictureSlot(BaseModel):
+    """One slot of the printer's AMS picture (#3726), keyed as the inventory stores it (external: unit 255)."""
+
+    ams_id: int
+    tray_id: int
+    is_ht: bool = False
+    is_external: bool = False
+    ams_type: int | None = None
+    type: str = ""
+    color: str = ""
+    extra_colors: str = ""
+    effect_type: str = ""
+    subtype: str = ""
+    color_name: str = ""
+    tray_sub_brands: str = ""
+    tray_info_idx: str = ""
+    # Grams left, when the inventory or the entry knows them; the printer's own percentage otherwise.
+    remaining_g: float | None = None
+    remain_percent: int | None = None
+    rfid: bool = False
+    state: Literal["keep", "out", "empty", "fits", "locked", "unknown"]
+    incoming: QueueTodoPictureIncoming | None = None
+
+
+class QueueTodoPictureUnit(BaseModel):
+    ams_id: int
+    ams_type: int | None = None
+    kind: Literal["ams", "ams_lite", "ht", "ams3h", "external"]
+    # Dual-nozzle printer: the nozzle the unit feeds.
+    nozzle: Literal["left", "right"] | None = None
+    # Nothing goes into it: the page folds it behind a toggle (the first unit stays open when nothing goes anywhere).
+    collapsed: bool = False
+    slots: list[QueueTodoPictureSlot]
+
+
+class QueueTodoPicture(BaseModel):
+    """The AMS of one printer with where each filament of an entry goes (#3726). Names no job."""
+
+    printer_id: int
+    printer_name: str
+    compact: bool = False
+    # Every unit of the printer; the ones nothing goes into are ``collapsed``.
+    units: list[QueueTodoPictureUnit]
+    # Filaments (indexes into the entry's) with no slot to go to.
+    unplaced: list[int] = []
+
+
 class QueueTodoPrinterSlotHint(QueueTodoSlotHint):
     printer_id: int
 
@@ -660,6 +720,10 @@ class QueueTodoEntry(BaseModel):
     slot_hint: QueueTodoSlotHint | None = None
     # load_filament of an "Any <model>" group: the same, per printer of ``printers`` that has one.
     slot_hints: list[QueueTodoPrinterSlotHint] = []
+    # load_filament of a printer: its AMS with where the filaments go (#3726); None while it reports no slots.
+    ams_picture: QueueTodoPicture | None = None
+    # load_filament of an "Any <model>" group: the same per listed printer, the one likely to take the job first at the front.
+    ams_pictures: list[QueueTodoPicture] = []
 
 
 class QueueTodoPrepareJob(BaseModel):
@@ -676,6 +740,8 @@ class QueueTodoPrepare(BaseModel):
     filaments: list[QueueTodoFilament]
     # Where the filaments can go without touching the running print or a nearer job; None while the printer reports no trays.
     slot_hint: QueueTodoSlotHint | None = None
+    # The same as a compact picture (#3726).
+    ams_picture: QueueTodoPicture | None = None
 
 
 class QueueTodoGroup(BaseModel):

@@ -9,7 +9,7 @@ records and the pure part of the list; the route gathers the inputs.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 
 from backend.app.utils.color_utils import colors_are_similar
@@ -116,6 +116,50 @@ class HintSlot:
 
 
 @dataclass(frozen=True)
+class PictureSlot:
+    """One slot of a printer as the AMS picture draws it (#3726): every slot, loaded or not.
+
+    ``ams_id`` / ``tray_id`` are the keys the inventory stores a slot under
+    (the external holder is unit 255, its slot 0 or 1), so the picture's
+    buttons act on the same slot the printer card does. ``extruder`` is the
+    nozzle the unit feeds on a dual-nozzle printer (0 right, 1 left).
+    ``empty`` is a slot the printer confirms holds no spool; a slot with
+    neither a filament nor that confirmation is ``unknown`` (a spool the
+    printer cannot identify). ``remain`` is the printer's own percentage, -1
+    or None when it reports none.
+    """
+
+    ams_id: int
+    tray_id: int
+    global_tray_id: int
+    is_ht: bool
+    is_external: bool
+    ams_type: int | None
+    extruder: int | None
+    type: str = ""
+    color: str = ""
+    tray_info_idx: str = ""
+    tray_sub_brands: str = ""
+    empty: bool = False
+    rfid: bool = False
+    remain: int | None = None
+
+    @property
+    def key(self) -> tuple[int, int]:
+        return (self.ams_id, self.tray_id)
+
+    @property
+    def loaded(self) -> bool:
+        return bool(self.type)
+
+    def as_hint_slot(self) -> HintSlot:
+        return HintSlot(
+            self.ams_id, self.tray_id, self.is_ht, self.is_external, self.ams_type, None,
+            self.type, self.color, self.tray_info_idx, self.tray_sub_brands,
+        )  # fmt: skip
+
+
+@dataclass(frozen=True)
 class NozzleHint:
     """The hint for the filaments that go on one nozzle."""
 
@@ -145,6 +189,15 @@ class SlotHint:
     # Every loaded slot of the printer, whatever a job needs. Not shown as it
     # is: an entry whose filament is short looks its trays up here.
     loaded: tuple[HintSlot, ...] = ()
+    # What the AMS picture is drawn from (#3726): every slot of the printer at
+    # the time of the pass, the trays waiting jobs or the running print use,
+    # the running print's own trays, and whether a filament that names a
+    # nozzle may only go to that nozzle's slots. Nothing a decision reads, and
+    # none of it takes part in equality, so hints compare as they did before.
+    picture: tuple[PictureSlot, ...] = field(default=(), compare=False)
+    needed: frozenset[int] = field(default=frozenset(), compare=False)
+    running: frozenset[int] = field(default=frozenset(), compare=False)
+    nozzle_split: bool = field(default=False, compare=False)
 
     @property
     def unknown_jobs(self) -> int:
@@ -407,6 +460,222 @@ def _hint_dict(hint: SlotHint, filaments: Iterable[TodoFilament], visible_ids: C
     }
 
 
+# States of a slot in the AMS picture (#3726).
+PICTURE_KEEP = "keep"
+PICTURE_OUT = "out"
+PICTURE_EMPTY = "empty"
+PICTURE_FITS = "fits"
+PICTURE_LOCKED = "locked"
+PICTURE_UNKNOWN = "unknown"
+
+# AmsType values (utils/tray_ids) by what the picture calls the unit.
+_KIND_AMS_LITE = {2, 5}
+_KIND_HT = {4}
+_KIND_AMS3H = {6, 7}
+
+
+@dataclass(frozen=True)
+class SlotExtra:
+    """What the inventory knows of the spool assigned to a slot (#3726): grams left and how it looks."""
+
+    remaining_grams: float | None = None
+    extra_colors: str = ""
+    effect_type: str = ""
+    subtype: str = ""
+    color_name: str = ""
+
+
+def _unit_kind(slot: PictureSlot) -> str:
+    if slot.is_external:
+        return "external"
+    if slot.is_ht or slot.ams_type in _KIND_HT:
+        return "ht"
+    if slot.ams_type in _KIND_AMS3H:
+        return "ams3h"
+    if slot.ams_type in _KIND_AMS_LITE:
+        return "ams_lite"
+    return "ams"
+
+
+def _find_slot(slots: Iterable[PictureSlot], ams_id: int, tray_id: int) -> PictureSlot | None:
+    """The slot a short tray names; the external holder is told by any of its ids (-1, 254, 255)."""
+    external = ams_id in (-1, 254, 255)
+    for slot in slots:
+        if slot.tray_id == tray_id and (slot.is_external if external else slot.ams_id == ams_id):
+            return slot
+    return None
+
+
+def place_filaments(
+    hint: SlotHint, filaments: tuple[TodoFilament, ...]
+) -> tuple[dict[tuple[int, int], int], set[tuple[int, int]], list[int]]:
+    """Where an entry's filaments go on the picture of ``hint`` (#3726): a reading of the scheduler's own hint, no new decision.
+
+    Returns the slot of each incoming filament (slot key to filament index),
+    the slots whose spool goes out, and the filaments with no slot. A short
+    filament goes to its own tray (the first of them, when pooled) and every
+    one of its trays goes out. A missing one takes the first empty slot the
+    hint offers, else a loaded slot no waiting job and no running print uses
+    and no filament of the entry fits (``_classify_slots``, ``_claimed_trays``
+    in the scheduler), on its nozzle when it names one and the printer feeds
+    by nozzle. A slot of the running print is never taken.
+    """
+    slots = hint.picture
+    locked = hint.running
+    needed = hint.needed | locked
+    incoming: dict[tuple[int, int], int] = {}
+    out: set[tuple[int, int]] = set()
+    unplaced: list[int] = []
+    for index, filament in enumerate(filaments):
+        if not filament.short:
+            continue
+        found = [s for t in filament.short_trays if (s := _find_slot(slots, t.ams_id, t.tray_id)) is not None]
+        if not found or found[0].key in incoming:
+            unplaced.append(index)
+            continue
+        out.update(s.key for s in found)
+        incoming[found[0].key] = index
+
+    def order(slot: PictureSlot) -> tuple[bool, int, int]:
+        return (slot.is_external, slot.ams_id, slot.tray_id)
+
+    for index, filament in enumerate(filaments):
+        if filament.short:
+            continue
+        pool = [s for s in slots if s.key not in incoming and s.global_tray_id not in locked]
+        if hint.nozzle_split and filament.nozzle in (0, 1):
+            pool = [s for s in pool if s.extruder == filament.nozzle]
+        has_ams = any(not s.is_external for s in pool)
+        free = [s for s in pool if s.empty and not s.is_external and s.global_tray_id not in needed]
+        replaceable = [
+            s
+            for s in pool
+            if s.loaded
+            and s.global_tray_id not in needed
+            and not (s.is_external and has_ams)
+            and not any(tray_fits_filament(s.as_hint_slot(), f) for f in filaments)
+        ]
+        chosen = (sorted(free, key=order) + sorted(replaceable, key=order))[:1]
+        if not chosen:
+            unplaced.append(index)
+            continue
+        incoming[chosen[0].key] = index
+        if chosen[0].loaded:
+            out.add(chosen[0].key)
+    return incoming, out, unplaced
+
+
+def picture_dict(
+    hint: SlotHint | None,
+    printer_id: int,
+    printer_name: str,
+    filaments: Iterable[TodoFilament],
+    extras: Mapping[tuple[int, int, int], SlotExtra] | None = None,
+    stock_for: Callable[[TodoFilament], int | None] | None = None,
+    compact: bool = False,
+) -> dict | None:
+    """The AMS picture of one printer for an entry (#3726), or None when the printer reported no slots.
+
+    One unit per AMS (each AMS-HT its own, the external holder last), every
+    slot with its state, the incoming filaments on the slot they go to. Units
+    that receive something are open; the others are ``collapsed`` (the page
+    folds them behind a toggle). With nothing placed the first unit is open,
+    so the picture is never empty. ``extras`` (by printer, unit, slot) bring the
+    grams and looks of the assigned spool; a short filament's own grams are
+    used for its trays when there are none. ``stock_for`` counts the spools in
+    stock for an incoming filament; left out in a compact picture.
+    """
+    if hint is None or not hint.picture:
+        return None
+    filaments = tuple(filaments)
+    extras = extras or {}
+    incoming, out, unplaced = place_filaments(hint, filaments)
+    short_grams = {
+        (t.ams_id, t.tray_id): t.remaining_grams for f in filaments if f.short for t in f.short_trays
+    }  # fmt: skip
+
+    def state_of(slot: PictureSlot) -> str:
+        if slot.key in out:
+            return PICTURE_OUT
+        if slot.key in incoming and not slot.loaded:
+            return PICTURE_EMPTY
+        if slot.global_tray_id in hint.running:
+            return PICTURE_LOCKED
+        if not slot.loaded:
+            return PICTURE_EMPTY if slot.empty or slot.is_external else PICTURE_UNKNOWN
+        if any(tray_fits_filament(slot.as_hint_slot(), f) for f in filaments if not f.short):
+            return PICTURE_FITS
+        return PICTURE_KEEP
+
+    def slot_dict(slot: PictureSlot) -> dict:
+        extra = extras.get((printer_id, slot.ams_id, slot.tray_id)) or SlotExtra()
+        grams = extra.remaining_grams
+        if grams is None:
+            grams = short_grams.get(slot.key)
+        index = incoming.get(slot.key)
+        filament = filaments[index] if index is not None else None
+        return {
+            "ams_id": slot.ams_id,
+            "tray_id": slot.tray_id,
+            "is_ht": slot.is_ht,
+            "is_external": slot.is_external,
+            "ams_type": slot.ams_type,
+            "type": slot.type,
+            "color": slot.color,
+            "extra_colors": extra.extra_colors,
+            "effect_type": extra.effect_type,
+            "subtype": extra.subtype,
+            "color_name": extra.color_name,
+            "tray_sub_brands": slot.tray_sub_brands,
+            "tray_info_idx": slot.tray_info_idx,
+            "remaining_g": grams,
+            "remain_percent": slot.remain if slot.remain is not None and slot.remain >= 0 else None,
+            "rfid": slot.rfid,
+            "state": state_of(slot),
+            "incoming": None
+            if filament is None
+            else {
+                "filament_index": index,
+                "type": filament.type,
+                "color": filament.color,
+                "color_name": filament.color_name,
+                "required_g": filament.required_grams,
+                "stock_count": None if compact or stock_for is None else stock_for(filament),
+            },
+        }
+
+    grouped: dict[tuple[bool, int], list[PictureSlot]] = {}
+    for slot in sorted(hint.picture, key=lambda s: (s.is_external, s.ams_id, s.tray_id)):
+        grouped.setdefault((slot.is_external, slot.ams_id), []).append(slot)
+    units = []
+    for unit_slots in grouped.values():
+        first = unit_slots[0]
+        units.append(
+            {
+                "ams_id": first.ams_id,
+                "ams_type": first.ams_type,
+                "kind": _unit_kind(first),
+                "nozzle": None if first.extruder is None else ("left" if first.extruder == 1 else "right"),
+                "slots": [slot_dict(s) for s in unit_slots],
+            }
+        )
+    involved = [u for u in units if any(s["incoming"] or s["state"] == PICTURE_OUT for s in u["slots"])]
+    shown = involved or units[:1]
+    for unit in units:
+        unit["collapsed"] = unit not in shown
+    return {
+        "printer_id": printer_id,
+        "printer_name": printer_name,
+        "compact": compact,
+        "units": units,
+        "unplaced": unplaced,
+    }
+
+
+def _outs(picture: dict) -> int:
+    return sum(1 for u in picture["units"] for s in u["slots"] if s["state"] == PICTURE_OUT)
+
+
 def build_todo(
     jobs: list[TodoJob],
     printers: Mapping[int, str],
@@ -416,6 +685,9 @@ def build_todo(
     power_failed_ids: Iterable[int],
     slot_hints: Mapping[int, SlotHint] | None = None,
     prepare: Mapping[int, Iterable[PrepareEntry]] | None = None,
+    slot_extras: Mapping[tuple[int, int, int], SlotExtra] | None = None,
+    stock_for: Callable[[TodoFilament], int | None] | None = None,
+    idle_printers: Collection[int] = (),
 ) -> dict:
     """The response of GET /queue/todo.
 
@@ -429,6 +701,15 @@ def build_todo(
     and not counted (#3640). Their positions are renumbered for what the
     caller sees, so the first visible line is always position 1. A group with
     neither entries nor lines is left out.
+
+    A load entry also carries the AMS picture of its printer, ``ams_picture``
+    (a model entry ``ams_pictures``, one per listed printer, the one that
+    would likely take the job first, an idle one with the fewest spools to
+    take out, at the front), and a prepare line a compact one (#3726). They
+    are drawn from the same hints; ``slot_extras`` bring the inventory's grams
+    and looks, ``stock_for`` the spools in stock, ``idle_printers`` the
+    printers that are connected and not printing. None of them changes an
+    entry, the count or a hint.
     """
     slot_hints = slot_hints or {}
     groups: dict[tuple, _Group] = {}
@@ -552,6 +833,9 @@ def build_todo(
                         for f in _sorted(line.filaments)
                     ],
                     "slot_hint": _hint_dict(line.hint, line.filaments, index_of) if line.hint else None,
+                    "ams_picture": picture_dict(
+                        line.hint, printer_id, printers[printer_id], _sorted(line.filaments), slot_extras, compact=True
+                    ),
                 }
             )
 
@@ -590,6 +874,9 @@ def build_todo(
                     if group.printer_id is not None:
                         hint = slot_hints.get(group.printer_id)
                         entry["slot_hint"] = _hint_dict(hint, fils, index_of) if hint else None
+                        entry["ams_picture"] = picture_dict(
+                            hint, group.printer_id, group.printer_name, fils, slot_extras, stock_for
+                        )
                     else:
                         entry["slot_hints"] = [
                             {"printer_id": p["id"], **shown}
@@ -598,6 +885,28 @@ def build_todo(
                             and (shown := _hint_dict(slot_hints[p["id"]], by_printer.get(p["id"], fils), index_of))
                             is not None
                         ]
+                        pictures = [
+                            picture
+                            for p in entry["printers"]
+                            if p["id"] in slot_hints
+                            and (
+                                picture := picture_dict(
+                                    slot_hints[p["id"]],
+                                    p["id"],
+                                    p["name"],
+                                    by_printer.get(p["id"], fils),
+                                    slot_extras,
+                                    stock_for,
+                                )
+                            )
+                            is not None
+                        ]
+                        # The printer that would likely take the job first: idle
+                        # and connected, with the fewest spools to take out.
+                        pictures.sort(
+                            key=lambda pic: (pic["printer_id"] not in idle_printers, _outs(pic), pic["printer_id"])
+                        )
+                        entry["ams_pictures"] = pictures
                 entries.append(entry)
         # What the caller sees of a printer's lines is numbered again: when the
         # nearest job is not theirs, the first line they see is the next one.

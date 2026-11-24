@@ -7,7 +7,7 @@ import time
 import uuid
 import zipfile
 from collections import deque
-from collections.abc import Awaitable, Callable, Collection, Mapping
+from collections.abc import Awaitable, Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -93,6 +93,7 @@ from backend.app.services.queue_todo import (
     FilamentHold,
     HintSlot,
     NozzleHint,
+    PictureSlot,
     PrepareEntry,
     SlotHint,
     TodoFilament,
@@ -132,6 +133,8 @@ from backend.app.utils.threemf_tools import (
 from backend.app.utils.tray_ids import (
     NO_TRAY,
     TrayLayout,
+    external_hotend,
+    external_slot_index,
     is_ams_ht_id,
     is_external_tray,
     reconcile_use_ams,
@@ -1512,6 +1515,100 @@ def _hint_slot_of(c: dict) -> HintSlot:
     )
 
 
+def _hex_color(color: str | None) -> str:
+    """ "#RRGGBB" of a tray colour, as ``PrintScheduler._normalize_color`` reads it."""
+    return f"#{color.replace('#', '')[:6]}" if color else "#808080"
+
+
+def _picture_slots(status) -> tuple[PictureSlot, ...]:
+    """Every slot the printer reports, for the To do list's AMS picture (#3726).
+
+    Read from the live state: a loaded slot, a slot the printer confirms empty
+    (as ``_reported_slots`` reads it) and one it cannot read (loaded with
+    something it cannot identify). Keyed the way the inventory stores a slot:
+    the external holder is unit 255 with slot 0 or 1. Nothing a decision reads.
+    """
+    raw = status.raw_data or {}
+    layout = TrayLayout.from_state(status)
+    extruder_of = raw.get("ams_extruder_map") or {}
+    two_nozzles = reports_two_nozzles(status)
+
+    def remain_of(tray: dict) -> int | None:
+        value = tray.get("remain")
+        return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+    def has_rfid(tray: dict) -> bool:
+        return any(str(tray.get(key) or "").strip("0") for key in ("tray_uuid", "tag_uid"))
+
+    out: list[PictureSlot] = []
+    for unit in raw.get("ams") or []:
+        if not isinstance(unit, dict):
+            continue
+        ams_id = int(unit.get("id", 0))
+        extruder = extruder_of.get(str(ams_id))
+        for tray in unit.get("tray") or []:
+            tray_id = int(tray.get("id", 0))
+            loaded = bool(tray.get("tray_type"))
+            presence = spool_present(tray)
+            out.append(
+                PictureSlot(
+                    ams_id=ams_id,
+                    tray_id=tray_id,
+                    global_tray_id=layout.global_tray_id(ams_id, tray_id),
+                    is_ht=is_ams_ht_id(ams_id),
+                    is_external=False,
+                    ams_type=int(layout.ams_type(ams_id)),
+                    extruder=extruder if two_nozzles and extruder in (0, 1) else None,
+                    type=str(tray.get("tray_type") or ""),
+                    color=_hex_color(tray.get("tray_color")) if loaded else "",
+                    tray_info_idx=str(tray.get("tray_info_idx") or ""),
+                    tray_sub_brands=str(tray.get("tray_sub_brands") or ""),
+                    empty=not loaded and (presence is False or (presence is None and tray.get("state") in (9, 10))),
+                    rfid=loaded and has_rfid(tray),
+                    remain=remain_of(tray) if loaded else None,
+                )
+            )
+    for index, vt in enumerate(raw.get("vt_tray") or []):
+        if not isinstance(vt, dict):
+            continue
+        vt_id = int(vt.get("id", 254))
+        loaded = bool(vt.get("tray_type"))
+        slot_index = external_slot_index(vt_id) if layout.is_external(vt_id) else index
+        out.append(
+            PictureSlot(
+                ams_id=255,
+                tray_id=slot_index,
+                global_tray_id=vt_id,
+                is_ht=False,
+                is_external=True,
+                ams_type=None,
+                extruder=external_hotend(vt_id) if two_nozzles and vt_id in (254, 255) else None,
+                type=str(vt.get("tray_type") or ""),
+                color=_hex_color(vt.get("tray_color")) if loaded else "",
+                tray_info_idx=str(vt.get("tray_info_idx") or ""),
+                tray_sub_brands=str(vt.get("tray_sub_brands") or ""),
+                empty=False,
+                rfid=loaded and has_rfid(vt),
+                remain=remain_of(vt) if loaded else None,
+            )
+        )
+    return tuple(out)
+
+
+def _with_picture(hint: SlotHint | None, status, needed: Iterable[int], running: Iterable[int]) -> SlotHint | None:
+    """``hint`` with what the To do list's AMS picture is drawn from (#3726); the hint itself is unchanged."""
+    if hint is None:
+        return None
+    fts_installed = bool(getattr(getattr(status, "fila_switch", None), "installed", False))
+    return replace(
+        hint,
+        picture=_picture_slots(status),
+        needed=frozenset(needed),
+        running=frozenset(running),
+        nozzle_split=reports_two_nozzles(status) and not fts_installed,
+    )
+
+
 def _mapping_trays(mapping: object) -> set[int]:
     """The trays a mapping list uses (unresolved entries and padding left out) (#3640)."""
     if not isinstance(mapping, list):
@@ -2096,7 +2193,11 @@ class PrintScheduler:
                 previous = self._hint_memo.get(printer_id)
                 degraded = False
                 if previous is not None and previous[0] == signature:
+                    # The slots are read again: what the picture shows of them
+                    # (spool names, the RFID flag) is not in the signature.
                     hint = previous[1]
+                    if hint is not None:
+                        hint = replace(hint, picture=_picture_slots(inputs[0]))
                 else:
                     hint, degraded = await self._slot_hint_for_printer(
                         db, printer_id, inputs, jobs_for[printer_id], prefer_lowest
@@ -2365,7 +2466,7 @@ class PrintScheduler:
                 degraded = True
 
         hint = self._hint_from_slots(printer_id, status, slots, needed, tuple(unknown_job_ids))
-        return hint, degraded
+        return _with_picture(hint, status, needed, running), degraded
 
     def _hint_from_slots(
         self, printer_id: int, status, slots: list[dict], needed: set[int], unknown_job_ids: tuple[int, ...]
@@ -2534,15 +2635,18 @@ class PrintScheduler:
         slots: list[dict],
         reserved: set[int],
         unknown_job_ids: tuple[int, ...],
+        running: Iterable[int] = (),
     ) -> SlotHint:
         """Where a Prepare line's filaments can go, with ``reserved`` trays kept out (#3640).
 
         As for a held printer (#3634), but a reserved tray is never offered,
-        empty or not.
+        empty or not. ``running`` are the running print's trays, locked in the
+        picture (#3726).
         """
         pool = [slot for slot in slots if not (slot["empty"] and slot["global_tray_id"] in reserved)]
         hint = self._hint_from_slots(printer_id, status, pool, reserved, unknown_job_ids) if pool else None
-        return hint or SlotHint(printer_id, HINT_ALL_NEEDED, (), unknown_job_ids, ())
+        hint = hint or SlotHint(printer_id, HINT_ALL_NEEDED, (), unknown_job_ids, ())
+        return _with_picture(hint, status, reserved, running) or hint
 
     async def _running_mapping_trays(self, db: AsyncSession, printer_ids: set[int]) -> dict[int, set[int]]:
         """The trays of the running print by printer, from its queue row (#3640).
@@ -2694,7 +2798,11 @@ class PrintScheduler:
                 previous = self._hint_memo.get(warn_key)
                 degraded = False
                 if previous is not None and previous[0] == signature:
-                    entries = previous[1]
+                    # Drawn from the slots as they are now (#3726).
+                    picture = _picture_slots(status)
+                    entries = tuple(
+                        replace(e, hint=replace(e.hint, picture=picture) if e.hint else None) for e in previous[1]
+                    )
                 else:
                     entries, degraded = await self._prepare_for_printer(
                         db, printer_id, status, slots, running, next_jobs, prefer_lowest, held_fils, held_hint
@@ -2768,7 +2876,7 @@ class PrintScheduler:
                 unknown_ids.append(item.id)
                 degraded = True
             if missing := held_filaments.get(item.id, ()):
-                hint = held_hint or self._prepare_hint(printer_id, status, slots, reserved, ())
+                hint = held_hint or self._prepare_hint(printer_id, status, slots, reserved, (), running)
                 reserved |= self._claimed_trays(hint, missing, slots, reserved)
         entries: list[PrepareEntry] = []
         listed: set[tuple] = set()
@@ -2789,7 +2897,7 @@ class PrintScheduler:
             if not filaments:
                 continue
             listed |= {(f.type, f.color, f.nozzle) for f in filaments}
-            hint = self._prepare_hint(printer_id, status, slots, reserved, tuple(unknown_ids))
+            hint = self._prepare_hint(printer_id, status, slots, reserved, tuple(unknown_ids), running)
             entries.append(PrepareEntry(printer_id, item.id, len(entries) + 1, filaments, hint))
             if len(entries) == 2:
                 break
