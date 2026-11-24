@@ -8899,6 +8899,8 @@ export default {
     actions: {
       noPermissionPlug: "你没有控制智能插座的权限",
       noPermissionEdit: "你没有编辑队列任务的权限",
+      resume: "继续",
+      stop: "停止",
       powerOnAgain: "重新开启",
       powerOnSent: "已发送开启指令",
       noPlug: "未找到此打印机的智能插座",

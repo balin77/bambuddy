@@ -26,6 +26,7 @@ import { useStartQueueItem } from '../hooks/useStartQueueItem';
 import { AmsPicture, AmsPictures } from './QueueTodoAmsPicture';
 import { PictureActions } from './QueueTodoSlotActions';
 import { AddSpoolActions, JobActions, PowerOnAgain } from './QueueTodoEntryActions';
+import { PausedActions } from './QueueTodoPausedActions';
 import { formatSlotLabel } from '../utils/amsHelpers';
 import { getColorName } from '../utils/colors';
 import { formatDuration } from '../utils/date';
@@ -460,6 +461,9 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZInd
               </div>
             )}
           </>
+        )}
+        {entry.kind === 'print_paused' && group.printer_id != null && (
+          <PausedActions printerId={group.printer_id} printerName={group.printer_name} overlayZIndex={overlayZIndex} />
         )}
         {entry.kind === 'sensor_interlock' && entry.detail && (
           <div className="text-xs text-bambu-gray-light">{entry.detail}</div>

@@ -8916,6 +8916,8 @@ export default {
     actions: {
       noPermissionPlug: "Du hast keine Berechtigung, Smart-Plugs zu schalten",
       noPermissionEdit: "Du hast keine Berechtigung, Warteschlangen-Aufträge zu bearbeiten",
+      resume: "Fortsetzen",
+      stop: "Stoppen",
       powerOnAgain: "Erneut einschalten",
       powerOnSent: "Einschaltbefehl gesendet",
       noPlug: "Keine Steckdose für diesen Drucker gefunden",

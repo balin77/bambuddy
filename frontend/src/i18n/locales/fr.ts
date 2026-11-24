@@ -8902,6 +8902,8 @@ export default {
     actions: {
       noPermissionPlug: "Vous n'avez pas la permission de commander les prises connectées",
       noPermissionEdit: "Vous n'avez pas la permission de modifier les tâches de la file",
+      resume: "Reprendre",
+      stop: "Arrêter",
       powerOnAgain: "Rallumer",
       powerOnSent: "Commande d'allumage envoyée",
       noPlug: "Aucune prise connectée trouvée pour cette imprimante",

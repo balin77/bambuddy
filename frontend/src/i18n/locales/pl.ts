@@ -8969,6 +8969,8 @@ export default {
     actions: {
       noPermissionPlug: "Nie masz uprawnień do sterowania inteligentnymi gniazdkami",
       noPermissionEdit: "Nie masz uprawnień do edycji zadań w kolejce",
+      resume: "Wznów",
+      stop: "Zatrzymaj",
       powerOnAgain: "Włącz ponownie",
       powerOnSent: "Wysłano polecenie włączenia",
       noPlug: "Nie znaleziono inteligentnej wtyczki dla tej drukarki",

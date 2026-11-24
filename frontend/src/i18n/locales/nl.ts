@@ -8967,6 +8967,8 @@ export default {
     actions: {
       noPermissionPlug: "Je hebt geen toestemming om slimme stekkers te schakelen",
       noPermissionEdit: "Je hebt geen toestemming om wachtrijtaken te bewerken",
+      resume: "Hervatten",
+      stop: "Stoppen",
       powerOnAgain: "Opnieuw inschakelen",
       powerOnSent: "Inschakelcommando verzonden",
       noPlug: "Geen slimme stekker gevonden voor deze printer",

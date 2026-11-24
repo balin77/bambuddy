@@ -8924,6 +8924,8 @@ export default {
     actions: {
       noPermissionPlug: "No tienes permiso para controlar enchufes inteligentes",
       noPermissionEdit: "No tienes permiso para editar trabajos de la cola",
+      resume: "Reanudar",
+      stop: "Detener",
       powerOnAgain: "Volver a encender",
       powerOnSent: "Orden de encendido enviada",
       noPlug: "No se encontró ningún enchufe inteligente para esta impresora",

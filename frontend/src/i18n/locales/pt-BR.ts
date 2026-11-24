@@ -8901,6 +8901,8 @@ export default {
     actions: {
       noPermissionPlug: "Você não tem permissão para controlar tomadas inteligentes",
       noPermissionEdit: "Você não tem permissão para editar trabalhos da fila",
+      resume: "Retomar",
+      stop: "Parar",
       powerOnAgain: "Ligar novamente",
       powerOnSent: "Comando de ligar enviado",
       noPlug: "Nenhuma tomada inteligente encontrada para esta impressora",

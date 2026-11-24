@@ -8843,6 +8843,8 @@ export default {
     actions: {
       noPermissionPlug: "Akıllı prizleri kontrol etme izniniz yok",
       noPermissionEdit: "Kuyruk işlerini düzenleme izniniz yok",
+      resume: "Devam et",
+      stop: "Durdur",
       powerOnAgain: "Yeniden aç",
       powerOnSent: "Açma komutu gönderildi",
       noPlug: "Bu yazıcı için akıllı priz bulunamadı",
