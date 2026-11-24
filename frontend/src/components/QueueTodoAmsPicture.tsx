@@ -64,8 +64,9 @@ function Arrow({ label }: { label: string }) {
 }
 
 // "227 g" and "80 %" in the interface language.
+// The unit never wraps away from its number.
 const gramsText = (grams: number, language: string) =>
-  new Intl.NumberFormat(language, { style: 'unit', unit: 'gram', unitDisplay: 'short', maximumFractionDigits: 0 }).format(grams);
+  new Intl.NumberFormat(language, { style: 'unit', unit: 'gram', unitDisplay: 'short', maximumFractionDigits: 0 }).format(grams).replace(/\s/g, '\u00a0');
 const percentText = (percent: number, language: string) =>
   new Intl.NumberFormat(language, { style: 'percent', maximumFractionDigits: 0 }).format(percent / 100);
 
@@ -76,8 +77,10 @@ function amountText(language: string, slot: QueueTodoPictureSlot): string {
 }
 
 // The text under a slot's filament: its state, never colour alone.
-function stateLine(t: TFn, language: string, slot: QueueTodoPictureSlot): { text: string; className: string } {
-  const amount = slot.type ? amountText(language, slot) : '';
+function stateLine(t: TFn, language: string, slot: QueueTodoPictureSlot, compact: boolean): { text: string; className: string } {
+  // A compact card has no name line: an amount that is not known says nothing, not a lone dash.
+  const known = typeof slot.remaining_g === 'number' || typeof slot.remain_percent === 'number';
+  const amount = slot.type && (known || !compact) ? amountText(language, slot) : '';
   switch (slot.state) {
     case 'out':
       return { text: amount ? t('queueTodo.picture.outWith', { amount }) : t('queueTodo.picture.out'), className: 'font-semibold text-amber-400' };
@@ -105,7 +108,7 @@ const CARD_STATE_CLASS: Record<QueueTodoPictureSlot['state'], string> = {
 
 function SlotCard({ slot, compact, row, column }: { slot: QueueTodoPictureSlot; compact: boolean; row: number; column: number }) {
   const { t, i18n } = useTranslation();
-  const line = stateLine(t, i18n.language, slot);
+  const line = stateLine(t, i18n.language, slot, compact);
   const loaded = !!slot.type;
   const colorName = slot.color_name || (slot.color ? getColorName(slot.color, slot.tray_sub_brands || null, slot.tray_info_idx) : '');
   const filament = [slot.type, colorName].filter(Boolean).join(' ');
@@ -200,13 +203,13 @@ function Unit({ unit, filaments, compact }: { unit: QueueTodoPictureUnit; filame
     <section
       data-testid="todo-ams-unit"
       aria-label={unitLabel(t, unit)}
-      className="min-w-0 rounded-xl border border-bambu-dark-tertiary bg-bambu-dark p-2 sm:p-2.5 space-y-2"
+      className="min-w-0 w-fit max-w-full rounded-xl border border-bambu-dark-tertiary bg-bambu-dark p-2 sm:p-2.5 space-y-2"
     >
       <h4 className="text-[11px] font-semibold uppercase tracking-wider text-bambu-gray break-words">{unitLabel(t, unit)}</h4>
       <div
         data-testid="todo-ams-grid"
         className="grid gap-x-1.5 sm:gap-x-2.5 gap-y-0"
-        style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+        style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 7.5rem))`, justifyContent: 'start' }}
       >
         {lines.flatMap((line, li) => {
           const base = li * 3;
@@ -258,7 +261,9 @@ interface AmsPictureProps {
 // Units nothing goes into are folded behind a toggle.
 export function AmsPicture({ picture, filaments }: AmsPictureProps) {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
+  // Per printer: switching to another one starts folded again.
+  const [expandedFor, setExpandedFor] = useState<number | null>(null);
+  const expanded = expandedFor === picture.printer_id;
   const open = picture.units.filter((u) => !u.collapsed);
   const folded = picture.units.filter((u) => u.collapsed);
   const shown = joinHtUnits(expanded ? picture.units : open);
@@ -270,13 +275,13 @@ export function AmsPicture({ picture, filaments }: AmsPictureProps) {
   return (
     <div data-testid="todo-ams-picture" data-compact={picture.compact ? 'true' : 'false'} className="min-w-0 space-y-2">
       {shown.map((unit) => (
-        <Unit key={`${unit.kind}-${unit.ams_id}`} unit={unit} filaments={filaments} compact={picture.compact} />
+        <Unit key={`${unit.kind}-${unit.ams_id}-${unit.slots[0]?.tray_id}`} unit={unit} filaments={filaments} compact={picture.compact} />
       ))}
       {folded.length > 0 && (
         <button
           type="button"
           aria-expanded={expanded}
-          onClick={() => setExpanded((v) => !v)}
+          onClick={() => setExpandedFor(expanded ? null : picture.printer_id)}
           className="min-h-[44px] sm:min-h-[36px] px-3 rounded-md border border-bambu-dark-tertiary text-xs text-bambu-gray-light hover:text-white hover:border-bambu-gray"
         >
           {expanded ? t('queueTodo.picture.hideUnits', { units: foldedNames }) : t('queueTodo.picture.showUnits', { units: foldedNames })}
@@ -330,7 +335,7 @@ export function AmsPictures({ pictures, filaments, renderActions }: AmsPicturesP
         </div>
       )}
       {pictures.length === 1 && <div className="text-xs text-bambu-gray-light">{current.printer_name}</div>}
-      <AmsPicture key={current.printer_id} picture={current} filaments={filaments} />
+      <AmsPicture picture={current} filaments={filaments} />
       {renderActions?.(current)}
     </div>
   );

@@ -8937,6 +8937,7 @@ export default {
       newSpool: "新增料盤",
       assignFor: "為 {{slot}} 分配料盤",
       configureFor: "設定槽位 {{slot}}",
+      putInFirst: "請先裝入新料盤，再進行分配。",
     },
   },
 };

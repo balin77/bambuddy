@@ -91,14 +91,14 @@ function setup(opts: { spoolman?: 'off' | 'on' | 'down'; spoolmanSpools?: unknow
   return sent;
 }
 
-function renderActions() {
+function renderActions(pic: QueueTodoPicture = picture) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const invalidate = vi.spyOn(client, 'invalidateQueries');
   const view = rtlRender(
     <QueryClientProvider client={client}>
       <MemoryRouter>
         <ToastProvider>
-          <PictureActions picture={picture} />
+          <PictureActions picture={pic} />
         </ToastProvider>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -118,14 +118,14 @@ describe('buttons of an entry with a picture', () => {
     expect(screen.getByRole('button', { name: 'Set up slot A3' })).toBeInTheDocument();
   });
 
-  it('sets no slot up that has an RFID spool', () => {
+  it('sets no slot up that has an RFID spool', async () => {
     setup();
     const rfid = { ...picture, units: [{ ...picture.units[0], slots: [slot(2, { rfid: true, incoming })] }] };
     const client = new QueryClient();
     rtlRender(
       <QueryClientProvider client={client}><MemoryRouter><ToastProvider><PictureActions picture={rfid} /></ToastProvider></MemoryRouter></QueryClientProvider>,
     );
-    expect(screen.getByRole('button', { name: 'Assign spool for A3' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Assign spool for A3' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Set up slot/ })).toBeNull();
   });
 
@@ -137,11 +137,11 @@ describe('buttons of an entry with a picture', () => {
     expect(container.querySelector('[data-testid="todo-slot-actions"]')).toBeNull();
   });
 
-  it('assigns with inventory:update alone and sets up with printers:control alone', () => {
+  it('assigns with inventory:update alone and sets up with printers:control alone', async () => {
     setup();
     perms.granted = new Set(['inventory:update']);
     const { unmount } = renderActions();
-    expect(screen.getByRole('button', { name: 'Assign spool for A3' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Assign spool for A3' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Set up slot/ })).toBeNull();
     unmount();
     perms.granted = new Set(['printers:control']);
@@ -262,5 +262,67 @@ describe('Spoolman mode', () => {
     fireEvent.click(within(rows[0]).getByRole('button', { name: /Assign spool/ }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toEqual({ path: 'spoolman', body: { spoolman_spool_id: 41, printer_id: 7, ams_id: 0, tray_id: 2 } });
+  });
+});
+
+describe('what happens while the list refetches', () => {
+  it('keeps the picker open when the list hands over new slot objects', async () => {
+    setup();
+    const { rerender } = renderActions();
+    fireEvent.click(await screen.findByRole('button', { name: 'Assign spool for A3' }));
+    await screen.findByTestId('todo-assign-picker');
+    // A refetch: equal data, new objects.
+    const fresh: QueueTodoPicture = JSON.parse(JSON.stringify(picture));
+    const client = new QueryClient();
+    rerender(
+      <QueryClientProvider client={client}>
+        <MemoryRouter><ToastProvider><PictureActions picture={fresh} /></ToastProvider></MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByTestId('todo-assign-picker')).toBeInTheDocument();
+  });
+});
+
+describe('putting the new spool in first', () => {
+  const outPicture = (slotOverrides: Partial<QueueTodoPictureSlot>): QueueTodoPicture => ({
+    ...picture,
+    units: [{ ...picture.units[0], slots: [slot(2, { incoming, ...slotOverrides })] }],
+  });
+
+  it('says so above the picker for a slot whose old spool goes out', async () => {
+    setup();
+    renderActions(outPicture({ state: 'out' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Assign spool for A3' }));
+    expect(await screen.findByTestId('todo-put-in-first')).toHaveTextContent('Put the new spool in first, then assign it.');
+  });
+
+  it('says so for a slot that still reports an RFID spool', async () => {
+    setup();
+    renderActions(outPicture({ state: 'keep', rfid: true }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Assign spool for A3' }));
+    expect(await screen.findByTestId('todo-put-in-first')).toBeInTheDocument();
+  });
+
+  it('does not say it for an empty slot', async () => {
+    setup();
+    renderActions(outPicture({ type: '', color: '', state: 'empty' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Assign spool for A3' }));
+    await screen.findByTestId('todo-assign-picker');
+    expect(screen.queryByTestId('todo-put-in-first')).toBeNull();
+  });
+});
+
+describe('before Spoolman is known', () => {
+  it('offers no assigning until the status has answered', async () => {
+    setup();
+    server.use(
+      http.get('/api/v1/spoolman/status', async () => {
+        await new Promise((r) => setTimeout(r, 300));
+        return HttpResponse.json({ enabled: false, connected: false, url: null });
+      }),
+    );
+    renderActions();
+    expect(screen.queryByRole('button', { name: 'Assign spool for A3' })).toBeNull();
+    expect(await screen.findByRole('button', { name: 'Assign spool for A3' })).toBeInTheDocument();
   });
 });

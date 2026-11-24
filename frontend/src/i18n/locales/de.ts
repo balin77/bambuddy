@@ -8954,6 +8954,7 @@ export default {
       newSpool: "Neue Spule anlegen",
       assignFor: "Spule für {{slot}} zuweisen",
       configureFor: "Slot {{slot}} einrichten",
+      putInFirst: "Zuerst die neue Spule einlegen, dann zuweisen.",
     },
   },
 };

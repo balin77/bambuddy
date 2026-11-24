@@ -2196,8 +2196,8 @@ class PrintScheduler:
                     # The slots are read again: what the picture shows of them
                     # (spool names, the RFID flag) is not in the signature.
                     hint = previous[1]
-                    if hint is not None:
-                        hint = replace(hint, picture=_picture_slots(inputs[0]))
+                    if hint is not None and (picture := _picture_slots(inputs[0])) != hint.picture:
+                        hint = replace(hint, picture=picture)
                 else:
                     hint, degraded = await self._slot_hint_for_printer(
                         db, printer_id, inputs, jobs_for[printer_id], prefer_lowest
@@ -2801,7 +2801,10 @@ class PrintScheduler:
                     # Drawn from the slots as they are now (#3726).
                     picture = _picture_slots(status)
                     entries = tuple(
-                        replace(e, hint=replace(e.hint, picture=picture) if e.hint else None) for e in previous[1]
+                        e
+                        if e.hint is None or e.hint.picture == picture
+                        else replace(e, hint=replace(e.hint, picture=picture))
+                        for e in previous[1]
                     )
                 else:
                     entries, degraded = await self._prepare_for_printer(

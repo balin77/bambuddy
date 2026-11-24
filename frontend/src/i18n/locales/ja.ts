@@ -8918,8 +8918,8 @@ export default {
       titleSeveral_one: "フィラメント {{count}} 本をセット",
       titleSeveral_other: "フィラメント {{count}} 本をセット",
       new: "新品",
-      newMin: "新品、{{grams}} g 以上",
-      minGrams: "{{grams}} g 以上",
+      newMin: "新品、{{grams}} 以上",
+      minGrams: "{{grams}} 以上",
       inStock_one: "在庫: {{count}} 巻",
       inStock_other: "在庫: {{count}} 巻",
       notInStock: "在庫なし",
@@ -8953,6 +8953,7 @@ export default {
       newSpool: "新しいスプールを登録",
       assignFor: "{{slot}} にスプールを割り当てる",
       configureFor: "スロット {{slot}} を設定",
+      putInFirst: "先に新しいスプールをセットしてから割り当ててください。",
     },
   },
 };

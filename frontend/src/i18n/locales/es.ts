@@ -8962,6 +8962,7 @@ export default {
       newSpool: "Crear bobina nueva",
       assignFor: "Asignar bobina a {{slot}}",
       configureFor: "Configurar el slot {{slot}}",
+      putInFirst: "Primero pon la bobina nueva y luego asígnala.",
     },
   },
 };

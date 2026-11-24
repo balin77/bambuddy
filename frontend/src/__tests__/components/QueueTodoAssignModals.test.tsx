@@ -11,7 +11,7 @@ import { ToastProvider } from '../../contexts/ToastContext';
 import { server } from '../mocks/server';
 import type { QueueTodoPicture } from '../../api/client';
 
-const granted = new Set(['inventory:update', 'inventory:create', 'printers:control']);
+const granted = new Set(['inventory:update', 'inventory:create', 'printers:control', 'queue:read_all']);
 
 vi.mock('../../contexts/AuthContext', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../contexts/AuthContext')>();
@@ -83,6 +83,30 @@ function renderActions() {
     </QueryClientProvider>,
   );
 }
+
+describe('the To do panel and its dialogs', () => {
+  it('keeps the panel open on Escape while a dialog opened from an entry is up', async () => {
+    server.use(http.get('/api/v1/queue/todo', () => HttpResponse.json({ count: 1, groups: [{ printer_id: 7, printer_name: 'Shelf X1C', target_model: null, prepare: [], entries: [{ kind: 'load_filament', jobs: [{ id: 1, name: 'Lamp_Base.5x.P1S.3mf', can_start: true }], filaments: [], printers: [], detail: null, ams_picture: picture }] }] })));
+    const { QueueTodoLauncher } = await import('../../components/QueueTodoLauncher');
+    rtlRender(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter><ToastProvider><QueueTodoLauncher /></ToastProvider></MemoryRouter>
+      </QueryClientProvider>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /To do: 1/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Set up slot B2' }));
+    await screen.findByTestId('configure-modal');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.getByRole('dialog', { name: 'To do' })).toBeInTheDocument();
+    // Without a dialog of its own up, Escape still closes the panel.
+    fireEvent.click(screen.getByTestId('configure-modal'));
+    const { onClose } = configureProps.mock.lastCall![0];
+    onClose();
+    await waitFor(() => expect(screen.queryByTestId('configure-modal')).toBeNull());
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'To do' })).toBeNull());
+  });
+});
 
 describe('dialogs opened from an entry', () => {
   it('sets the slot up with the slot, its nozzle and diameter, above the panel', async () => {

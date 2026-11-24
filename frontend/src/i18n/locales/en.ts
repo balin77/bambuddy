@@ -9007,6 +9007,7 @@ export default {
       newSpool: "Add new spool",
       assignFor: "Assign spool for {{slot}}",
       configureFor: "Set up slot {{slot}}",
+      putInFirst: "Put the new spool in first, then assign it.",
     },
   },
 };

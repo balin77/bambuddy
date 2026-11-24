@@ -9036,6 +9036,7 @@ errors: {
       newSpool: "Lägg till ny spole",
       assignFor: "Tilldela spole till {{slot}}",
       configureFor: "Konfigurera plats {{slot}}",
+      putInFirst: "Sätt först i den nya spolen och tilldela den sedan.",
     },
   },
 };

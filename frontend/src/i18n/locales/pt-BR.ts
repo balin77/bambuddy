@@ -8939,6 +8939,7 @@ export default {
       newSpool: "Adicionar carretel novo",
       assignFor: "Atribuir carretel ao {{slot}}",
       configureFor: "Configurar o slot {{slot}}",
+      putInFirst: "Coloque primeiro o carretel novo e depois atribua.",
     },
   },
 };
