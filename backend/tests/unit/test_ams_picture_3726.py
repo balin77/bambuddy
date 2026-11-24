@@ -4,6 +4,7 @@ import pytest
 
 from backend.app.schemas.print_queue import QueueTodoResponse
 from backend.app.services.queue_todo import (
+    HINT_ALL_NEEDED,
     HINT_FREE,
     HINT_REPLACEABLE,
     FilamentHold,
@@ -81,7 +82,7 @@ class TestSlots:
         assert _states(picture) == {(0, 0): "locked", (0, 1): "keep", (0, 2): "keep", (0, 3): "empty"}
         assert slots[(0, 3)]["incoming"]["filament_index"] == 0
         assert slots[(0, 3)]["incoming"]["color"] == "#FF69B4"
-        assert [s["key"] if "key" in s else s["tray_id"] for s in slots.values() if s["incoming"]] == [3]
+        assert [key for key, s in slots.items() if s["incoming"]] == [(0, 3)]
 
     @pytest.mark.asyncio
     async def test_a_loaded_slot_no_job_needs_goes_out_when_nothing_is_free(self):
@@ -152,6 +153,53 @@ class TestSlots:
         slots = _slots_of(picture)
         assert (slots[(0, 0)]["rfid"], slots[(0, 0)]["remain_percent"]) == (True, 80)
         assert (slots[(0, 1)]["rfid"], slots[(0, 1)]["remain_percent"]) == (False, None)
+
+
+class TestPlacementAgainstTheHint:
+    @pytest.mark.asyncio
+    async def test_a_running_print_on_every_ams_tray_and_a_loaded_external_spool_leave_no_slot(self):
+        ams = _loaded_ams(RED, BLUE, WHITE, GREEN)
+        vt = [{"id": 254, "tray_type": "PETG", "tray_color": "00FF00FF", "tray_info_idx": ""}]
+        running = _status(ams, vt=vt, state="RUNNING", print_ams_mapping=[0, 1, 2, 3], tray_now=0)
+        scheduler = _scheduler_with({1: _need(RED)})
+        hint = (await _hints(scheduler, {1: running}, [_job(1)], _holds(1)))[1]
+        # The scheduler says every slot is needed: the external holder is not offered while an AMS slot exists.
+        assert hint.state == HINT_ALL_NEEDED
+        picture = picture_dict(hint, 1, "P", (PINK,))
+        assert picture["unplaced"] == [0]
+        assert not [k for k, s in _slots_of(picture).items() if s["incoming"] or s["state"] == "out"]
+        assert _states(picture)[(255, 0)] == "keep"
+
+    @pytest.mark.asyncio
+    async def test_a_short_spool_in_a_tray_of_the_running_print_is_locked_and_has_no_slot(self):
+        ams = _loaded_ams(RED, BLUE, WHITE, GREEN)
+        running = _status(ams, state="RUNNING", print_ams_mapping=[1], tray_now=1)
+        short = TodoFilament(
+            "PLA", "#0000FF", "Blue", short=True, short_trays=(ShortTray(0, 1, 12.0),), required_grams=505
+        )
+        scheduler = _scheduler_with({1: _need(BLUE)})
+        hint = (await _hints(scheduler, {1: running}, [_job(1)], _holds(1, filaments=(short,))))[1]
+        picture = picture_dict(hint, 1, "P", (short,))
+        assert _states(picture)[(0, 1)] == "locked"
+        assert picture["unplaced"] == [0]
+        assert not [k for k, s in _slots_of(picture).items() if s["incoming"]]
+
+    @pytest.mark.asyncio
+    async def test_each_external_holder_of_a_two_nozzle_printer_is_a_unit_with_its_nozzle(self):
+        ams = [{"id": 0, "tray": [_tray(0, "PLA", RED)]}]
+        vt = [
+            {"id": 254, "tray_type": "PETG", "tray_color": "00FF00FF", "tray_info_idx": ""},
+            {"id": 255, "tray_type": "PLA", "tray_color": "0000FFFF", "tray_info_idx": ""},
+        ]
+        scheduler = _scheduler_with({1: _need(RED)})
+        hint = (await _hints(scheduler, {1: _dual(ams, vt=vt)}, [_job(1)], _holds(1)))[1]
+        units = picture_dict(hint, 1, "P", (PINK,))["units"]
+        external = [
+            (u["ams_id"], u["kind"], u["nozzle"], [s["tray_id"] for s in u["slots"]])
+            for u in units
+            if u["kind"] == "external"
+        ]
+        assert external == [(255, "external", "left", [0]), (255, "external", "right", [1])]
 
 
 class TestUnits:
@@ -290,18 +338,38 @@ class TestEntries:
         incoming = next(s["incoming"] for s in _slots_of(picture).values() if s["incoming"])
         assert (incoming["stock_count"], incoming["filament_index"]) == (2, 0)
         parsed = QueueTodoResponse.model_validate(todo)
-        assert parsed.groups[0].entries[0].ams_picture.units[0].slots[0].state in {"keep", "out", "locked", "empty"}
+        assert [s.state for s in parsed.groups[0].entries[0].ams_picture.units[0].slots] == [
+            "keep",
+            "out",
+            "keep",
+            "keep",
+        ]
 
     @pytest.mark.asyncio
-    async def test_the_picture_changes_neither_the_count_nor_the_hint_nor_the_decision_inputs(self):
+    async def test_the_picture_changes_neither_the_count_nor_the_hint_nor_the_list_entry(self):
+        from unittest.mock import patch
+
         ams = _loaded_ams(RED, BLUE, WHITE, GREEN)
-        scheduler = _scheduler_with({1: _need(RED)})
-        hints = await _hints(scheduler, {1: _status(ams)}, [_job(1)], _holds(1))
-        hint = hints[1]
-        bare = SlotHint(hint.printer_id, hint.state, hint.slots, hint.unknown_job_ids, hint.by_nozzle, hint.loaded)
+
+        async def hint_of(with_picture):
+            scheduler = _scheduler_with({1: _need(RED)})
+            if with_picture:
+                return (await _hints(scheduler, {1: _status(ams)}, [_job(1)], _holds(1)))[1]
+            # The scheduler as it was before the picture: nothing is added to the hint.
+            with patch("backend.app.services.print_scheduler._with_picture", lambda hint, *a, **k: hint):
+                return (await _hints(scheduler, {1: _status(ams)}, [_job(1)], _holds(1)))[1]
+
+        hint, bare = await hint_of(True), await hint_of(False)
         assert hint.picture and not bare.picture
-        # Equal as hints, so the scheduler's memos and prepare signature see no difference.
-        assert hint == bare
+        # What the scheduler decides is the same, field by field.
+        assert (hint.state, hint.slots, hint.by_nozzle, hint.loaded, hint.unknown_job_ids) == (
+            bare.state,
+            bare.slots,
+            bare.by_nozzle,
+            bare.loaded,
+            bare.unknown_job_ids,
+        )
+        assert (hint.state, [(s.ams_id, s.tray_id) for s in hint.slots]) == (HINT_REPLACEABLE, [(0, 1), (0, 2), (0, 3)])
         args = ([_todo_job(101)], {1: "P"}, _holds(1), [], {}, [])
         with_picture = build_todo(*args, {1: hint})
         without = build_todo(*args, {1: bare})
@@ -310,6 +378,25 @@ class TestEntries:
         assert entry.pop("ams_picture") is not None and plain.pop("ams_picture") is None
         assert entry == plain
         assert entry["slot_hint"] == _hint_dict(bare, (PINK,), {101: 0})
+
+    @pytest.mark.asyncio
+    async def test_a_kept_hint_gets_the_slots_as_they_are_now(self):
+        from unittest.mock import AsyncMock
+
+        scheduler = _scheduler_with({1: _need(RED)})
+        ams = _loaded_ams(RED, BLUE)
+        ams[0]["tray"][1]["remain"] = 80
+        first = (await _hints(scheduler, {1: _status(ams)}, [_job(1)], _holds(1)))[1]
+        assert _slots_of(picture_dict(first, 1, "P", (PINK,)))[(0, 1)]["remain_percent"] == 80
+        # The printer's own percentage is not part of what the hint is computed
+        # from: the second pass keeps the hint, and the picture still follows.
+        ams[0]["tray"][1]["remain"] = 40
+        compute = AsyncMock(side_effect=AssertionError("the hint is kept, not computed again"))
+        scheduler._slot_hint_for_printer = compute
+        second = (await _hints(scheduler, {1: _status(ams)}, [_job(1)], _holds(1)))[1]
+        compute.assert_not_called()
+        assert second.slots == first.slots
+        assert _slots_of(picture_dict(second, 1, "P", (PINK,)))[(0, 1)]["remain_percent"] == 40
 
     @pytest.mark.asyncio
     async def test_the_picture_names_no_job_and_no_spool_of_the_inventory(self):

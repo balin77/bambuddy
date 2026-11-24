@@ -1201,3 +1201,69 @@ class TestAmsPictureRoute:
         scheduler._slot_hints = {a.id + 100: self._hint(a.id + 100)}
         (entry,) = _only_entries((await async_client.get(URL)).json())
         assert entry["ams_picture"] is None
+
+    async def test_a_spool_without_a_label_weight_has_no_grams_and_an_empty_one_is_no_stock(
+        self, async_client, db_session, printer_factory, make_item
+    ):
+        from backend.app.models.spool import Spool
+        from backend.app.models.spool_assignment import SpoolAssignment
+
+        a = await printer_factory(name="A")
+        item = await make_item(a.id)
+        unweighed = Spool(material="PLA", label_weight=0, weight_used=0, rgba="FFFFFFFF")
+        empty = Spool(material="PLA", label_weight=1000, weight_used=1000, rgba="FF69B4FF")
+        full = Spool(material="PLA", label_weight=1000, weight_used=10, rgba="FF69B4FF")
+        db_session.add_all([unweighed, empty, full])
+        await db_session.flush()
+        db_session.add(SpoolAssignment(spool_id=unweighed.id, printer_id=a.id, ams_id=0, tray_id=1))
+        await db_session.commit()
+        scheduler._filament_holds = {
+            item.id: [FilamentHold(item.id, a.id, None, (TodoFilament("PLA", "#FF69B4", "Pink"),))]
+        }
+        scheduler._slot_hints = {a.id: self._hint(a.id)}
+        (entry,) = _only_entries((await async_client.get(URL)).json())
+        slots = {s["tray_id"]: s for u in entry["ams_picture"]["units"] for s in u["slots"]}
+        assert slots[1]["remaining_g"] is None
+        # Only the spool with something left counts.
+        assert slots[2]["incoming"]["stock_count"] == 1
+
+    async def test_grams_and_stock_are_left_out_for_a_caller_who_may_not_read_the_inventory(
+        self, async_client, db_session, printer_factory, make_item
+    ):
+        a = await printer_factory(name="A", model="X1C")
+        item = await make_item(a.id)
+        await self._spools(db_session, a.id)
+        helper = TestTodoAccess()
+        admin, member = await helper._setup(async_client, ["queue:read_all"], printer_ids=[a.id])
+        group = await async_client.post(
+            "/api/v1/groups/",
+            headers=_auth(admin),
+            json={"name": "inv", "permissions": ["queue:read_all", "inventory:read"]},
+        )
+        await async_client.post(
+            "/api/v1/users/",
+            headers=_auth(admin),
+            json={"username": "reader", "password": "UserPass1!", "group_ids": [group.json()["id"]]},
+        )
+        reader = (
+            await async_client.post("/api/v1/auth/login", json={"username": "reader", "password": "UserPass1!"})
+        ).json()["access_token"]
+        scheduler._filament_holds = {
+            item.id: [FilamentHold(item.id, a.id, None, (TodoFilament("PLA", "#FF69B4", "Pink"),))]
+        }
+        scheduler._slot_hints = {a.id: self._hint(a.id)}
+
+        def slots(body):
+            (entry,) = _only_entries(body)
+            return {s["tray_id"]: s for u in entry["ams_picture"]["units"] for s in u["slots"]}
+
+        # Both see the picture; only the inventory reader the grams, looks and stock.
+        blind = slots((await async_client.get(URL, headers=_auth(member))).json())
+        assert (blind[1]["remaining_g"], blind[1]["color_name"], blind[2]["incoming"]["stock_count"]) == (
+            None,
+            "",
+            None,
+        )
+        assert blind[2]["state"] == "empty"
+        seen = slots((await async_client.get(URL, headers=_auth(reader))).json())
+        assert (seen[1]["remaining_g"], seen[2]["incoming"]["stock_count"]) == (620.0, 2)

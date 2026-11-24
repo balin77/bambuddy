@@ -985,7 +985,12 @@ async def _picture_inputs(
     )
     for printer_id, ams_id, tray_id, spool in rows:
         extras[(printer_id, ams_id, tray_id)] = SlotExtra(
-            remaining_grams=max(0.0, float(spool.label_weight or 0) - float(spool.weight_used or 0)),
+            # No label weight: the grams are not known, not zero.
+            remaining_grams=(
+                max(0.0, float(spool.label_weight) - float(spool.weight_used or 0))
+                if (spool.label_weight or 0) > 0
+                else None
+            ),
             extra_colors=spool.extra_colors or "",
             effect_type=spool.effect_type or "",
             subtype=spool.subtype or "",
@@ -995,7 +1000,12 @@ async def _picture_inputs(
         await db.execute(
             select(Spool.material, Spool.rgba)
             .outerjoin(SpoolAssignment, SpoolAssignment.spool_id == Spool.id)
-            .where(Spool.archived_at.is_(None), SpoolAssignment.id.is_(None))
+            .where(
+                Spool.archived_at.is_(None),
+                SpoolAssignment.id.is_(None),
+                # A spool with nothing left is no stock.
+                (Spool.label_weight - func.coalesce(Spool.weight_used, 0)) > 0,
+            )
         )
     ).all()
 
@@ -1154,8 +1164,10 @@ async def queue_todo(
 
     hints = visible_slot_hints(_scheduler.slot_hints_snapshot(), printer_names)
     prepare = _scheduler.prepare_snapshot()
+    # Grams, looks and stock come from the inventory: only for who may read it.
+    can_read_inventory = actor is None or actor.has_permission(Permission.INVENTORY_READ.value)
     try:
-        slot_extras, stock_for = await _picture_inputs(db, hints, prepare)
+        slot_extras, stock_for = await _picture_inputs(db, hints, prepare) if can_read_inventory else ({}, None)
     except Exception:
         # The picture is drawn without the inventory's grams when this fails.
         logger.debug("To do list: inventory for the AMS picture not read", exc_info=True)

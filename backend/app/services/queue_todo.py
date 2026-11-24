@@ -813,7 +813,12 @@ def place_filaments(
     for index, filament in enumerate(filaments):
         if not filament.short:
             continue
-        found = [s for t in filament.short_trays if (s := _find_slot(slots, t.ams_id, t.tray_id)) is not None]
+        # A tray of the running print is locked, never taken out: the filament has no slot.
+        found = [
+            s
+            for t in filament.short_trays
+            if (s := _find_slot(slots, t.ams_id, t.tray_id)) is not None and s.global_tray_id not in locked
+        ]
         if not found or found[0].key in incoming:
             unplaced.append(index)
             continue
@@ -826,10 +831,13 @@ def place_filaments(
     for index, filament in enumerate(filaments):
         if filament.short:
             continue
-        pool = [s for s in slots if s.key not in incoming and s.global_tray_id not in locked]
+        scope = slots
         if hint.nozzle_split and filament.nozzle in (0, 1):
-            pool = [s for s in pool if s.extruder == filament.nozzle]
-        has_ams = any(not s.is_external for s in pool)
+            scope = tuple(s for s in slots if s.extruder == filament.nozzle)
+        # As ``_classify_slots``: the external holder is only offered when the
+        # printer has no AMS slot at all, locked or taken or not.
+        has_ams = any(not s.is_external for s in scope)
+        pool = [s for s in scope if s.key not in incoming and s.global_tray_id not in locked]
         free = [s for s in pool if s.empty and not s.is_external and s.global_tray_id not in needed]
         replaceable = [
             s
@@ -928,9 +936,11 @@ def picture_dict(
             },
         }
 
-    grouped: dict[tuple[bool, int], list[PictureSlot]] = {}
+    grouped: dict[tuple[bool, int, int], list[PictureSlot]] = {}
     for slot in sorted(hint.picture, key=lambda s: (s.is_external, s.ams_id, s.tray_id)):
-        grouped.setdefault((slot.is_external, slot.ams_id), []).append(slot)
+        # On a two-nozzle printer each external holder feeds its own nozzle: a unit of its own.
+        split_external = slot.is_external and slot.extruder is not None
+        grouped.setdefault((slot.is_external, slot.ams_id, slot.tray_id if split_external else -1), []).append(slot)
     units = []
     for unit_slots in grouped.values():
         first = unit_slots[0]
