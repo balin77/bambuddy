@@ -56,6 +56,7 @@ from backend.app.services.bambu_ftp import (
 )
 from backend.app.services.bambu_mqtt import _RACK_NOZZLE_IDS, HMS_MQTT_VERIFY_FAILED, resolve_rack_plan_mapping
 from backend.app.services.filament_deficit import FilamentDeficit, compute_deficit_for_queue_item, describe_deficit
+from backend.app.services.filament_idle_watch import FilamentIdleWatch, FilamentKey
 from backend.app.services.finance_budget import (
     create_budget_reservation,
     release_budget_reservation,
@@ -64,7 +65,7 @@ from backend.app.services.finance_budget import (
 from backend.app.services.ha_sensor_manager import ha_sensor_manager
 from backend.app.services.inventory_stock import StockEntry, inventory_stock, stock_in
 from backend.app.services.mqtt_relay import mqtt_relay
-from backend.app.services.notification_content import NotificationFilament
+from backend.app.services.notification_content import FilamentNeed, IdleJob, NotificationFilament
 from backend.app.services.notification_service import notification_service
 from backend.app.services.plate_changer import is_count_pending, is_count_unknown
 from backend.app.services.print_cost_estimate import estimate_queue_source_cost
@@ -1931,6 +1932,13 @@ class PrintScheduler:
         # waiting reason cannot hold it: a busy printer overwrites that reason
         # and the next wait would announce again.
         self._filament_wait_notified: dict[int, str] = {}
+        # What each printer's waiting jobs lack, collected during a pass (#3725):
+        # printer id -> queue item id -> (item, what it lacks there). Only for a
+        # printer that was idle where the job was held back for filament.
+        self._pass_filament_blocks: dict[int, dict[int, tuple[PrintQueueItem, list[FilamentNeed]]]] = {}
+        # Per printer, since when it stands idle for filament and what was announced (#3725).
+        self._idle_watch = FilamentIdleWatch()
+        self._idle_watch_loaded = False
 
     async def run(self):
         """Main loop - check queue every interval."""
@@ -3085,7 +3093,10 @@ class PrintScheduler:
         self._stock_memo = None
         self._unmatched_todo_memo.clear()
         self._deficit_memo.clear()
+        self._pass_filament_blocks = {}
         async with async_session() as db:
+            if not self._idle_watch_loaded:
+                await self._load_idle_watch(db)
             # Check if shortest-job-first scheduling is enabled
             sjf_enabled = await self._get_bool_setting(db, "queue_shortest_first")
             # "Loaded filament first" (#3587): a job whose filament is not loaded
@@ -3202,6 +3213,9 @@ class PrintScheduler:
                 await self._check_stock_forecast(db)
                 self._filament_wait_notified.clear()
                 self._out_of_stock_notified.clear()
+                # Nothing waits, so no printer stands idle for it (#3725).
+                self._idle_watch.clear()
+                await self._idle_watch.save_if_changed(db)
                 return bool(self._inflight)
 
             logger.info(
@@ -4374,6 +4388,14 @@ class PrintScheduler:
                                     other.been_jumped = True
                             await db.commit()
 
+            # Printers that stand idle because every job waiting for them lacks
+            # filament (#3725). Before the dispatch: it blocks for the uploads.
+            await self._check_filament_idle(
+                db,
+                (busy_printers - reserved_printers) | interlocked.keys() | drying_held,
+                require_plate_clear,
+            )
+
             # Log the decisions BEFORE dispatching. The dispatch below blocks for
             # as long as the slowest upload takes (minutes on a big 3MF), and a
             # skip summary that only lands after the transfers have finished is
@@ -4487,6 +4509,69 @@ class PrintScheduler:
             # 30 s idle sleep (#2602). Selecting anything this pass (launched or
             # deferred because the pool was full) also counts as productive.
             return bool(dispatch_ids) or bool(self._inflight)
+
+    async def _load_idle_watch(self, db: AsyncSession) -> None:
+        """Read what was saved of the idle-for-filament clocks (#3725), once after start."""
+        self._idle_watch_loaded = True
+        try:
+            printer_ids = (await db.execute(select(Printer.id))).scalars().all()
+            await self._idle_watch.load(db, printer_ids)
+        except Exception as e:
+            logger.debug("Could not load the idle-for-filament state: %s", e)
+
+    async def _check_filament_idle(self, db: AsyncSession, unavailable: set[int], require_plate_clear: bool) -> None:
+        """Tell the user which printers have stood idle for five minutes with only filament-blocked jobs (#3725).
+
+        A printer qualifies when it is idle (not busy for another reason, not held
+        by a sensor or drying, no plate to clear), has at least one job that was
+        held back for filament where it is, and this pass sent nothing to it.
+        What a job lacks was collected where it was held back
+        (``_record_filament_block``); this only decides, once per pass.
+        """
+        try:
+            qualifying = {
+                pid: blocks
+                for pid, blocks in self._pass_filament_blocks.items()
+                if pid not in unavailable and self._is_printer_idle(pid, require_plate_clear)
+            }
+            keys: dict[int, FilamentKey] = {
+                pid: frozenset(need.key for _, needs in blocks.values() for need in needs)
+                for pid, blocks in qualifying.items()
+            }
+            keep = await self._idle_watch_unknown(db, [pid for pid in self._idle_watch.entries if pid not in keys])
+            for pid in self._idle_watch.step(keys, keep=keep):
+                printer = await self._get_printer(db, pid)
+                jobs = [
+                    IdleJob(await self._get_job_name(db, item), tuple(needs))
+                    for item, needs in qualifying[pid].values()
+                ]
+                try:
+                    await notification_service.on_printer_idle_for_filament(
+                        pid, printer.name if printer else f"printer {pid}", jobs, db
+                    )
+                except Exception as e:
+                    logger.debug("Idle-for-filament notification failed for printer %s: %s", pid, e)
+                self._idle_watch.announced(pid, keys[pid])
+            await self._idle_watch.save_if_changed(db)
+        except Exception as e:
+            # Never let a notice stop the queue.
+            logger.warning("Idle-for-filament check failed: %s", e)
+
+    async def _idle_watch_unknown(self, db: AsyncSession, printer_ids: list[int]) -> set[int]:
+        """Those of ``printer_ids`` whose state is not known right now: a printer still connecting, or off.
+
+        Their clock is kept as it is, so a restart does not lose it before the printers have
+        reported. A printer that was deleted, or that is seen doing anything else, is not one.
+        """
+        if not printer_ids:
+            return set()
+        existing = (await db.execute(select(Printer.id).where(Printer.id.in_(printer_ids)))).scalars().all()
+        unknown = set()
+        for pid in existing:
+            state = printer_manager.get_status(pid)
+            if not printer_manager.is_connected(pid) or state is None or state.state == "unknown":
+                unknown.add(pid)
+        return unknown
 
     def _launch_uploads(self, item_ids: list[int], item_printers: dict[int, int | None], limit: int) -> None:
         """Launch selected uploads as a refillable pool, capped at ``limit`` (#2602).
@@ -11050,6 +11135,22 @@ class PrintScheduler:
         self._record_hold(item.id, item.printer_id, item.target_model, todo)
         stock = _stock_notification_filaments(t for t in todo if t.no_stock)
         return (text, out_of_stock), _override_filaments(unmatched), stock
+
+    def _record_filament_block(
+        self, item: PrintQueueItem, printer_id: int | None, needs: Sequence[FilamentNeed]
+    ) -> None:
+        """Note that ``item`` waits for filament on ``printer_id``, which was idle where it was held back (#3725).
+
+        Collected for the pass; ``_check_filament_idle`` decides what it means for the printer.
+        """
+        if printer_id is None or not needs:
+            return
+        blocks = self._pass_filament_blocks.setdefault(printer_id, {})
+        known = blocks.get(item.id)
+        if known is None:
+            blocks[item.id] = (item, list(needs))
+        else:
+            known[1].extend(n for n in needs if n not in known[1])
 
     async def _describe_unmatched_with_stock(self, db: AsyncSession, unmatched: list[dict]) -> tuple[str, list[str]]:
         """The unmatched requirements as the queue row names them, and which of them are out of stock (#3590, #3649).
