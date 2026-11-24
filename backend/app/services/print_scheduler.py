@@ -1939,6 +1939,10 @@ class PrintScheduler:
         # Per printer, since when it stands idle for filament and what was announced (#3725).
         self._idle_watch = FilamentIdleWatch()
         self._idle_watch_loaded = False
+        # The short spools a job was told about, by queue item id: (printer, AMS unit, tray) of each (#3725).
+        self._short_notified: dict[int, set[tuple[int | None, int | None, int | None]]] = {}
+        # The jobs told about a short spool in this pass (#3725).
+        self._short_noticed_pass: set[int] = set()
 
     async def run(self):
         """Main loop - check queue every interval."""
@@ -3094,6 +3098,7 @@ class PrintScheduler:
         self._unmatched_todo_memo.clear()
         self._deficit_memo.clear()
         self._pass_filament_blocks = {}
+        self._short_noticed_pass = set()
         async with async_session() as db:
             if not self._idle_watch_loaded:
                 await self._load_idle_watch(db)
@@ -3216,6 +3221,7 @@ class PrintScheduler:
                 # Nothing waits, so no printer stands idle for it (#3725).
                 self._idle_watch.clear()
                 await self._idle_watch.save_if_changed(db)
+                self._short_notified.clear()
                 return bool(self._inflight)
 
             logger.info(
@@ -3235,6 +3241,9 @@ class PrintScheduler:
             # cancelled is told afresh should its shortage come back (#3649).
             self._out_of_stock_notified = {
                 item_id: shortage for item_id, shortage in self._out_of_stock_notified.items() if item_id in pending_ids
+            }
+            self._short_notified = {
+                item_id: slots for item_id, slots in self._short_notified.items() if item_id in pending_ids
             }
 
             # Seed busy_printers with printers that already have an item in 'printing'
@@ -3863,6 +3872,14 @@ class PrintScheduler:
                             reason = f"{_FILAMENT_WAIT_PREFIX}{wanted_text}{suffix}"
                             previous_reason = item.waiting_reason
                             await hold_item(item, reason, notify=False)
+                            # A short spool is told at once, not when the job gets priority (#3725).
+                            await self._notify_short_once(
+                                db,
+                                item,
+                                item.printer_id,
+                                self._short_in(self._pass_holds.get(item.id, ())) if self._pass_holds else [],
+                                saved_shows=wanted_text in (previous_reason or ""),
+                            )
                             if has_priority:
                                 reserve_for_filament_wait(item.printer_id)
                             await self._notify_out_of_stock_once(
@@ -4163,6 +4180,17 @@ class PrintScheduler:
                     # Record the filament waits next to the reason they back (#3615).
                     if printer_id is None and not gate_blocked:
                         self._record_model_holds(item.id, model_holds)
+                        # A short spool is told at once, for the first printer that has one (#3725).
+                        for held_pid, (_, held_fils) in model_holds.items():
+                            if short := self._short_in([FilamentHold(item.id, held_pid, None, tuple(held_fils))]):
+                                await self._notify_short_once(
+                                    db,
+                                    item,
+                                    held_pid,
+                                    short,
+                                    saved_shows=_SHORT_FILAMENT_NEED in (item.waiting_reason or ""),
+                                )
+                                break
 
                     # Update waiting_reason if changed and send notification when first waiting
                     if item.waiting_reason != waiting_reason:
@@ -4312,6 +4340,13 @@ class PrintScheduler:
                                 wanted_text, out_of_stock = wanted
                                 suffix, has_priority = filament_wait_suffix(item)
                                 waiting_reason = f"{_FILAMENT_WAIT_PREFIX}{wanted_text}{suffix}"
+                                await self._notify_short_once(
+                                    db,
+                                    item,
+                                    printer_id,
+                                    self._short_in(self._pass_holds.get(item.id, ())) if self._pass_holds else [],
+                                    saved_shows=wanted_text in (reason_before or ""),
+                                )
                                 item.printer_id = None
                                 drop_printer_resolved(item)
                                 item.waiting_reason = waiting_reason
@@ -4539,7 +4574,13 @@ class PrintScheduler:
                 for pid, blocks in qualifying.items()
             }
             keep = await self._idle_watch_unknown(db, [pid for pid in self._idle_watch.entries if pid not in keys])
-            for pid in self._idle_watch.step(keys, keep=keep):
+            # A job just told about a short spool: its printer is told the pass after (#3725).
+            hold_back = {
+                pid
+                for pid, blocks in qualifying.items()
+                if any(item_id in self._short_noticed_pass for item_id in blocks)
+            }
+            for pid in self._idle_watch.step(keys, keep=keep, hold_back=hold_back):
                 printer = await self._get_printer(db, pid)
                 jobs = [
                     IdleJob(await self._get_job_name(db, item), tuple(needs))
@@ -10811,6 +10852,60 @@ class PrintScheduler:
             logger.debug("Queue item %s: short filaments on printer %s not read: %s", item.id, printer_id, e)
             return []
 
+    @staticmethod
+    def _short_in(holds: Iterable[FilamentHold]) -> list[TodoFilament]:
+        """The filaments of ``holds`` that are short (a spool too small), once each (#3725)."""
+        found: list[TodoFilament] = []
+        merge_todo_filaments(found, (todo for hold in holds for todo in hold.filaments if todo.short))
+        return found
+
+    async def _notify_short_once(
+        self,
+        db: AsyncSession,
+        item: PrintQueueItem,
+        printer_id: int | None,
+        short: Sequence[TodoFilament],
+        *,
+        saved_shows: bool = False,
+    ) -> None:
+        """Tell at once that a spool is too short for a job waiting for it (#3725).
+
+        Loaded filament first holds such a job back quietly until its maximum wait
+        is up, but a short spool does not resolve by itself: someone has to change
+        it or print anyway. So it is said as soon as the job is found to wait for
+        it, once per job and short spool, in the words of the filament-short hold
+        (#3642). The spools told about are kept in memory; ``saved_shows`` is the
+        job's saved waiting reason already naming them, which a restart leaves
+        behind, and then nothing is sent again.
+        """
+        if printer_id is None or not short or item.skip_filament_check:
+            return
+        told = self._short_notified.setdefault(item.id, set())
+        slots = {
+            (printer_id, getattr(tray, "ams_id", None), getattr(tray, "tray_id", None))
+            for todo in short
+            for tray in (todo.short_trays or (None,))
+        }
+        if slots <= told:
+            return
+        told |= slots
+        if saved_shows:
+            return
+        try:
+            printer = await self._get_printer(db, printer_id)
+            layout = printer_tray_layout(printer_id, printer_manager)
+            await notification_service.on_queue_job_waiting(
+                job_name=await self._get_job_name(db, item),
+                target_model=(printer.model if printer else "") or "",
+                waiting_reason=_describe_deficit_for_notification(short, printer.name if printer else None, layout),
+                db=db,
+                printer_id=printer_id,
+                filaments=_short_notification_filaments(short, layout),
+            )
+            self._short_noticed_pass.add(item.id)
+        except Exception as e:
+            logger.debug("Short filament notification failed for item %s: %s", item.id, e)
+
     async def _notify_filament_wait_once(
         self,
         db: AsyncSession,
@@ -10843,7 +10938,9 @@ class PrintScheduler:
             return
         already = self._filament_wait_notified.get(item.id) == state
         self._filament_wait_notified[item.id] = state
-        if already or saved_shows_it:
+        # The short-spool notice just sent says the same (#3725); the state is kept
+        # so the next pass does not send this one either.
+        if already or saved_shows_it or item.id in self._short_noticed_pass:
             return
         try:
             await notification_service.on_queue_job_waiting(
