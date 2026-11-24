@@ -52,6 +52,8 @@ interface SpoolFormModalProps {
   spoolmanMode?: boolean;
   /** Query key to invalidate after mutations (differs for Spoolman vs local). */
   spoolsQueryKey?: string[];
+  /** Stacking class of the overlay, for a caller that sits above the default (the To do panel). */
+  overlayZIndex?: string;
 }
 
 export function SpoolFormModal({
@@ -64,6 +66,7 @@ export function SpoolFormModal({
   onSpoolsCreated,
   spoolmanMode = false,
   spoolsQueryKey = ['inventory-spools'],
+  overlayZIndex = 'z-50',
 }: SpoolFormModalProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -1185,7 +1188,7 @@ export function SpoolFormModal({
 
   return (
     <>
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className={`fixed inset-0 ${overlayZIndex} flex items-center justify-center`}>
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}

@@ -43,6 +43,8 @@ interface ConfigureAmsSlotModalProps {
   fullScreen?: boolean;
   // The printer's gcode state; a reset is refused while a print is loaded.
   printerState?: string | null;
+  // Stacking class of the overlay, for a caller that sits above the default (the To do panel).
+  overlayZIndex?: string;
 }
 
 // Known filament material types
@@ -269,6 +271,7 @@ export function ConfigureAmsSlotModal({
   onSuccess,
   fullScreen,
   printerState,
+  overlayZIndex = 'z-50',
 }: ConfigureAmsSlotModalProps) {
   const { t } = useTranslation();
   const { showToast } = useToast();
@@ -1244,7 +1247,7 @@ export function ConfigureAmsSlotModal({
   useEffect(() => {
     if (!isLoading && selectedPresetId && selectedPresetId !== scrolledToRef.current) {
       const raf = requestAnimationFrame(() => {
-          const modal = document.querySelector('[class*="fixed inset-0 z-50"]');
+          const modal = document.querySelector('[data-configure-ams-slot-modal]');
           const el = modal?.querySelector(`[data-preset-id="${CSS.escape(selectedPresetId)}"]`);
         if (el) {
           scrolledToRef.current = selectedPresetId;
@@ -1265,7 +1268,7 @@ export function ConfigureAmsSlotModal({
   const displayColor = colorHex || slotInfo.trayColor || 'FFFFFF';
 
   return (
-    <div className={`fixed inset-0 z-50 flex ${fullScreen ? '' : 'items-center justify-center'}`}>
+    <div data-configure-ams-slot-modal className={`fixed inset-0 ${overlayZIndex} flex ${fullScreen ? '' : 'items-center justify-center'}`}>
       {/* Backdrop */}
       {!fullScreen && (
         <div
@@ -1918,7 +1921,7 @@ export function ConfigureAmsSlotModal({
           message={t('configureAmsSlot.resetConfirmMessage')}
           confirmText={t('configureAmsSlot.resetSlot')}
           variant="danger"
-          overlayZIndex="z-[60]"
+          overlayZIndex={overlayZIndex === 'z-50' ? 'z-[60]' : 'z-[110]'}
           onConfirm={() => {
             setShowResetConfirm(false);
             resetMutation.mutate();

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Lock } from 'lucide-react';
 import type {
@@ -295,11 +295,13 @@ interface AmsPicturesProps {
   // One per printer an "Any <model>" entry lists, the one likely to take the job first at the front.
   pictures: QueueTodoPicture[];
   filaments: QueueTodoFilament[];
+  // What goes under the picture shown: the actions for that printer.
+  renderActions?: (picture: QueueTodoPicture) => ReactNode;
 }
 
 // A model job's picture: the printer it would likely go to first, with a
 // switch to the other candidates.
-export function AmsPictures({ pictures, filaments }: AmsPicturesProps) {
+export function AmsPictures({ pictures, filaments, renderActions }: AmsPicturesProps) {
   const { t } = useTranslation();
   const [selected, setSelected] = useState<number | null>(null);
   if (pictures.length === 0) return null;
@@ -329,6 +331,7 @@ export function AmsPictures({ pictures, filaments }: AmsPicturesProps) {
       )}
       {pictures.length === 1 && <div className="text-xs text-bambu-gray-light">{current.printer_name}</div>}
       <AmsPicture key={current.printer_id} picture={current} filaments={filaments} />
+      {renderActions?.(current)}
     </div>
   );
 }

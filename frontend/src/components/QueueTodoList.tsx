@@ -21,6 +21,7 @@ import { PlateClearedIcon } from './icons/PlateClearedIcon';
 import { QUEUE_TODO_KEY } from '../hooks/useQueueTodo';
 import { useStartQueueItem } from '../hooks/useStartQueueItem';
 import { AmsPicture, AmsPictures } from './QueueTodoAmsPicture';
+import { PictureActions } from './QueueTodoSlotActions';
 import { formatSlotLabel } from '../utils/amsHelpers';
 import { getColorName } from '../utils/colors';
 
@@ -225,12 +226,13 @@ function loadTitle(t: TFn, filaments: QueueTodoFilament[]): string {
   return t(KIND_TEXT_KEY.load_filament);
 }
 
-function EntryRow({ group, entry, onNavigate, onStart, startPending }: {
+function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZIndex }: {
   group: QueueTodoGroup;
   entry: QueueTodoEntry;
   onNavigate?: () => void;
   onStart: (id: number) => void;
   startPending: boolean;
+  overlayZIndex?: string;
 }) {
   const { t } = useTranslation();
   const { hasPermission, hasAnyPermission } = useAuth();
@@ -391,8 +393,19 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending }: {
             ))}
           </ul>
         )}
-        {picture && <AmsPicture picture={picture} filaments={entry.filaments} />}
-        {pictures.length > 0 && <AmsPictures pictures={pictures} filaments={entry.filaments} />}
+        {picture && (
+          <>
+            <AmsPicture picture={picture} filaments={entry.filaments} />
+            <PictureActions picture={picture} overlayZIndex={overlayZIndex} />
+          </>
+        )}
+        {pictures.length > 0 && (
+          <AmsPictures
+            pictures={pictures}
+            filaments={entry.filaments}
+            renderActions={(p) => <PictureActions key={p.printer_id} picture={p} overlayZIndex={overlayZIndex} />}
+          />
+        )}
         {entry.kind === 'load_filament' && !hasPicture && <SlotHints entry={entry} />}
         <div className="text-xs text-bambu-gray truncate max-w-full" title={jobs.map((j) => j.name).join(', ')}>
           {jobLabel}
@@ -445,6 +458,7 @@ export function QueueTodoList({ todo, onNavigate, heading = false, overlayZIndex
                   onNavigate={onNavigate}
                   onStart={(id) => startMutation.mutate({ id })}
                   startPending={startMutation.isPending}
+                  overlayZIndex={overlayZIndex}
                 />
               ))}
             </ul>
