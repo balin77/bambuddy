@@ -24,6 +24,7 @@ import { ConfirmModal } from './ConfirmModal';
 import { QUEUE_TODO_KEY } from '../hooks/useQueueTodo';
 import { useStartQueueItem } from '../hooks/useStartQueueItem';
 import { AmsPicture, AmsPictures } from './QueueTodoAmsPicture';
+import { PictureActions } from './QueueTodoSlotActions';
 import { formatSlotLabel } from '../utils/amsHelpers';
 import { getColorName } from '../utils/colors';
 import { formatDuration } from '../utils/date';
@@ -502,8 +503,19 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZInd
             ))}
           </ul>
         )}
-        {picture && <AmsPicture picture={picture} filaments={entry.filaments} />}
-        {pictures.length > 0 && <AmsPictures pictures={pictures} filaments={entry.filaments} />}
+        {picture && (
+          <>
+            <AmsPicture picture={picture} filaments={entry.filaments} />
+            <PictureActions picture={picture} overlayZIndex={overlayZIndex} />
+          </>
+        )}
+        {pictures.length > 0 && (
+          <AmsPictures
+            pictures={pictures}
+            filaments={entry.filaments}
+            renderActions={(p) => <PictureActions key={p.printer_id} picture={p} overlayZIndex={overlayZIndex} />}
+          />
+        )}
         {entry.kind === 'load_filament' && !hasPicture && <SlotHints entry={entry} />}
         {entry.kind !== 'print_paused' && (
           <div className="text-xs text-bambu-gray truncate max-w-full" title={jobs.map((j) => j.name).join(', ')}>
