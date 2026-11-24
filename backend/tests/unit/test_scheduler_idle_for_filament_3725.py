@@ -108,10 +108,12 @@ async def one_pass(
     state="IDLE",
     interlocked=None,
     idle_event=None,
+    waiting=None,
     extra=(),
 ):
     """One check_queue pass; ``deficits``/``unmatched``: item id -> what the pinned gate finds."""
     idle_event = idle_event if idle_event is not None else AsyncMock()
+    waiting = waiting if waiting is not None else AsyncMock()
     deficits = deficits or {}
     unmatched = unmatched or {}
 
@@ -150,7 +152,7 @@ async def one_pass(
             "backend.app.services.print_scheduler.ha_sensor_manager.blocked_printers",
             AsyncMock(return_value=interlocked or {}),
         ),
-        patch("backend.app.services.notification_service.notification_service.on_queue_job_waiting", AsyncMock()),
+        patch("backend.app.services.notification_service.notification_service.on_queue_job_waiting", waiting),
         patch("backend.app.services.notification_service.notification_service.on_queue_job_assigned", AsyncMock()),
         patch("backend.app.services.notification_service.notification_service.on_queue_job_failed", AsyncMock()),
         patch(
@@ -171,7 +173,7 @@ async def one_pass(
         for p in [*patches, *extra]:
             stack.enter_context(p)
         await scheduler.check_queue()
-    return SimpleNamespace(event=idle_event, launched=launched)
+    return SimpleNamespace(event=idle_event, launched=launched, waiting=waiting)
 
 
 async def saved(ctx) -> dict:
@@ -299,6 +301,9 @@ class TestAgainOnlyWhenSomethingChanged:
             deficits={item: [FilamentDeficit(1, 0, 2, "PLA", 505.0, 150.0)]},
         )
         at(ctx, 420)
+        # The new short spool is told about first, the printer the pass after.
+        await one_pass(ctx, scheduler, deficits={item: PETG})
+        at(ctx, 430)
         other = await one_pass(ctx, scheduler, deficits={item: PETG})
 
         same_filament_fewer_grams.event.assert_not_awaited()
@@ -453,7 +458,10 @@ class TestRestart:
             json.dumps({"1": {"since": (T0 - timedelta(hours=2)).isoformat(), "announced": None}}),
         )
 
-        due = await one_pass(ctx, new_scheduler(ctx), deficits={item: DEFICIT})
+        scheduler = new_scheduler(ctx)
+        # The pass that finds the short spool tells about it; the printer follows in the next.
+        await one_pass(ctx, scheduler, deficits={item: DEFICIT})
+        due = await one_pass(ctx, scheduler, deficits={item: DEFICIT})
 
         due.event.assert_awaited_once()
 

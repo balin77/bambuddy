@@ -14,7 +14,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import cast
+from typing import NamedTuple, cast
 
 from fastapi import HTTPException
 from sqlalchemy import delete, false, func, or_, select, true, update
@@ -517,6 +517,15 @@ UPLOAD_FAILURE_BACKOFF_MAX_SECONDS = 3600
 def _upload_backoff_seconds(refusals: int) -> int:
     """Backoff after the *refusals*-th refused upload in a row (1-based)."""
     return min(UPLOAD_FAILURE_BACKOFF_SECONDS * 2 ** max(refusals - 1, 0), UPLOAD_FAILURE_BACKOFF_MAX_SECONDS)
+
+
+class _FilamentWait(NamedTuple):
+    """What a pinned job waits for on its printer (#3587, #3641, #3725)."""
+
+    text: str | None
+    filaments: list[NotificationFilament]
+    needs: list[FilamentNeed]
+    deficits: list[FilamentDeficit]
 
 
 @dataclass(slots=True)
@@ -1790,6 +1799,10 @@ class PrintScheduler:
         # Per printer, since when it stands idle for filament and what was announced (#3725).
         self._idle_watch = FilamentIdleWatch()
         self._idle_watch_loaded = False
+        # The short spools a job was told about, by queue item id: (printer, AMS unit, tray) of each (#3725).
+        self._short_notified: dict[int, set[tuple[int | None, int | None, int | None]]] = {}
+        # The jobs told about a short spool in this pass (#3725).
+        self._short_noticed_pass: set[int] = set()
 
     async def run(self):
         """Main loop - check queue every interval."""
@@ -2007,6 +2020,7 @@ class PrintScheduler:
         self._filament_scope_memo.clear()
         self._pass_filament_blocks = {}
         self._short_facts = {}
+        self._short_noticed_pass = set()
         async with async_session() as db:
             if not self._idle_watch_loaded:
                 await self._load_idle_watch(db)
@@ -2125,6 +2139,7 @@ class PrintScheduler:
                 # Nothing waits, so no printer stands idle for it (#3725).
                 self._idle_watch.clear()
                 await self._idle_watch.save_if_changed(db)
+                self._short_notified.clear()
                 return bool(self._inflight)
 
             logger.info(
@@ -2139,6 +2154,9 @@ class PrintScheduler:
             }
             self._filament_wait_notified = {
                 item_id: state for item_id, state in self._filament_wait_notified.items() if item_id in pending_ids
+            }
+            self._short_notified = {
+                item_id: slots for item_id, slots in self._short_notified.items() if item_id in pending_ids
             }
 
             # Seed busy_printers with printers that already have an item in 'printing'
@@ -2507,7 +2525,7 @@ class PrintScheduler:
                         and self._is_printer_idle(item.printer_id, require_plate_clear)
                     ):
                         self._record_filament_block(
-                            item, item.printer_id, (await self._filament_wait_wanted(db, item))[2]
+                            item, item.printer_id, (await self._filament_wait_wanted(db, item)).needs
                         )
                     continue
 
@@ -2743,13 +2761,17 @@ class PrintScheduler:
                         # as the gates below, but the job is skipped instead
                         # of staged, so it starts by itself once the spool is
                         # loaded and the printer stays free for jobs behind it.
-                        wanted, wanted_filaments, wanted_needs = await self._filament_wait_wanted(db, item)
+                        wait = await self._filament_wait_wanted(db, item)
+                        wanted, wanted_filaments = wait.text, wait.filaments
                         if wanted:
                             suffix, has_priority = filament_wait_suffix(item)
                             reason = f"{_FILAMENT_WAIT_PREFIX}{wanted}{suffix}"
                             previous_reason = item.waiting_reason
                             await hold_item(item, reason, notify=False)
-                            self._record_filament_block(item, item.printer_id, wanted_needs)
+                            self._record_filament_block(item, item.printer_id, wait.needs)
+                            await self._notify_short_once(
+                                db, item, item.printer_id, wait.deficits, saved_shows=wanted in (previous_reason or "")
+                            )
                             if has_priority:
                                 reserve_for_filament_wait(item.printer_id)
                             await self._notify_filament_wait_once(
@@ -2994,6 +3016,17 @@ class PrintScheduler:
                     # A job no printer takes waits on each idle printer that lacked filament
                     # for it. One that was given a printer does not: it starts there (#3725).
                     if printer_id is None:
+                        # A short spool is told at once, for the first printer that has one (#3725).
+                        for blocked_pid in blocked_on:
+                            if short_detail.get(blocked_pid):
+                                await self._notify_short_once(
+                                    db,
+                                    item,
+                                    blocked_pid,
+                                    short_detail[blocked_pid],
+                                    saved_shows=_SHORT_FILAMENT_NEED in (item.waiting_reason or ""),
+                                )
+                                break
                         for blocked_pid, dicts in blocked_on.items():
                             self._record_filament_block(
                                 item,
@@ -3215,11 +3248,15 @@ class PrintScheduler:
                         if filament_first:
                             # Race fallback of the matcher's own filament check
                             # (#3587): release the printer and wait, as above.
-                            wanted, wanted_filaments, wanted_needs = await self._filament_wait_wanted(db, item)
+                            wait = await self._filament_wait_wanted(db, item)
+                            wanted, wanted_filaments = wait.text, wait.filaments
                             if wanted:
                                 suffix, has_priority = filament_wait_suffix(item)
                                 waiting_reason = f"{_FILAMENT_WAIT_PREFIX}{wanted}{suffix}"
-                                self._record_filament_block(item, printer_id, wanted_needs)
+                                self._record_filament_block(item, printer_id, wait.needs)
+                                await self._notify_short_once(
+                                    db, item, printer_id, wait.deficits, saved_shows=wanted in (reason_before or "")
+                                )
                                 item.printer_id = None
                                 drop_printer_resolved(item)
                                 item.waiting_reason = waiting_reason
@@ -3414,7 +3451,13 @@ class PrintScheduler:
                 for pid, blocks in qualifying.items()
             }
             keep = await self._idle_watch_unknown(db, [pid for pid in self._idle_watch.entries if pid not in keys])
-            for pid in self._idle_watch.step(keys, keep=keep):
+            # A job just told about a short spool: its printer is told the pass after (#3725).
+            hold_back = {
+                pid
+                for pid, blocks in qualifying.items()
+                if any(item_id in self._short_noticed_pass for item_id in blocks)
+            }
+            for pid in self._idle_watch.step(keys, keep=keep, hold_back=hold_back):
                 printer = await self._get_printer(db, pid)
                 jobs = [
                     IdleJob(await self._get_job_name(db, item), tuple(needs))
@@ -9833,6 +9876,50 @@ class PrintScheduler:
             self._short_facts[(item.id, printer_id)] = deficit
         return bool(deficit)
 
+    async def _notify_short_once(
+        self,
+        db: AsyncSession,
+        item: PrintQueueItem,
+        printer_id: int | None,
+        deficits: Sequence[FilamentDeficit],
+        *,
+        saved_shows: bool = False,
+    ) -> None:
+        """Tell at once that a spool is too short for a job waiting for it (#3725).
+
+        Loaded filament first holds such a job back quietly until its maximum wait
+        is up, but a short spool does not resolve by itself: someone has to change
+        it or print anyway. So it is said as soon as the job is found to wait for
+        it, once per job and short spool, in the words the filament-short hold uses
+        (#3642). The spools told about are kept in memory; ``saved_shows`` is the
+        job's saved waiting reason already naming them, which a restart leaves
+        behind, and then nothing is sent again.
+        """
+        if printer_id is None or not deficits or item.skip_filament_check:
+            return
+        told = self._short_notified.setdefault(item.id, set())
+        slots = {(printer_id, d.ams_id, d.tray_id) for d in deficits}
+        if slots <= told:
+            return
+        told |= slots
+        if saved_shows:
+            return
+        try:
+            printer = await self._get_printer(db, printer_id)
+            await notification_service.on_queue_job_waiting(
+                job_name=await self._get_job_name(db, item),
+                target_model=(printer.model if printer else "") or "",
+                waiting_reason=_describe_deficit_for_notification(
+                    list(deficits), printer.name if printer else None, printer_tray_layout(printer_id, printer_manager)
+                ),
+                db=db,
+                printer_id=printer_id,
+                filaments=self._deficit_filaments(printer_id, list(deficits)),
+            )
+            self._short_noticed_pass.add(item.id)
+        except Exception as e:
+            logger.debug("Short filament notification failed for item %s: %s", item.id, e)
+
     async def _notify_filament_wait_once(
         self,
         db: AsyncSession,
@@ -9865,7 +9952,9 @@ class PrintScheduler:
             return
         already = self._filament_wait_notified.get(item.id) == state
         self._filament_wait_notified[item.id] = state
-        if already or saved_shows_it:
+        # The short-spool notice just sent says the same (#3725); the state is kept
+        # so the next pass does not send this one either.
+        if already or saved_shows_it or item.id in self._short_noticed_pass:
             return
         try:
             await notification_service.on_queue_job_waiting(
@@ -10086,26 +10175,28 @@ class PrintScheduler:
         shortfall = self._cached_filament_shortfall(item.printer_id, required_types, forced or None)
         return ", ".join(shortfall) if shortfall else None
 
-    async def _filament_wait_wanted(
-        self, db: AsyncSession, item: PrintQueueItem
-    ) -> tuple[str | None, list[NotificationFilament], list[FilamentNeed]]:
+    async def _filament_wait_wanted(self, db: AsyncSession, item: PrintQueueItem) -> _FilamentWait:
         """What ``item`` waits for on its printer: worded for the queue row, and as data (#3587, #3641).
 
         The short spools if there are any, else the requirements without a
-        tray; ``(None, [], [])`` when it lacks nothing. The third part is the
-        same as what a printer standing idle for it is told (#3725).
+        tray; no text when it lacks nothing. ``needs`` is the same as data with
+        the grams, for the idle-printer notice (#3725); ``deficits`` the short
+        spools themselves, for the short-spool notice.
         """
         deficit = await self._filament_deficit(db, item)
         if deficit:
-            return (
+            return _FilamentWait(
                 _describe_deficit(deficit),
                 self._deficit_filaments(item.printer_id, deficit),
                 self._deficit_needs(item.printer_id, deficit),
+                deficit,
             )
         unmatched = await self._unmatched_filament(db, item)
         if unmatched:
-            return _describe_unmatched(unmatched), _override_filaments(unmatched), _override_needs(unmatched)
-        return None, [], []
+            return _FilamentWait(
+                _describe_unmatched(unmatched), _override_filaments(unmatched), _override_needs(unmatched), []
+            )
+        return _FilamentWait(None, [], [], [])
 
     def _deficit_needs(self, printer_id: int | None, deficits: list[FilamentDeficit]) -> list[FilamentNeed]:
         """The short slots with what they hold and what the job needs (#3725)."""
