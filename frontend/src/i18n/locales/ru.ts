@@ -6904,6 +6904,8 @@ export default {
     jobStartedDescription: "Задание из очереди отправлено на печать",
     jobWaiting: "Задание ожидает",
     jobWaitingDescription: "Задание ожидает филамент или свободный принтер",
+    printerIdleForFilament: "Принтер простаивает: ждёт филамент",
+    printerIdleForFilamentDescription: "Принтер простаивает 5 минут, потому что ожидающим заданиям не хватает филамента",
     jobSkipped: "Задание пропущено",
     jobSkippedDescription: "Задание пропущено из-за ошибки предыдущего",
     jobFailed: "Не удалось запустить задание",

@@ -683,6 +683,17 @@ export function NotificationProviderCard({ provider, onEdit }: NotificationProvi
 
                 <div className="flex items-center justify-between">
                   <div>
+                    <p className="text-sm text-white">{t('notifications.printerIdleForFilament')}</p>
+                    <p className="text-xs text-bambu-gray">{t('notifications.printerIdleForFilamentDescription')}</p>
+                  </div>
+                  <Toggle
+                    checked={provider.on_printer_idle_for_filament ?? true}
+                    onChange={(checked) => updateMutation.mutate({ on_printer_idle_for_filament: checked })}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div>
                     <p className="text-sm text-white">{t('notifications.jobSkipped')}</p>
                     <p className="text-xs text-bambu-gray">{t('notifications.jobSkippedDescription')}</p>
                   </div>

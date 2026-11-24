@@ -6917,6 +6917,8 @@ export default {
     jobStartedDescription: '대기열 작업 인쇄 시작됨',
     jobWaiting: '작업 대기 중',
     jobWaitingDescription: '필라멘트 또는 프린터를 기다리는 작업',
+    printerIdleForFilament: '프린터 유휴: 필라멘트 대기 중',
+    printerIdleForFilamentDescription: '대기 중인 작업에 필라멘트가 부족해 프린터가 5분 동안 유휴 상태입니다',
     jobSkipped: '작업 건너뜀',
     jobSkippedDescription: '작업 건너뜀 (이전 실패)',
     jobFailed: '작업 실패',
