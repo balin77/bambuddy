@@ -328,6 +328,8 @@ class TestEntries:
             [],
             {},
             [],
+            None,
+            None,
             hints,
             None,
             {(1, 0, 1): SlotExtra(620.0)},
@@ -370,7 +372,7 @@ class TestEntries:
             bare.unknown_job_ids,
         )
         assert (hint.state, [(s.ams_id, s.tray_id) for s in hint.slots]) == (HINT_REPLACEABLE, [(0, 1), (0, 2), (0, 3)])
-        args = ([_todo_job(101)], {1: "P"}, _holds(1), [], {}, [])
+        args = ([_todo_job(101)], {1: "P"}, _holds(1), [], {}, [], None, None)
         with_picture = build_todo(*args, {1: hint})
         without = build_todo(*args, {1: bare})
         assert with_picture["count"] == without["count"] == 1
@@ -403,7 +405,9 @@ class TestEntries:
         ams = _loaded_ams(RED, BLUE)
         scheduler = _scheduler_with({1: _need(RED)})
         hints = await _hints(scheduler, {1: _status(ams)}, [_job(1)], _holds(1))
-        todo = build_todo([_todo_job(101)], {1: "P"}, _holds(1), [], {}, [], hints, None, {(1, 0, 0): SlotExtra(100.0)})
+        todo = build_todo(
+            [_todo_job(101)], {1: "P"}, _holds(1), [], {}, [], None, None, hints, None, {(1, 0, 0): SlotExtra(100.0)}
+        )
         text = repr(self._entry(todo)["ams_picture"])
         assert "Lamp_101" not in text and "job" not in text and "spool_id" not in text
 
@@ -417,10 +421,10 @@ class TestEntries:
         job = TodoJob(101, "Lamp_Base.5x.P1S.3mf", frozenset({1, 2, 3}), None, "p1s", "P1S", False)
         names = {1: "Shelf A", 2: "Shelf B", 3: "Shelf C"}
         # Printer 3 has a free slot but is printing: the idle ones come first, fewest "out" next.
-        todo = build_todo([job], names, holds, [], {}, [], hints, None, None, None, idle_printers={1, 2})
+        todo = build_todo([job], names, holds, [], {}, [], None, None, hints, None, None, None, idle_printers={1, 2})
         pictures = self._entry(todo)["ams_pictures"]
         assert [p["printer_id"] for p in pictures] == [1, 2, 3]
-        todo = build_todo([job], names, holds, [], {}, [], hints, None, None, None, idle_printers={1, 3})
+        todo = build_todo([job], names, holds, [], {}, [], None, None, hints, None, None, None, idle_printers={1, 3})
         assert [p["printer_id"] for p in self._entry(todo)["ams_pictures"]] == [3, 1, 2]
         assert "ams_picture" not in self._entry(todo) or self._entry(todo).get("ams_picture") is None
 
@@ -443,6 +447,8 @@ class TestPrepare:
             [],
             {},
             [],
+            None,
+            None,
             None,
             entries,
             None,

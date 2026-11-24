@@ -50,6 +50,9 @@ interface AssignSpoolPickerProps {
   wanted?: AssignSpoolWanted;
   /** Inline only: opens the new-spool form; the button is absent without it. */
   onNewSpool?: () => void;
+  /** Inline only: the new-spool button is drawn but the caller may not use it. */
+  newSpoolDisabled?: boolean;
+  newSpoolDisabledTitle?: string;
   /** Inline only: the slot's name ("A3") in the heading. */
   slotLabel?: string;
   printerId: number;
@@ -70,6 +73,8 @@ export function AssignSpoolPicker({
   onScanningChange,
   wanted,
   onNewSpool,
+  newSpoolDisabled,
+  newSpoolDisabledTitle,
   slotLabel,
   printerId,
   amsId,
@@ -565,7 +570,13 @@ export function AssignSpoolPicker({
             </button>
           )}
           {!scanning && onNewSpool && (
-            <button type="button" onClick={onNewSpool} className={`${buttonBase} border border-bambu-dark-tertiary text-white hover:border-bambu-gray font-medium`}>
+            <button
+              type="button"
+              onClick={onNewSpool}
+              disabled={newSpoolDisabled}
+              title={newSpoolDisabled ? newSpoolDisabledTitle : undefined}
+              className={`${buttonBase} border border-bambu-dark-tertiary text-white hover:border-bambu-gray font-medium disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
               {t('queueTodo.assign.newSpool')}
             </button>
           )}

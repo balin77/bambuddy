@@ -3,8 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
 import type { QueueTodoPicture, QueueTodoPictureSlot } from '../api/client';
-import { useAuth } from '../contexts/AuthContext';
 import { QUEUE_TODO_KEY } from '../hooks/useQueueTodo';
+import { usePermissionGate } from '../hooks/usePermissionGate';
 import { useUiSettings } from '../hooks/useUiSettings';
 import { formatSlotLabel, resolveSlotNozzleDiameter } from '../utils/amsHelpers';
 import { getCurrencySymbol } from '../utils/currency';
@@ -28,14 +28,16 @@ interface SlotActionsProps {
 // What to do about the slots a filament is going into, in the entry itself
 // (#3726): assign a spool from the inventory, scan its label, add a new one,
 // set the slot up when it has no RFID. A button is there only for who may use
-// it, and the picture is drawn as before without any.
+// it: a control the caller may not use is greyed out, or left out when their
+// groups hide what they cannot use (#3639); the picture is drawn either way.
 export function PictureActions({ picture, overlayZIndex }: SlotActionsProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const { hasPermission } = useAuth();
-  const canAssign = hasPermission('inventory:update');
-  const canCreate = hasPermission('inventory:create');
-  const canConfigure = hasPermission('printers:control');
+  const gate = usePermissionGate();
+  const assignGate = gate('inventory:update');
+  const createGate = gate('inventory:create');
+  const configureGate = gate('printers:filament');
+  const canAssign = assignGate.allowed;
   // Slots are kept by key: the list refetches and hands over new objects.
   const [target, setTarget] = useState<SlotKey | null>(null);
   const [creating, setCreating] = useState(false);
@@ -62,9 +64,9 @@ export function PictureActions({ picture, overlayZIndex }: SlotActionsProps) {
   });
 
   const slots = picture.units.flatMap((u) => u.slots.map((slot) => ({ slot, unit: u }))).filter(({ slot }) => slot.incoming);
-  if (slots.length === 0 || (!canAssign && !canConfigure)) return null;
+  if (slots.length === 0 || (!assignGate.render && !configureGate.render)) return null;
   // Until the Spoolman status is known nothing is assigned: which inventory it is is not known.
-  const mayAssign = canAssign && spoolman !== undefined && !spoolmanDown;
+  const mayAssign = assignGate.render && (!canAssign || (spoolman !== undefined && !spoolmanDown));
   const nozzleOf = (unit: { nozzle: 'left' | 'right' | null }) => (unit.nozzle === 'left' ? 1 : unit.nozzle === 'right' ? 0 : undefined);
   const buttonClass =
     'min-h-[44px] sm:min-h-[36px] px-4 rounded-lg text-sm font-semibold break-words text-left';
@@ -98,7 +100,9 @@ export function PictureActions({ picture, overlayZIndex }: SlotActionsProps) {
           }}
           wanted={{ type: incoming.type, color: incoming.color, color_name: incoming.color_name, required_g: incoming.required_g }}
           spoolmanEnabled={spoolmanOn}
-          onNewSpool={canCreate && !spoolmanOn ? () => setCreating(true) : undefined}
+          onNewSpool={createGate.render && !spoolmanOn ? () => setCreating(true) : undefined}
+          newSpoolDisabled={!createGate.allowed}
+          newSpoolDisabledTitle={t('queueTodo.assign.noPermissionCreate')}
           onDone={() => {
             setTarget(null);
             queryClient.invalidateQueries({ queryKey: QUEUE_TODO_KEY });
@@ -115,16 +119,20 @@ export function PictureActions({ picture, overlayZIndex }: SlotActionsProps) {
                   <button
                     type="button"
                     onClick={() => setTarget({ ams_id: slot.ams_id, tray_id: slot.tray_id })}
-                    className={`${buttonClass} ${i === 0 ? 'bg-bambu-green text-black hover:bg-bambu-green/90' : 'border border-bambu-dark-tertiary text-white hover:border-bambu-gray'}`}
+                    disabled={!canAssign}
+                    title={!canAssign ? t('queueTodo.assign.noPermissionAssign') : undefined}
+                    className={`${buttonClass} ${i === 0 ? 'bg-bambu-green text-black hover:bg-bambu-green/90' : 'border border-bambu-dark-tertiary text-white hover:border-bambu-gray'} disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
                     {t('queueTodo.assign.assignFor', { slot: label })}
                   </button>
                 )}
-                {canConfigure && !slot.rfid && (
+                {configureGate.render && !slot.rfid && (
                   <button
                     type="button"
                     onClick={() => setConfiguring({ ams_id: slot.ams_id, tray_id: slot.tray_id })}
-                    className={`${buttonClass} border border-bambu-dark-tertiary text-white hover:border-bambu-gray font-medium`}
+                    disabled={!configureGate.allowed}
+                    title={!configureGate.allowed ? t('queueTodo.assign.noPermissionConfigure') : undefined}
+                    className={`${buttonClass} border border-bambu-dark-tertiary text-white hover:border-bambu-gray font-medium disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
                     {t('queueTodo.assign.configureFor', { slot: label })}
                   </button>

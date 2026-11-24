@@ -11,7 +11,7 @@ import { ToastProvider } from '../../contexts/ToastContext';
 import { server } from '../mocks/server';
 import type { QueueTodoPicture, QueueTodoPictureSlot } from '../../api/client';
 
-const perms = { granted: new Set<string>() };
+const perms = { granted: new Set<string>(), hide: false };
 
 vi.mock('../../contexts/AuthContext', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../contexts/AuthContext')>();
@@ -23,6 +23,7 @@ vi.mock('../../contexts/AuthContext', async (importOriginal) => {
       loading: false,
       isAdmin: false,
       hasPermission: (p: string) => perms.granted.has(p),
+      hideUnpermitted: perms.hide,
       hasAnyPermission: (...ps: string[]) => ps.some((p) => perms.granted.has(p)),
       canModify: () => true,
     }),
@@ -107,7 +108,8 @@ function renderActions(pic: QueueTodoPicture = picture) {
 }
 
 beforeEach(() => {
-  perms.granted = new Set(['inventory:update', 'inventory:create', 'printers:control']);
+  perms.granted = new Set(['inventory:update', 'inventory:create', 'printers:filament']);
+  perms.hide = false;
 });
 
 describe('buttons of an entry with a picture', () => {
@@ -129,25 +131,48 @@ describe('buttons of an entry with a picture', () => {
     expect(screen.queryByRole('button', { name: /Set up slot/ })).toBeNull();
   });
 
-  it('has no button for who holds no permission, and no row at all', () => {
+  it('has no button for who holds no permission and whose groups hide what they cannot use, and no row at all', () => {
     setup();
     perms.granted = new Set();
+    perms.hide = true;
     const { container } = renderActions();
     expect(screen.queryByRole('button')).toBeNull();
     expect(container.querySelector('[data-testid="todo-slot-actions"]')).toBeNull();
   });
 
-  it('assigns with inventory:update alone and sets up with printers:control alone', async () => {
+  it('greys the buttons out, with the reason, for who may not use them', async () => {
     setup();
+    perms.granted = new Set();
+    renderActions();
+    const assign = await screen.findByRole('button', { name: 'Assign spool for A3' });
+    expect(assign).toBeDisabled();
+    expect(assign).toHaveAttribute('title', 'You do not have permission to assign spools');
+    const configure = screen.getByRole('button', { name: 'Set up slot A3' });
+    expect(configure).toBeDisabled();
+    expect(configure).toHaveAttribute('title', 'You do not have permission to set up AMS slots');
+    fireEvent.click(assign);
+    expect(screen.queryByTestId('todo-assign-picker')).toBeNull();
+  });
+
+  it('assigns with inventory:update alone and sets up with printers:filament alone (hide option on)', async () => {
+    setup();
+    perms.hide = true;
     perms.granted = new Set(['inventory:update']);
     const { unmount } = renderActions();
-    expect(await screen.findByRole('button', { name: 'Assign spool for A3' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Assign spool for A3' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: /Set up slot/ })).toBeNull();
     unmount();
-    perms.granted = new Set(['printers:control']);
+    perms.granted = new Set(['printers:filament']);
     renderActions();
     expect(screen.queryByRole('button', { name: /Assign spool/ })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Set up slot A3' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Set up slot A3' })).toBeEnabled();
+  });
+
+  it('does not take printers:control for the slot set-up: only printers:filament', async () => {
+    setup();
+    perms.granted = new Set(['printers:control']);
+    renderActions();
+    expect(await screen.findByRole('button', { name: 'Set up slot A3' })).toBeDisabled();
   });
 
   it('makes every button at least 44 px high on a phone', () => {
@@ -220,14 +245,27 @@ describe('the spools of the inventory inside the entry', () => {
     expect(screen.getByRole('button', { name: 'Add new spool' })).toBeInTheDocument();
   });
 
-  it('leaves the new spool out without inventory:create but keeps scanning', async () => {
+  it('greys the new spool out without inventory:create but keeps scanning', async () => {
     perms.granted = new Set(['inventory:update']);
     setup();
     renderActions();
     fireEvent.click(await screen.findByRole('button', { name: 'Assign spool for A3' }));
     await screen.findByTestId('todo-assign-picker');
-    expect(screen.queryByRole('button', { name: 'Add new spool' })).toBeNull();
+    const add = screen.getByRole('button', { name: 'Add new spool' });
+    expect(add).toBeDisabled();
+    expect(add).toHaveAttribute('title', 'You do not have permission to add spools');
     expect(screen.getByRole('button', { name: 'Scan label' })).toBeInTheDocument();
+  });
+
+  it('leaves the new spool out without inventory:create when the hide option is on', async () => {
+    perms.granted = new Set(['inventory:update']);
+    perms.hide = true;
+    setup();
+    renderActions();
+    fireEvent.click(await screen.findByRole('button', { name: 'Assign spool for A3' }));
+    await screen.findByTestId('todo-assign-picker');
+    expect(screen.queryByRole('button', { name: 'Add new spool' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Scan label' })).toBeEnabled();
   });
 
   it('scanning shows the scanner in the entry and Back returns to the list', async () => {

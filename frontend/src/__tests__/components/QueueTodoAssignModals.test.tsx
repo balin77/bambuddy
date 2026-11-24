@@ -1,5 +1,5 @@
 /**
- * The dialogs an entry opens (#3726): set up the slot (printers:control) and
+ * The dialogs an entry opens (#3726): set up the slot (printers:filament) and
  * a new spool (inventory:create), above the To do panel.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -11,7 +11,7 @@ import { ToastProvider } from '../../contexts/ToastContext';
 import { server } from '../mocks/server';
 import type { QueueTodoPicture } from '../../api/client';
 
-const granted = new Set(['inventory:update', 'inventory:create', 'printers:control', 'queue:read_all']);
+const granted = new Set(['inventory:update', 'inventory:create', 'printers:filament', 'queue:read_all']);
 
 vi.mock('../../contexts/AuthContext', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../contexts/AuthContext')>();
