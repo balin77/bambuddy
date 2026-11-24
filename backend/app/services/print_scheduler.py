@@ -10938,9 +10938,10 @@ class PrintScheduler:
             return
         already = self._filament_wait_notified.get(item.id) == state
         self._filament_wait_notified[item.id] = state
-        # The short-spool notice just sent says the same (#3725); the state is kept
-        # so the next pass does not send this one either.
-        if already or saved_shows_it or item.id in self._short_noticed_pass:
+        # The short-spool notice just sent says the same as the one for the start
+        # (#3725); the state is kept so the next pass does not send it either. The
+        # priority message is news of its own: the printer is kept free now.
+        if already or saved_shows_it or (state == "start" and item.id in self._short_noticed_pass):
             return
         try:
             await notification_service.on_queue_job_waiting(
