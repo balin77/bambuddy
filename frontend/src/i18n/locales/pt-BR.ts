@@ -8872,6 +8872,15 @@ export default {
     openPrinter: "Abrir impressora",
     openQueue: "Abrir fila",
     actionFailed: "A ação falhou",
+    actions: {
+      powerOnAgain: "Ligar novamente",
+      powerOnSent: "Comando de ligar enviado",
+      noPlug: "Nenhuma tomada inteligente encontrada para esta impressora",
+      editJob: "Editar trabalho",
+      moveJob: "Mover para outra impressora",
+      addSpool: "Adicionar carretel",
+      addSpoolFor: "Adicionar carretel: {{filament}}",
+    },
     slotHint: {
       free: "Livres: {{slots}}",
       replaceable: "Podem ser substituídos: {{slots}}",

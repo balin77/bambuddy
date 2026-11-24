@@ -54,6 +54,8 @@ interface SpoolFormModalProps {
   spoolsQueryKey?: string[];
   /** Stacking class of the overlay, for a caller that sits above the default (the To do panel). */
   overlayZIndex?: string;
+  /** Fields a new spool starts with (create mode), e.g. the filament a job is missing (#3726). */
+  initialValues?: Partial<SpoolFormData>;
 }
 
 export function SpoolFormModal({
@@ -67,6 +69,7 @@ export function SpoolFormModal({
   spoolmanMode = false,
   spoolsQueryKey = ['inventory-spools'],
   overlayZIndex = 'z-50',
+  initialValues,
 }: SpoolFormModalProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -82,6 +85,9 @@ export function SpoolFormModal({
   const [formData, setFormData] = useState<SpoolFormData>(defaultFormData);
   const formDataRef = useRef(formData);
   formDataRef.current = formData;
+  // Read when the form opens, not a trigger: a caller's fresh object must not reset the form.
+  const initialValuesRef = useRef(initialValues);
+  initialValuesRef.current = initialValues;
   const [errors, setErrors] = useState<Partial<Record<keyof SpoolFormData, string>>>({});
   const [activeTab, setActiveTab] = useState<TabId>('filament');
   const [weightTouched, setWeightTouched] = useState(false);
@@ -506,7 +512,7 @@ export function SpoolFormModal({
           }))
         );
       } else {
-        setFormData(defaultFormData);
+        setFormData({ ...defaultFormData, ...initialValuesRef.current });
         setPresetInputValue('');
         setSelectedProfiles(new Map());
         setSupplierLinks([]);

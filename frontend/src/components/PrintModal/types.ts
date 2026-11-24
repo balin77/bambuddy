@@ -40,6 +40,8 @@ export interface PrintModalProps {
   preselectPlateId?: number | null;
   /** Handler for closing the modal */
   onClose: () => void;
+  /** Stacking class of the overlay, for a caller that sits above the default (the To do panel). */
+  overlayZIndex?: string;
   /** Handler for successful operation */
   onSuccess?: () => void;
   /** Project ID to associate the resulting archive with (only when triggered from project view) */

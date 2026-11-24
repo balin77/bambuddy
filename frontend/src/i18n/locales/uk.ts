@@ -8928,6 +8928,15 @@ export default {
     openPrinter: "Відкрити принтер",
     openQueue: "Відкрити чергу",
     actionFailed: "Не вдалося виконати дію",
+    actions: {
+      powerOnAgain: "Увімкнути знову",
+      powerOnSent: "Команду вмикання надіслано",
+      noPlug: "Для цього принтера не знайдено розумної розетки",
+      editJob: "Змінити завдання",
+      moveJob: "Перенести на інший принтер",
+      addSpool: "Додати котушку",
+      addSpoolFor: "Додати котушку: {{filament}}",
+    },
     slotHint: {
       free: "Вільно: {{slots}}",
       replaceable: "Можна замінити: {{slots}}",

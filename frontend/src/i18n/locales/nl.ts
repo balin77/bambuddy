@@ -8938,6 +8938,15 @@ export default {
     openPrinter: "Printer openen",
     openQueue: "Wachtrij openen",
     actionFailed: "Actie mislukt",
+    actions: {
+      powerOnAgain: "Opnieuw inschakelen",
+      powerOnSent: "Inschakelcommando verzonden",
+      noPlug: "Geen slimme stekker gevonden voor deze printer",
+      editJob: "Opdracht bewerken",
+      moveJob: "Naar andere printer verplaatsen",
+      addSpool: "Spoel toevoegen",
+      addSpoolFor: "Spoel toevoegen: {{filament}}",
+    },
     slotHint: {
       free: "Vrij: {{slots}}",
       replaceable: "Kunnen worden vervangen: {{slots}}",

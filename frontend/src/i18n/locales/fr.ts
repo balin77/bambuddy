@@ -8873,6 +8873,15 @@ export default {
     openPrinter: "Ouvrir l'imprimante",
     openQueue: "Ouvrir la file",
     actionFailed: "Échec de l'action",
+    actions: {
+      powerOnAgain: "Rallumer",
+      powerOnSent: "Commande d'allumage envoyée",
+      noPlug: "Aucune prise connectée trouvée pour cette imprimante",
+      editJob: "Modifier le travail",
+      moveJob: "Déplacer vers une autre imprimante",
+      addSpool: "Ajouter une bobine",
+      addSpoolFor: "Ajouter une bobine : {{filament}}",
+    },
     slotHint: {
       free: "Libres : {{slots}}",
       replaceable: "Peuvent être remplacés : {{slots}}",

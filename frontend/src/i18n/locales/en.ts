@@ -8940,6 +8940,15 @@ export default {
     openPrinter: "Open printer",
     openQueue: "Open queue",
     actionFailed: "Action failed",
+    actions: {
+      powerOnAgain: "Switch on again",
+      powerOnSent: "Switch-on command sent",
+      noPlug: "No smart plug found for this printer",
+      editJob: "Edit job",
+      moveJob: "Move to another printer",
+      addSpool: "Add spool",
+      addSpoolFor: "Add spool: {{filament}}",
+    },
     slotHint: {
       free: "Free: {{slots}}",
       replaceable: "Can be replaced: {{slots}}",

@@ -8895,6 +8895,15 @@ export default {
     openPrinter: "Abrir impresora",
     openQueue: "Abrir cola",
     actionFailed: "La acción falló",
+    actions: {
+      powerOnAgain: "Volver a encender",
+      powerOnSent: "Orden de encendido enviada",
+      noPlug: "No se encontró ningún enchufe inteligente para esta impresora",
+      editJob: "Editar trabajo",
+      moveJob: "Mover a otra impresora",
+      addSpool: "Añadir bobina",
+      addSpoolFor: "Añadir bobina: {{filament}}",
+    },
     slotHint: {
       free: "Libres: {{slots}}",
       replaceable: "Se pueden reemplazar: {{slots}}",

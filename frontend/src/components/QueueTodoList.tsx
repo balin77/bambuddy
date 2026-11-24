@@ -22,6 +22,7 @@ import { QUEUE_TODO_KEY } from '../hooks/useQueueTodo';
 import { useStartQueueItem } from '../hooks/useStartQueueItem';
 import { AmsPicture, AmsPictures } from './QueueTodoAmsPicture';
 import { PictureActions } from './QueueTodoSlotActions';
+import { AddSpoolActions, JobActions, PowerOnAgain } from './QueueTodoEntryActions';
 import { formatSlotLabel } from '../utils/amsHelpers';
 import { getColorName } from '../utils/colors';
 
@@ -410,6 +411,14 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZInd
         <div className="text-xs text-bambu-gray truncate max-w-full" title={jobs.map((j) => j.name).join(', ')}>
           {jobLabel}
         </div>
+        {/* A filament with none left in stock: add a spool, or change the job (#3726). */}
+        {entry.kind === 'load_filament' && entry.filaments.some((f) => f.no_stock) && (
+          <>
+            <AddSpoolActions filaments={entry.filaments} overlayZIndex={overlayZIndex} />
+            <JobActions jobs={jobs} overlayZIndex={overlayZIndex} />
+          </>
+        )}
+        {entry.kind === 'power_on_failed' && group.printer_id != null && <PowerOnAgain printerId={group.printer_id} />}
         {action}
       </div>
     </li>

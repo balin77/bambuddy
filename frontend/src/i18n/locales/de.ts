@@ -8887,6 +8887,15 @@ export default {
     openPrinter: "Drucker öffnen",
     openQueue: "Warteschlange öffnen",
     actionFailed: "Aktion fehlgeschlagen",
+    actions: {
+      powerOnAgain: "Erneut einschalten",
+      powerOnSent: "Einschaltbefehl gesendet",
+      noPlug: "Keine Steckdose für diesen Drucker gefunden",
+      editJob: "Auftrag bearbeiten",
+      moveJob: "Auf anderen Drucker verschieben",
+      addSpool: "Spule anlegen",
+      addSpoolFor: "Spule anlegen: {{filament}}",
+    },
     slotHint: {
       free: "Frei: {{slots}}",
       replaceable: "Können ersetzt werden: {{slots}}",

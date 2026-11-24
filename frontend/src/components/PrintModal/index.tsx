@@ -106,6 +106,7 @@ export function PrintModal({
   initialSelectedPrinterIds,
   preselectPlateId,
   onClose,
+  overlayZIndex = 'z-50',
   onSuccess,
   projectId,
   cleanupLibraryAfterDispatch,
@@ -2187,7 +2188,7 @@ export function PrintModal({
 
   return (
     <div
-      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
+      className={`fixed inset-0 bg-black/70 flex items-center justify-center ${overlayZIndex} p-4`}
       onClick={isSubmitting ? undefined : onClose}
     >
       {/* 4xl rather than the 2xl this was: the filament rows carry the most
