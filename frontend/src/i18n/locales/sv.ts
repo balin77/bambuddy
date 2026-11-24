@@ -8995,6 +8995,15 @@ errors: {
     openPrinter: "Öppna skrivare",
     openQueue: "Öppna kön",
     actionFailed: "Åtgärden misslyckades",
+    actions: {
+      powerOnAgain: "Slå på igen",
+      powerOnSent: "Kommando för att slå på skickat",
+      noPlug: "Ingen smart kontakt hittades för den här skrivaren",
+      editJob: "Redigera jobb",
+      moveJob: "Flytta till en annan skrivare",
+      addSpool: "Lägg till spole",
+      addSpoolFor: "Lägg till spole: {{filament}}",
+    },
     slotHint: {
       free: "Lediga: {{slots}}",
       replaceable: "Kan bytas ut: {{slots}}",

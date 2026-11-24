@@ -8518,6 +8518,15 @@ export default {
     openPrinter: "Открыть принтер",
     openQueue: "Открыть очередь",
     actionFailed: "Не удалось выполнить действие",
+    actions: {
+      powerOnAgain: "Включить снова",
+      powerOnSent: "Команда включения отправлена",
+      noPlug: "Для этого принтера не найдена умная розетка",
+      editJob: "Изменить задание",
+      moveJob: "Перенести на другой принтер",
+      addSpool: "Добавить катушку",
+      addSpoolFor: "Добавить катушку: {{filament}}",
+    },
     slotHint: {
       free: "Свободно: {{slots}}",
       replaceable: "Можно заменить: {{slots}}",

@@ -8840,6 +8840,15 @@ export default {
     openPrinter: "Yazıcıyı aç",
     openQueue: "Kuyruğu aç",
     actionFailed: "İşlem başarısız oldu",
+    actions: {
+      powerOnAgain: "Yeniden aç",
+      powerOnSent: "Açma komutu gönderildi",
+      noPlug: "Bu yazıcı için akıllı priz bulunamadı",
+      editJob: "İşi düzenle",
+      moveJob: "Başka bir yazıcıya taşı",
+      addSpool: "Makara ekle",
+      addSpoolFor: "Makara ekle: {{filament}}",
+    },
     slotHint: {
       free: "Boş: {{slots}}",
       replaceable: "Değiştirilebilir: {{slots}}",

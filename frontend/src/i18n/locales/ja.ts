@@ -8912,6 +8912,15 @@ export default {
     openPrinter: "プリンターを開く",
     openQueue: "キューを開く",
     actionFailed: "操作に失敗しました",
+    actions: {
+      powerOnAgain: "もう一度オンにする",
+      powerOnSent: "オンにするコマンドを送信しました",
+      noPlug: "このプリンターのスマートプラグが見つかりません",
+      editJob: "ジョブを編集",
+      moveJob: "別のプリンターへ移動",
+      addSpool: "スプールを追加",
+      addSpoolFor: "スプールを追加: {{filament}}",
+    },
     slotHint: {
       free: "空き: {{slots}}",
       replaceable: "交換可能: {{slots}}",

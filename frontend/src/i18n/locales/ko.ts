@@ -8536,6 +8536,15 @@ export default {
     openPrinter: "프린터 열기",
     openQueue: "대기열 열기",
     actionFailed: "작업에 실패했습니다",
+    actions: {
+      powerOnAgain: "다시 켜기",
+      powerOnSent: "켜기 명령을 보냈습니다",
+      noPlug: "이 프린터의 스마트 플러그를 찾을 수 없습니다",
+      editJob: "작업 편집",
+      moveJob: "다른 프린터로 이동",
+      addSpool: "스풀 추가",
+      addSpoolFor: "스풀 추가: {{filament}}",
+    },
     slotHint: {
       free: "비어 있음: {{slots}}",
       replaceable: "교체 가능: {{slots}}",

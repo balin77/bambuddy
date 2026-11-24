@@ -58,6 +58,8 @@ interface SpoolFormModalProps {
   spoolsQueryKey?: string[];
   /** Stacking class of the overlay, for a caller that sits above the default (the To do panel). */
   overlayZIndex?: string;
+  /** Fields a new spool starts with (create mode), e.g. the filament a job is missing (#3726). */
+  initialValues?: Partial<SpoolFormData>;
 }
 
 export function SpoolFormModal({
@@ -71,6 +73,7 @@ export function SpoolFormModal({
   spoolmanMode = false,
   spoolsQueryKey = ['inventory-spools'],
   overlayZIndex = 'z-50',
+  initialValues,
 }: SpoolFormModalProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -87,6 +90,9 @@ export function SpoolFormModal({
   const [formData, setFormData] = useState<SpoolFormData>(defaultFormData);
   const formDataRef = useRef(formData);
   formDataRef.current = formData;
+  // Read when the form opens, not a trigger: a caller's fresh object must not reset the form.
+  const initialValuesRef = useRef(initialValues);
+  initialValuesRef.current = initialValues;
   const [errors, setErrors] = useState<Partial<Record<keyof SpoolFormData, string>>>({});
   const [activeTab, setActiveTab] = useState<TabId>('filament');
   const [weightTouched, setWeightTouched] = useState(false);
@@ -557,7 +563,7 @@ export function SpoolFormModal({
         // Create: start from the last created spool (#3619). Not for edit or
         // copy, which carry the spool they were opened on.
         const last = isCreating ? loadLastSpool(spoolmanMode ? 'spoolman' : 'builtin') : null;
-        setFormData(last ? {
+        setFormData({ ...(last ? {
           ...defaultFormData,
           brand: last.brand ?? '',
           material: last.material ?? '',
@@ -567,7 +573,7 @@ export function SpoolFormModal({
           core_weight: last.core_weight ?? defaultFormData.core_weight,
           cost_per_kg: last.cost_per_kg ?? null,
           category: last.category ?? '',
-        } : defaultFormData);
+        } : defaultFormData), ...initialValuesRef.current });
         setPresetInputValue(last ? last.slicer_filament_name || last.slicer_filament || '' : '');
         setSelectedProfiles(new Map());
         setSupplierLinks([]);

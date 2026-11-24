@@ -8896,6 +8896,15 @@ export default {
     openPrinter: "打开打印机",
     openQueue: "打开队列",
     actionFailed: "操作失败",
+    actions: {
+      powerOnAgain: "重新开启",
+      powerOnSent: "已发送开启指令",
+      noPlug: "未找到此打印机的智能插座",
+      editJob: "编辑任务",
+      moveJob: "移到其他打印机",
+      addSpool: "添加耗材盘",
+      addSpoolFor: "添加耗材盘：{{filament}}",
+    },
     slotHint: {
       free: "空闲：{{slots}}",
       replaceable: "可更换：{{slots}}",

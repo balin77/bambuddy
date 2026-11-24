@@ -8966,6 +8966,15 @@ export default {
     openPrinter: "Otwórz drukarkę",
     openQueue: "Otwórz kolejkę",
     actionFailed: "Akcja nie powiodła się",
+    actions: {
+      powerOnAgain: "Włącz ponownie",
+      powerOnSent: "Wysłano polecenie włączenia",
+      noPlug: "Nie znaleziono inteligentnej wtyczki dla tej drukarki",
+      editJob: "Edytuj zadanie",
+      moveJob: "Przenieś na inną drukarkę",
+      addSpool: "Dodaj szpulę",
+      addSpoolFor: "Dodaj szpulę: {{filament}}",
+    },
     slotHint: {
       free: "Wolne: {{slots}}",
       replaceable: "Można wymienić: {{slots}}",

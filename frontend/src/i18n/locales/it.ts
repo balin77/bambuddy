@@ -8898,6 +8898,15 @@ export default {
     openPrinter: "Apri stampante",
     openQueue: "Apri coda",
     actionFailed: "Azione non riuscita",
+    actions: {
+      powerOnAgain: "Riaccendi",
+      powerOnSent: "Comando di accensione inviato",
+      noPlug: "Nessuna presa smart trovata per questa stampante",
+      editJob: "Modifica lavoro",
+      moveJob: "Sposta su un'altra stampante",
+      addSpool: "Aggiungi bobina",
+      addSpoolFor: "Aggiungi bobina: {{filament}}",
+    },
     slotHint: {
       free: "Liberi: {{slots}}",
       replaceable: "Possono essere sostituiti: {{slots}}",

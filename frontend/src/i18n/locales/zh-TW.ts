@@ -8896,6 +8896,15 @@ export default {
     openPrinter: "開啟印表機",
     openQueue: "開啟佇列",
     actionFailed: "操作失敗",
+    actions: {
+      powerOnAgain: "重新開啟",
+      powerOnSent: "已傳送開啟指令",
+      noPlug: "找不到此列印機的智慧插座",
+      editJob: "編輯任務",
+      moveJob: "移到其他列印機",
+      addSpool: "新增線材盤",
+      addSpoolFor: "新增線材盤：{{filament}}",
+    },
     slotHint: {
       free: "空閒：{{slots}}",
       replaceable: "可更換：{{slots}}",
