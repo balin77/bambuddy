@@ -1933,9 +1933,9 @@ class PrintScheduler:
         # and the next wait would announce again.
         self._filament_wait_notified: dict[int, str] = {}
         # What each printer's waiting jobs lack, collected during a pass (#3725):
-        # printer id -> queue item id -> (item, what it lacks there). Only for a
-        # printer that was idle where the job was held back for filament.
-        self._pass_filament_blocks: dict[int, dict[int, tuple[PrintQueueItem, list[FilamentNeed]]]] = {}
+        # printer id -> queue item id -> the filaments of its "To do" hold there.
+        # Fed by ``_record_hold``, the one place every filament hold goes through.
+        self._pass_filament_blocks: dict[int, dict[int, list[TodoFilament]]] = {}
         # Per printer, since when it stands idle for filament and what was announced (#3725).
         self._idle_watch = FilamentIdleWatch()
         self._idle_watch_loaded = False
@@ -2960,7 +2960,10 @@ class PrintScheduler:
         self, item_id: int, printer_id: int | None, target_model: str | None, filaments: list[TodoFilament]
     ) -> None:
         """Note what a held job waits for, next to the waiting text (#3615)."""
-        if self._pass_holds is None or not filaments:
+        if not filaments:
+            return
+        self._record_filament_block(item_id, printer_id, filaments)
+        if self._pass_holds is None:
             return
         self._pass_holds.setdefault(item_id, []).append(
             FilamentHold(item_id, printer_id, target_model, tuple(filaments))
@@ -2986,6 +2989,7 @@ class PrintScheduler:
         for hold in previous:
             merge_todo_filaments(filaments, hold.filaments)
         self._pass_holds[item.id] = [FilamentHold(item.id, item.printer_id, item.target_model, tuple(filaments))]
+        self._record_filament_block(item.id, item.printer_id, filaments)
         return True
 
     async def _rebuild_filament_hold(self, db: AsyncSession, item: PrintQueueItem, printer_name: str = "") -> None:
@@ -4559,17 +4563,23 @@ class PrintScheduler:
         A printer qualifies when it is idle (not busy for another reason, not held
         by a sensor or drying, no plate to clear), has at least one job that was
         held back for filament where it is, and this pass sent nothing to it.
-        What a job lacks was collected where it was held back
-        (``_record_filament_block``); this only decides, once per pass.
+        What a job lacks is what the "To do" list shows for it, collected by
+        ``_record_hold``; this only decides, once per pass.
         """
         try:
-            qualifying = {
-                pid: blocks
+            # A plate changer with no plate left stands idle for plates, not for filament (#3575).
+            qualifying: dict[int, dict[int, list[FilamentNeed]]] = {
+                pid: {
+                    item_id: self._filament_needs(filaments, printer_tray_layout(pid, printer_manager))
+                    for item_id, filaments in blocks.items()
+                }
                 for pid, blocks in self._pass_filament_blocks.items()
-                if pid not in unavailable and self._is_printer_idle(pid, require_plate_clear)
+                if pid not in unavailable
+                and pid not in self._plate_changer_empty
+                and self._is_printer_idle(pid, require_plate_clear)
             }
             keys: dict[int, FilamentKey] = {
-                pid: frozenset(need.key for _, needs in blocks.values() for need in needs)
+                pid: frozenset(need.key for needs in blocks.values() for need in needs)
                 for pid, blocks in qualifying.items()
             }
             frozen = {pid for pid in self._idle_watch.entries if pid not in keys and pid in (held or ())}
@@ -4584,10 +4594,12 @@ class PrintScheduler:
             }
             for pid in self._idle_watch.step(keys, keep=keep, hold_back=hold_back, frozen=frozen):
                 printer = await self._get_printer(db, pid)
-                jobs = [
-                    IdleJob(await self._get_job_name(db, item), tuple(needs))
-                    for item, needs in qualifying[pid].values()
-                ]
+                jobs = []
+                for item_id, needs in qualifying[pid].items():
+                    item = await db.get(PrintQueueItem, item_id)
+                    jobs.append(
+                        IdleJob(await self._get_job_name(db, item) if item else f"Job #{item_id}", tuple(needs))
+                    )
                 try:
                     await notification_service.on_printer_idle_for_filament(
                         pid, printer.name if printer else f"printer {pid}", jobs, db
@@ -11232,21 +11244,34 @@ class PrintScheduler:
         stock = _stock_notification_filaments(t for t in todo if t.no_stock)
         return (text, out_of_stock), _override_filaments(unmatched), stock
 
-    def _record_filament_block(
-        self, item: PrintQueueItem, printer_id: int | None, needs: Sequence[FilamentNeed]
-    ) -> None:
-        """Note that ``item`` waits for filament on ``printer_id``, which was idle where it was held back (#3725).
+    def _record_filament_block(self, item_id: int, printer_id: int | None, filaments: Sequence[TodoFilament]) -> None:
+        """Note that a job waits for ``filaments`` on ``printer_id`` (#3725).
 
-        Collected for the pass; ``_check_filament_idle`` decides what it means for the printer.
+        Fed by every hold of the "To do" list. A hold without a printer (a model
+        job's group) is no printer's: nothing stands idle for it. Whether the
+        printer was idle, free of other work and sent nothing is decided once per
+        pass by ``_check_filament_idle``.
         """
-        if printer_id is None or not needs:
+        if printer_id is None or not filaments:
             return
-        blocks = self._pass_filament_blocks.setdefault(printer_id, {})
-        known = blocks.get(item.id)
-        if known is None:
-            blocks[item.id] = (item, list(needs))
-        else:
-            known[1].extend(n for n in needs if n not in known[1])
+        merge_todo_filaments(self._pass_filament_blocks.setdefault(printer_id, {}).setdefault(item_id, []), filaments)
+
+    @staticmethod
+    def _filament_needs(filaments: Sequence[TodoFilament], layout: TrayLayout | None) -> list[FilamentNeed]:
+        """The holds' filaments as what a printer standing idle is told to load (#3725).
+
+        A short spool carries its slots and the amounts of the To do sentence
+        (``_short_filament_facts``): "PLA Lava Red (A3 has 196 g, needs 505 g)".
+        """
+        needs = []
+        for todo, notification in zip(filaments, _short_notification_filaments(filaments, layout), strict=True):
+            if not todo.short:
+                needs.append(FilamentNeed(replace(notification, slot=None)))
+                continue
+            held = [t.remaining_grams for t in todo.short_trays]
+            have = None if not held or any(g is None for g in held) else float(sum(g for g in held if g is not None))
+            needs.append(FilamentNeed(notification, have_grams=have, need_grams=todo.required_grams))
+        return needs
 
     async def _describe_unmatched_with_stock(self, db: AsyncSession, unmatched: list[dict]) -> tuple[str, list[str]]:
         """The unmatched requirements as the queue row names them, and which of them are out of stock (#3590, #3649).

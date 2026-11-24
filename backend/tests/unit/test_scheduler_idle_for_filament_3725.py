@@ -24,13 +24,14 @@ from backend.app.models.settings import Settings
 from backend.app.services.filament_deficit import FilamentDeficit
 from backend.app.services.filament_idle_watch import SETTING_KEY
 from backend.app.services.print_scheduler import PrintScheduler
+from backend.app.services.queue_todo import todo_filament_from_requirement
 
 T0 = datetime(2026, 11, 24, 12, 0, tzinfo=timezone.utc)
 DEFICIT = [
     FilamentDeficit(slot_id=1, ams_id=0, tray_id=2, filament_type="PLA", required_grams=505.0, remaining_grams=196.0)
 ]
 PETG = [
-    FilamentDeficit(slot_id=1, ams_id=0, tray_id=1, filament_type="PETG", required_grams=90.0, remaining_grams=10.0)
+    FilamentDeficit(slot_id=2, ams_id=0, tray_id=1, filament_type="PETG", required_grams=90.0, remaining_grams=10.0)
 ]
 BROWN = [{"slot_id": 1, "type": "PLA", "color": "#7D6556", "color_name": "Army Beige"}]
 
@@ -124,19 +125,22 @@ async def one_pass(
         return list(unmatched.get(item.id, []))
 
     async def short_on(db, item, printer_id, *, require_known=False):
+        return printer_id in short
+
+    async def short_filaments_on(db, item, printer_id):
         if printer_id in short:
-            scheduler._short_facts[(item.id, printer_id)] = short_facts or DEFICIT
-            return True
-        return False
+            return await real_deficit_todo(db, item, list(short_facts or DEFICIT))
+        return []
 
     async def unmatched_on_check(db, item, printer_id):
         if printer_id in unmatched_on:
-            scheduler._unmatched_req_memo[
-                (item.id, item.archive_id, item.library_file_id, item.plate_id, item.filament_overrides, printer_id)
-            ] = list(BROWN)
+            scheduler._unmatched_todo_memo[scheduler._unmatched_key(item, printer_id)] = [
+                todo_filament_from_requirement(r) for r in BROWN
+            ]
             return ["PLA Army Beige"]
         return []
 
+    real_deficit_todo = scheduler._deficit_todo_filaments
     launched = MagicMock()
     status = SimpleNamespace(raw_data={}, state=state)
     patches = [
@@ -163,6 +167,7 @@ async def one_pass(
         patch.object(scheduler, "_unmatched_on", AsyncMock(side_effect=unmatched_on_check)),
         patch.object(scheduler, "_unmatched_requirements", AsyncMock(side_effect=unmatched_requirements)),
         patch.object(scheduler, "_filament_short_on", AsyncMock(side_effect=short_on)),
+        patch.object(scheduler, "_short_filaments_on", AsyncMock(side_effect=short_filaments_on)),
         patch.object(scheduler, "_is_printer_idle", MagicMock(side_effect=lambda pid, *a, **k: idle(pid))),
         patch.object(scheduler, "_check_auto_drying", AsyncMock()),
         patch.object(scheduler, "_ensure_ams_mapping", AsyncMock(return_value=None)),

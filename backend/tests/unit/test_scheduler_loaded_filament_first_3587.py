@@ -49,7 +49,7 @@ _DEFICIT = [
 ]
 _DEFICIT_TEXT = "PLA (40 g left, needs 120 g)"
 # A short spool is told at once, whatever the maximum wait says (#3725), in the sentence of #3642.
-_SHORT_SENTENCE = "Not enough filament on X1C-1: PLA in A1 (40 g left, needs 120 g)"
+_SHORT_SENTENCE = "Not enough PLA on X1C-1: A1 has 40 g, the job needs 120 g"
 _BROWN = [{"slot_id": 1, "type": "PLA", "color": "Earth Brown"}]
 _BROWN_TEXT = "PLA Earth Brown"
 

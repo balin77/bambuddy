@@ -30,7 +30,7 @@ from backend.tests.unit.test_scheduler_idle_for_filament_3725 import (
     saved_raw,
 )
 
-SENTENCE = "Not enough filament on P1S right: PLA in A3 (196 g left, needs 505 g)"
+SENTENCE = "Not enough PLA on P1S right: A3 has 196 g, the job needs 505 g"
 
 
 def _reasons(waiting) -> list[str]:
@@ -102,7 +102,9 @@ class TestPinned:
         other = await one_pass(ctx, scheduler, deficits={item: [*DEFICIT, *PETG]})
 
         (reason,) = _reasons(other.waiting)
-        assert reason.endswith("PLA in A3 (196 g left, needs 505 g), PETG in A2 (10 g left, needs 90 g)")
+        assert reason == (
+            "Not enough filament on P1S right: PLA A3 has 196 g, the job needs 505 g; PETG A2 has 10 g, the job needs 90 g"
+        )
 
     @pytest.mark.asyncio
     async def test_a_filament_that_is_only_missing_waits_for_its_priority(self, ctx):

@@ -194,7 +194,9 @@ class FilamentNeed:
             amounts = f"needs {self.need_grams:.0f} g"
             detail = f"{slot}, {amounts}" if slot else amounts
         else:
-            amounts = f"has {self.have_grams:.0f} g, needs {self.need_grams:.0f} g"
+            # A pool of spools (AMS Filament Backup) is named "A2 + A3": they have, not it has.
+            verb = "have" if " + " in slot else "has"
+            amounts = f"{verb} {self.have_grams:.0f} g, needs {self.need_grams:.0f} g"
             detail = f"{slot} {amounts}" if slot else amounts
         return f"{text} ({detail})".strip()
 
