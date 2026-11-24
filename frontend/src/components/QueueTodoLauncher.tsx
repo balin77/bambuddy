@@ -35,7 +35,10 @@ export function QueueTodoLauncher({
     if (!open) return;
     const trigger = triggerRef.current;
     closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    const onKey = (e: KeyboardEvent) => {
+      // A dialog opened from an entry (new spool, slot set-up) takes the key itself.
+      if (e.key === 'Escape' && !document.querySelector('[data-todo-modal-open]')) setOpen(false);
+    };
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('keydown', onKey);

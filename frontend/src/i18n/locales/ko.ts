@@ -8616,6 +8616,7 @@ export default {
       newSpool: "새 스풀 추가",
       assignFor: "{{slot}}에 스풀 할당",
       configureFor: "슬롯 {{slot}} 설정",
+      putInFirst: "새 스풀을 먼저 장착한 다음 할당하세요.",
     },
   },
 };

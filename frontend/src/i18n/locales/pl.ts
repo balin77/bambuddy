@@ -9046,6 +9046,7 @@ export default {
       newSpool: "Dodaj nową szpulę",
       assignFor: "Przypisz szpulę do {{slot}}",
       configureFor: "Skonfiguruj slot {{slot}}",
+      putInFirst: "Najpierw włóż nową szpulę, potem ją przypisz.",
     },
   },
 };

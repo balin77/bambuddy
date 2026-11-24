@@ -16,6 +16,9 @@ import { SpoolFormModal } from './SpoolFormModal';
 const slotLabelOf = (slot: QueueTodoPictureSlot) =>
   formatSlotLabel(slot.ams_id, slot.tray_id, slot.is_ht, slot.is_external, slot.ams_type);
 
+type SlotKey = { ams_id: number; tray_id: number };
+const sameSlot = (a: SlotKey, b: SlotKey) => a.ams_id === b.ams_id && a.tray_id === b.tray_id;
+
 interface SlotActionsProps {
   picture: QueueTodoPicture;
   // Stacking class for the dialogs opened from a panel (the To do launcher).
@@ -33,9 +36,10 @@ export function PictureActions({ picture, overlayZIndex }: SlotActionsProps) {
   const canAssign = hasPermission('inventory:update');
   const canCreate = hasPermission('inventory:create');
   const canConfigure = hasPermission('printers:control');
-  const [target, setTarget] = useState<QueueTodoPictureSlot | null>(null);
+  // Slots are kept by key: the list refetches and hands over new objects.
+  const [target, setTarget] = useState<SlotKey | null>(null);
   const [creating, setCreating] = useState(false);
-  const [configuring, setConfiguring] = useState<QueueTodoPictureSlot | null>(null);
+  const [configuring, setConfiguring] = useState<SlotKey | null>(null);
 
   // Same reading as the printer card: Spoolman on and reachable assigns from
   // Spoolman; on and down, nothing is assigned (the built-in table is the
@@ -59,18 +63,26 @@ export function PictureActions({ picture, overlayZIndex }: SlotActionsProps) {
 
   const slots = picture.units.flatMap((u) => u.slots.map((slot) => ({ slot, unit: u }))).filter(({ slot }) => slot.incoming);
   if (slots.length === 0 || (!canAssign && !canConfigure)) return null;
-  const mayAssign = canAssign && !spoolmanDown;
+  // Until the Spoolman status is known nothing is assigned: which inventory it is is not known.
+  const mayAssign = canAssign && spoolman !== undefined && !spoolmanDown;
   const nozzleOf = (unit: { nozzle: 'left' | 'right' | null }) => (unit.nozzle === 'left' ? 1 : unit.nozzle === 'right' ? 0 : undefined);
   const buttonClass =
     'min-h-[44px] sm:min-h-[36px] px-4 rounded-lg text-sm font-semibold break-words text-left';
 
-  const picking = target !== null ? slots.find(({ slot }) => slot === target) : undefined;
+  const picking = target !== null ? slots.find(({ slot }) => sameSlot(slot, target)) : undefined;
   const incoming = picking?.slot.incoming;
   const model = printers?.find((p) => p.id === picture.printer_id)?.model ?? null;
-  const configureUnit = configuring ? slots.find(({ slot }) => slot === configuring)?.unit : undefined;
+  const configuringEntry = configuring ? slots.find(({ slot }) => sameSlot(slot, configuring)) : undefined;
+  const configureSlot = configuringEntry?.slot;
+  const configureUnit = configuringEntry?.unit;
 
   return (
-    <div data-testid="todo-slot-actions" className="min-w-0 space-y-3">
+    <div data-testid="todo-slot-actions" data-todo-modal-open={creating || configuring ? 'true' : undefined} className="min-w-0 space-y-3">
+      {picking && incoming && (picking.slot.state === 'out' || (picking.slot.type && picking.slot.rfid)) && (
+        <p data-testid="todo-put-in-first" role="note" className="text-sm text-amber-400 break-words">
+          {t('queueTodo.assign.putInFirst')}
+        </p>
+      )}
       {picking && incoming ? (
         <AssignSpoolPicker
           layout="inline"
@@ -102,7 +114,7 @@ export function PictureActions({ picture, overlayZIndex }: SlotActionsProps) {
                 {mayAssign && (
                   <button
                     type="button"
-                    onClick={() => setTarget(slot)}
+                    onClick={() => setTarget({ ams_id: slot.ams_id, tray_id: slot.tray_id })}
                     className={`${buttonClass} ${i === 0 ? 'bg-bambu-green text-black hover:bg-bambu-green/90' : 'border border-bambu-dark-tertiary text-white hover:border-bambu-gray'}`}
                   >
                     {t('queueTodo.assign.assignFor', { slot: label })}
@@ -111,7 +123,7 @@ export function PictureActions({ picture, overlayZIndex }: SlotActionsProps) {
                 {canConfigure && !slot.rfid && (
                   <button
                     type="button"
-                    onClick={() => setConfiguring(slot)}
+                    onClick={() => setConfiguring({ ams_id: slot.ams_id, tray_id: slot.tray_id })}
                     className={`${buttonClass} border border-bambu-dark-tertiary text-white hover:border-bambu-gray font-medium`}
                   >
                     {t('queueTodo.assign.configureFor', { slot: label })}
@@ -131,22 +143,22 @@ export function PictureActions({ picture, overlayZIndex }: SlotActionsProps) {
           overlayZIndex={overlayZIndex ?? 'z-50'}
         />
       )}
-      {configuring && printers && (
+      {configureSlot && printers && (
         <ConfigureAmsSlotModal
           isOpen
           onClose={() => setConfiguring(null)}
           printerId={picture.printer_id}
           slotInfo={{
-            amsId: configuring.ams_id,
-            trayId: configuring.tray_id,
-            trayType: configuring.type || undefined,
-            trayColor: configuring.color ? `${configuring.color.replace('#', '')}FF` : undefined,
-            traySubBrands: configuring.tray_sub_brands || undefined,
-            trayInfoIdx: configuring.tray_info_idx || undefined,
+            amsId: configureSlot.ams_id,
+            trayId: configureSlot.tray_id,
+            trayType: configureSlot.type || undefined,
+            trayColor: configureSlot.color ? `${configureSlot.color.replace('#', '')}FF` : undefined,
+            traySubBrands: configureSlot.tray_sub_brands || undefined,
+            trayInfoIdx: configureSlot.tray_info_idx || undefined,
             extruderId: configureUnit ? nozzleOf(configureUnit) : undefined,
           }}
           printerModel={mapModelCode(model) || undefined}
-          nozzleDiameter={resolveSlotNozzleDiameter(status, configuring.ams_id)}
+          nozzleDiameter={resolveSlotNozzleDiameter(status, configureSlot.ams_id)}
           printerState={status?.state}
           overlayZIndex={overlayZIndex ?? 'z-50'}
           onSuccess={() => {

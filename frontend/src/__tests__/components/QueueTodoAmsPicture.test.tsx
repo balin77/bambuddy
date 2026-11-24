@@ -95,8 +95,8 @@ describe('AmsPicture', () => {
     // One empty cell above each of the three slots nothing goes into.
     const cells = screen.getAllByTestId('todo-ams-empty-cell');
     expect(cells.map((c) => c.style.gridColumn)).toEqual(['1', '2', '4']);
-    // One grid with four equal columns, no sideways scroll.
-    expect(screen.getByTestId('todo-ams-grid')).toHaveStyle({ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' });
+    // One grid with four equal columns, no wider than the mockup's on a desktop.
+    expect(screen.getByTestId('todo-ams-grid')).toHaveStyle({ gridTemplateColumns: 'repeat(4, minmax(0, 7.5rem))' });
   });
 
   it('says what a new spool is: at least the grams of a short one, stock for a missing one', () => {
@@ -130,7 +130,7 @@ describe('AmsPicture', () => {
       unit([slot(0, { type: '', color: '', state: 'unknown' }), slot(1, { remain_percent: 80 }), slot(2)], { ams_id: 1 }),
     ]);
     render(<AmsPicture picture={states} filaments={[]} />);
-    const text = screen.getAllByTestId('todo-ams-slot').map((s) => [s.dataset.state, s.textContent]);
+    const text = screen.getAllByTestId('todo-ams-slot').map((s) => [s.dataset.state, (s.textContent ?? '').replace(/\u00a0/g, ' ')]);
     expect(text[0][1]).toContain('printing now');
     expect(text[1][1]).toContain('90 g · out');
     expect(text[2][1]).toContain('fits · 227 g');
@@ -180,7 +180,7 @@ describe('AmsPicture', () => {
       slot(i, { ams_id: 32, ams_type: 6, ...(i === 6 ? { type: '', color: '', state: 'empty' as const, incoming: incoming(0) } : {}) }),
     );
     render(<AmsPicture picture={picture([unit(nine, { ams_id: 32, ams_type: 6, kind: 'ams3h' })])} filaments={[lavaRed]} />);
-    expect(screen.getByTestId('todo-ams-grid')).toHaveStyle({ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' });
+    expect(screen.getByTestId('todo-ams-grid')).toHaveStyle({ gridTemplateColumns: 'repeat(5, minmax(0, 7.5rem))' });
     const slots = screen.getAllByTestId('todo-ams-slot');
     expect(slots.map((s) => [s.style.gridRow, s.style.gridColumn]).slice(4, 6)).toEqual([['3', '5'], ['6', '1']]);
     // Slot 7 is the second slot of the second row: its card is in row 4, column 2.
@@ -197,6 +197,40 @@ describe('AmsPicture', () => {
       expect(card.className).toContain('min-w-0');
     }
     expect(screen.getByTestId('todo-ams-picture').className).toContain('min-w-0');
+  });
+
+  it('keeps the picture as compact as the mockup on a wide screen: columns are capped, the unit hugs them', () => {
+    render(<AmsPicture picture={replaceA3} filaments={[lavaRed]} />);
+    expect(screen.getByTestId('todo-ams-grid')).toHaveStyle({ justifyContent: 'start' });
+    expect(screen.getByTestId('todo-ams-unit').className).toContain('w-fit');
+    expect(screen.getByTestId('todo-ams-unit').className).toContain('max-w-full');
+  });
+
+  it('shows no lone dash on a compact slot whose amount is not known', () => {
+    const compact = picture([unit([slot(0), slot(1, { remaining_g: 90 })])], { compact: true });
+    render(<AmsPicture picture={compact} filaments={[]} />);
+    const cards = screen.getAllByTestId('todo-ams-slot');
+    expect(cards[0].textContent).toBe('A1\u00a0');
+    expect(cards[1]).toHaveTextContent('90 g');
+    expect(screen.queryByText('—')).toBeNull();
+  });
+
+  it('gives each external holder of a two-nozzle printer its own unit with its nozzle', () => {
+    const ext = (tray: number, nozzle: 'left' | 'right') =>
+      unit([slot(tray, { ams_id: 255, is_external: true, ams_type: null })], { ams_id: 255, ams_type: null, kind: 'external', nozzle });
+    render(<AmsPicture picture={picture([ext(0, 'left'), ext(1, 'right')])} filaments={[]} />);
+    expect(screen.getByRole('region', { name: 'External spool · Left nozzle' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'External spool · Right nozzle' })).toBeInTheDocument();
+  });
+
+  it('has no unit written twice in a locale: the grams carry their own unit', () => {
+    const locales = import.meta.glob('../../i18n/locales/*.ts', { eager: true }) as Record<string, { default: { queueTodo: { picture: Record<string, string> } } }>;
+    expect(Object.keys(locales)).toHaveLength(16);
+    for (const [file, mod] of Object.entries(locales)) {
+      for (const key of ['newMin', 'minGrams']) {
+        expect(mod.default.queueTodo.picture[key], `${file} ${key}`).toMatch(/\{\{grams\}\}(?!\s*(g|г)\b)/);
+      }
+    }
   });
 
   it('lists filaments that have no slot', () => {
@@ -217,6 +251,20 @@ describe('AmsPictures', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Shelf X1C' }));
     expect(screen.getByRole('button', { name: 'Shelf X1C' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getAllByTestId('todo-ams-slot')).toHaveLength(1);
+  });
+
+  it('draws exactly one picture, however often the list refetches and the printer is switched', () => {
+    const folded = picture([unit([slot(0)], { collapsed: true }), unit([slot(0, { type: '', color: '', state: 'empty', incoming: incoming(0) })], { ams_id: 1 })]);
+    const mk = () => <AmsPictures pictures={[folded, { ...second, units: folded.units }]} filaments={[lavaRed]} />;
+    const { rerender } = render(mk());
+    rerender(mk());
+    fireEvent.click(screen.getByRole('button', { name: 'Show AMS-A' }));
+    expect(screen.getAllByTestId('todo-ams-unit')).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Shelf X1C' }));
+    rerender(mk());
+    expect(screen.getAllByTestId('todo-ams-picture')).toHaveLength(1);
+    // The other printer starts folded again.
+    expect(screen.getAllByTestId('todo-ams-unit')).toHaveLength(1);
   });
 
   it('has no switch for a single printer and renders nothing for none', () => {

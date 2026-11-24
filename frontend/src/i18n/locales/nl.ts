@@ -9044,6 +9044,7 @@ export default {
       newSpool: "Nieuwe spoel toevoegen",
       assignFor: "Spoel toewijzen aan {{slot}}",
       configureFor: "Slot {{slot}} instellen",
+      putInFirst: "Plaats eerst de nieuwe spoel en wijs hem daarna toe.",
     },
   },
 };

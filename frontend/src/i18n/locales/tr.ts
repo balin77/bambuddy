@@ -8920,6 +8920,7 @@ export default {
       newSpool: "Yeni makara ekle",
       assignFor: "{{slot}} için makara ata",
       configureFor: "{{slot}} yuvasını yapılandır",
+      putInFirst: "Önce yeni makarayı yerleştirin, sonra atayın.",
     },
   },
 };
