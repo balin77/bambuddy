@@ -503,10 +503,11 @@ class TestPinnedMaxWait:
         await _run(ctx, PrintScheduler(), waiting=waiting, deficit_items={item_id})
         await _run(ctx, PrintScheduler(), waiting=waiting, deficit_items={item_id})  # a new instance
 
-        # The priority message once; the short spool was told with it when the item was queued so long ago.
-        assert [c.kwargs["waiting_reason"] for c in waiting.await_args_list].count(
-            f"Waiting for filament: {_DEFICIT_TEXT} · has priority"
-        ) == 1
+        # Across the restart: the short spool once and the priority moment once, nothing more.
+        assert [c.kwargs["waiting_reason"] for c in waiting.await_args_list] == [
+            _SHORT_SENTENCE,
+            f"Waiting for filament: {_DEFICIT_TEXT} · has priority",
+        ]
 
 
 class TestPinnedNoLimit:

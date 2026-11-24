@@ -1939,8 +1939,7 @@ class PrintScheduler:
         # Per printer, since when it stands idle for filament and what was announced (#3725).
         self._idle_watch = FilamentIdleWatch()
         self._idle_watch_loaded = False
-        # The short spools a job was told about, by queue item id: (printer, AMS unit, tray) of each (#3725).
-        self._short_notified: dict[int, set[tuple[int | None, int | None, int | None]]] = {}
+        # The short spools a job was told about live in self._idle_watch.short (#3725), saved with it.
         # The jobs told about a short spool in this pass (#3725).
         self._short_noticed_pass: set[int] = set()
 
@@ -3221,7 +3220,6 @@ class PrintScheduler:
                 # Nothing waits, so no printer stands idle for it (#3725).
                 self._idle_watch.clear()
                 await self._idle_watch.save_if_changed(db)
-                self._short_notified.clear()
                 return bool(self._inflight)
 
             logger.info(
@@ -3242,9 +3240,7 @@ class PrintScheduler:
             self._out_of_stock_notified = {
                 item_id: shortage for item_id, shortage in self._out_of_stock_notified.items() if item_id in pending_ids
             }
-            self._short_notified = {
-                item_id: slots for item_id, slots in self._short_notified.items() if item_id in pending_ids
-            }
+            self._idle_watch.prune_short(pending_ids)
 
             # Seed busy_printers with printers that already have an item in 'printing'
             # status. _is_printer_idle() alone is not sufficient as a dispatch gate —
@@ -4429,6 +4425,7 @@ class PrintScheduler:
                 db,
                 (busy_printers - reserved_printers) | interlocked.keys() | drying_held,
                 require_plate_clear,
+                held=set(interlocked) | drying_held,
             )
 
             # Log the decisions BEFORE dispatching. The dispatch below blocks for
@@ -4554,7 +4551,9 @@ class PrintScheduler:
         except Exception as e:
             logger.debug("Could not load the idle-for-filament state: %s", e)
 
-    async def _check_filament_idle(self, db: AsyncSession, unavailable: set[int], require_plate_clear: bool) -> None:
+    async def _check_filament_idle(
+        self, db: AsyncSession, unavailable: set[int], require_plate_clear: bool, held: set[int] | None = None
+    ) -> None:
         """Tell the user which printers have stood idle for five minutes with only filament-blocked jobs (#3725).
 
         A printer qualifies when it is idle (not busy for another reason, not held
@@ -4573,14 +4572,17 @@ class PrintScheduler:
                 pid: frozenset(need.key for _, needs in blocks.values() for need in needs)
                 for pid, blocks in qualifying.items()
             }
-            keep = await self._idle_watch_unknown(db, [pid for pid in self._idle_watch.entries if pid not in keys])
+            frozen = {pid for pid in self._idle_watch.entries if pid not in keys and pid in (held or ())}
+            keep = await self._idle_watch_unknown(
+                db, [pid for pid in self._idle_watch.entries if pid not in keys and pid not in frozen]
+            )
             # A job just told about a short spool: its printer is told the pass after (#3725).
             hold_back = {
                 pid
                 for pid, blocks in qualifying.items()
                 if any(item_id in self._short_noticed_pass for item_id in blocks)
             }
-            for pid in self._idle_watch.step(keys, keep=keep, hold_back=hold_back):
+            for pid in self._idle_watch.step(keys, keep=keep, hold_back=hold_back, frozen=frozen):
                 printer = await self._get_printer(db, pid)
                 jobs = [
                     IdleJob(await self._get_job_name(db, item), tuple(needs))
@@ -10873,22 +10875,18 @@ class PrintScheduler:
         Loaded filament first holds such a job back quietly until its maximum wait
         is up, but a short spool does not resolve by itself: someone has to change
         it or print anyway. So it is said as soon as the job is found to wait for
-        it, once per job and short spool, in the words of the filament-short hold
-        (#3642). The spools told about are kept in memory; ``saved_shows`` is the
-        job's saved waiting reason already naming them, which a restart leaves
-        behind, and then nothing is sent again.
+        it, once per job and short spool, in the words the filament-short hold uses
+        (#3642). The spools told about are saved with the idle watch, so a restart
+        does not tell again; ``saved_shows`` is the job's saved waiting reason
+        already naming them (older saves), and then nothing is sent either.
         """
         if printer_id is None or not short or item.skip_filament_check:
             return
-        told = self._short_notified.setdefault(item.id, set())
-        slots = {
-            (printer_id, getattr(tray, "ams_id", None), getattr(tray, "tray_id", None))
-            for todo in short
-            for tray in (todo.short_trays or (None,))
-        }
-        if slots <= told:
+        # By the job's own filament, not by printer: another printer being short for the
+        # same job is not news. The saved form is (0, "TYPE#COLOUR").
+        slots = {(0, f"{(todo.type or '').upper()}#{(todo.color or '').upper()}") for todo in short}
+        if not self._idle_watch.short_is_new(item.id, slots):
             return
-        told |= slots
         if saved_shows:
             return
         try:

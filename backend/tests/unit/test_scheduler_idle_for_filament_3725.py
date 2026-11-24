@@ -176,10 +176,15 @@ async def one_pass(
     return SimpleNamespace(event=idle_event, launched=launched, waiting=waiting)
 
 
-async def saved(ctx) -> dict:
+async def saved_raw(ctx) -> dict:
     async with ctx.session_maker() as db:
         raw = await db.scalar(select(Settings.value).where(Settings.key == SETTING_KEY))
     return json.loads(raw) if raw else {}
+
+
+async def saved(ctx) -> dict:
+    """The saved clocks of the printers, without the short spools told about."""
+    return {k: v for k, v in (await saved_raw(ctx)).items() if k != "short"}
 
 
 def at(ctx, seconds):
@@ -377,6 +382,72 @@ class TestNotIdleForFilament:
 
         again.event.assert_not_awaited()
         assert await saved(ctx) == {"1": {"since": ctx.now[0].isoformat(), "announced": None}}
+
+
+class TestFrozenAndShrinking:
+    @pytest.mark.asyncio
+    async def test_an_interlock_between_two_passes_does_not_repeat_the_message(self, ctx):
+        scheduler = new_scheduler(ctx)
+        item = await add_item(ctx, printer_id=1)
+        blocked = {item: DEFICIT}
+        await one_pass(ctx, scheduler, deficits=blocked)
+        at(ctx, 300)
+        assert (await one_pass(ctx, scheduler, deficits=blocked)).event.await_count == 1
+
+        at(ctx, 400)
+        await one_pass(ctx, scheduler, deficits=blocked, interlocked={1: "Enclosure Door"})
+        at(ctx, 1000)
+        after = await one_pass(ctx, scheduler, deficits=blocked)
+
+        after.event.assert_not_awaited()
+        assert (await saved(ctx))["1"]["announced"] is not None
+
+    @pytest.mark.asyncio
+    async def test_fewer_filaments_are_remembered_without_a_message(self, ctx):
+        scheduler = new_scheduler(ctx)
+        a = await add_item(ctx, "A", printer_id=1, position=1)
+        b = await add_item(ctx, "B", printer_id=1, position=2)
+        await one_pass(ctx, scheduler, deficits={a: DEFICIT, b: PETG})
+        at(ctx, 300)
+        assert (await one_pass(ctx, scheduler, deficits={a: DEFICIT, b: PETG})).event.await_count == 1
+
+        async with ctx.session_maker() as db:
+            (await db.get(PrintQueueItem, b)).status = "cancelled"
+            await db.commit()
+        at(ctx, 400)
+        shrunk = await one_pass(ctx, scheduler, deficits={a: DEFICIT})
+        at(ctx, 500)
+        same = await one_pass(ctx, scheduler, deficits={a: DEFICIT})
+        c = await add_item(ctx, "C", printer_id=1, position=3)
+        at(ctx, 600)
+        await one_pass(ctx, scheduler, deficits={a: DEFICIT, c: PETG})  # the short spool is told first
+        at(ctx, 610)
+        back = await one_pass(ctx, scheduler, deficits={a: DEFICIT, c: PETG})
+
+        shrunk.event.assert_not_awaited()
+        same.event.assert_not_awaited()
+        back.event.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_printer_seen_again_after_being_off_starts_its_five_minutes_over(self, ctx):
+        scheduler = new_scheduler(ctx)
+        item = await add_item(ctx, printer_id=1)
+        blocked = {item: DEFICIT}
+        await one_pass(ctx, scheduler, deficits=blocked)
+        at(ctx, 200)
+        await one_pass(
+            ctx, scheduler, deficits=blocked, idle=lambda pid: False, connected=lambda pid: False, state="unknown"
+        )
+        at(ctx, 400)
+        back = await one_pass(ctx, scheduler, deficits=blocked)
+        at(ctx, 600)
+        early = await one_pass(ctx, scheduler, deficits=blocked)
+        at(ctx, 700)
+        due = await one_pass(ctx, scheduler, deficits=blocked)
+
+        back.event.assert_not_awaited()
+        early.event.assert_not_awaited()
+        due.event.assert_awaited_once()
 
 
 class TestModelJobs:
