@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>To-do: Spule direkt zuweisen</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#3ddc84}a:hover{color:#7cf0ad}
+</style>
+</helmet>
+<div style="width: 600px; height: 700px; box-sizing: border-box; padding: 24px; background: #15181c; font-family: Inter, system-ui, sans-serif; color: #e8eaed; display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; align-items: center; gap: 10px">
+<h1 style="margin: 0; font-size: 18px; font-weight: 600">Zu erledigen</h1>
+<span style="font-size: 12px; font-weight: 600; background: #f5a524; color: #15181c; border-radius: 999px; padding: 2px 9px">1</span>
+</div>
+<div style="background: #22272d; border: 1px solid #353c45; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+<div style="font-size: 16px; font-weight: 600">P1s rechts</div>
+<div style="font-size: 13px; color: #aab2bc">Spule ersetzen · A3</div>
+</div>
+<div style="border: 1px solid #454d57; border-radius: 12px; padding: 10px; background: #1b1f24">
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px">
+<div style="background: #262b31; border: 1px solid #353c45; border-radius: 10px; padding: 8px 6px; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center">
+<div style="font-size: 12px; font-weight: 700">A1</div>
+<div style="width: 22px; height: 22px; border-radius: 50%; background: #f4efeb; border: 2px solid #5a626c"></div>
+</div>
+<div style="background: #262b31; border: 1px solid #353c45; border-radius: 10px; padding: 8px 6px; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center">
+<div style="font-size: 12px; font-weight: 700">A2</div>
+<div style="width: 22px; height: 22px; border-radius: 50%; background: #c9b79c; border: 2px solid #5a626c"></div>
+</div>
+<div style="background: #1a2a20; border: 2px solid #00ae42; border-radius: 10px; padding: 7px 5px; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center">
+<div style="font-size: 12px; font-weight: 700">A3</div>
+<div style="width: 22px; height: 22px; border-radius: 50%; background: #c8102e; border: 2px solid #f1f3f5"></div>
+</div>
+<div style="background: #1b1f24; border: 1px dashed #5a626c; border-radius: 10px; padding: 8px 6px; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center">
+<div style="font-size: 12px; font-weight: 700">A4</div>
+<div style="width: 22px; height: 22px; border-radius: 50%; border: 2px dashed #5a626c; box-sizing: border-box"></div>
+</div>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="font-size: 15px; font-weight: 600">Welche Spule kommt in A3?</div>
+<div style="font-size: 13px; color: #aab2bc">PLA Lava Red aus dem Lager. Der Auftrag braucht 505 g.</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: center; gap: 12px; background: #1a2a20; border: 1px solid #00ae42; border-radius: 10px; padding: 10px 12px">
+<div style="width: 28px; height: 28px; border-radius: 50%; background: #c8102e; border: 2px solid #f1f3f5; flex: none"></div>
+<div style="flex: 1; min-width: 0">
+<div style="font-size: 14px; font-weight: 600">Polymaker PolyTerra · 1000 g</div>
+<div style="font-size: 12px; color: #aab2bc">neu · Regal B2 · Spule #214</div>
+</div>
+<button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: none; background: #00ae42; color: #0c1410; font: 600 14px Inter, system-ui, sans-serif; cursor: pointer">Zuweisen</button>
+</div>
+<div style="display: flex; align-items: center; gap: 12px; background: #262b31; border: 1px solid #353c45; border-radius: 10px; padding: 10px 12px">
+<div style="width: 28px; height: 28px; border-radius: 50%; background: #c8102e; border: 2px solid #5a626c; flex: none"></div>
+<div style="flex: 1; min-width: 0">
+<div style="font-size: 14px; font-weight: 600">Polymaker PolyTerra · 620 g</div>
+<div style="font-size: 12px; color: #aab2bc">angebrochen · Regal B2 · Spule #187</div>
+</div>
+<button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: 1px solid #454d57; background: transparent; color: #e8eaed; font: 600 14px Inter, system-ui, sans-serif; cursor: pointer">Zuweisen</button>
+</div>
+<div style="display: flex; align-items: center; gap: 12px; background: #262b31; border: 1px solid #353c45; border-radius: 10px; padding: 10px 12px; opacity: 0.6">
+<div style="width: 28px; height: 28px; border-radius: 50%; background: #c8102e; border: 2px solid #5a626c; flex: none"></div>
+<div style="flex: 1; min-width: 0">
+<div style="font-size: 14px; font-weight: 600">Polymaker PolyTerra · 310 g</div>
+<div style="font-size: 12px; color: #f5a524">reicht nicht für diesen Auftrag · Spule #152</div>
+</div>
+<button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: 1px solid #454d57; background: transparent; color: #e8eaed; font: 600 14px Inter, system-ui, sans-serif; cursor: pointer">Zuweisen</button>
+</div>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 10px">
+<button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 8px; border: 1px solid #454d57; background: transparent; color: #e8eaed; font: 500 14px Inter, system-ui, sans-serif; cursor: pointer; display: flex; align-items: center; gap: 8px">
+<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect><path d="M14 14h3v3h-3zM20 20h1v1h-1zM20 14h1M14 20h3"></path></svg>
+Etikett scannen</button>
+<button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 8px; border: 1px solid #454d57; background: transparent; color: #e8eaed; font: 500 14px Inter, system-ui, sans-serif; cursor: pointer">Neue Spule anlegen</button>
+<button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 8px; border: 1px solid #454d57; background: transparent; color: #aab2bc; font: 500 14px Inter, system-ui, sans-serif; cursor: pointer">Zurück</button>
+</div>
+</div>
+<div style="font-size: 12px; color: #aab2bc; line-height: 1.5">„Zuweisen“ trägt die Spule im Lager für A3 ein, ohne die Liste zu verlassen. Vorgeschlagen wird zuerst, was für den Auftrag reicht. „Etikett scannen“ nimmt den QR-Code der Spule und weist sie demselben Slot zu.</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":600,"height":700}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

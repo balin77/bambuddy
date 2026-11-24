@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>To-do: Aktionen direkt in der Liste</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 680px; height: 700px; box-sizing: border-box; padding: 24px; background: #15181c; font-family: Inter, system-ui, sans-serif; color: #e8eaed; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px">
+<h1 style="margin: 0; font-size: 18px; font-weight: 600">Direkt in der Liste erledigen</h1>
+<div style="display: flex; gap: 10px; font-size: 12px; color: #aab2bc">
+<span style="display: flex; align-items: center; gap: 5px"><span style="width: 10px; height: 10px; border-radius: 3px; background: #00ae42"></span>neu</span>
+<span style="display: flex; align-items: center; gap: 5px"><span style="width: 10px; height: 10px; border-radius: 3px; border: 1px solid #7a838e; box-sizing: border-box"></span>gibt es schon</span>
+</div>
+</div>
+<div style="background: #22272d; border: 1px solid #353c45; border-radius: 12px; display: flex; flex-direction: column">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid #353c45">
+<div style="min-width: 0">
+<div style="font-size: 14px; font-weight: 600">Druck pausiert: Rolle leer</div>
+<div style="font-size: 12px; color: #aab2bc">heute nur Text, Fortsetzen geht nur auf der Druckerseite</div>
+</div>
+<div style="display: flex; gap: 8px; flex: none">
+<button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 8px; border: none; background: #00ae42; color: #0c1410; font: 600 13px Inter, system-ui, sans-serif">Fortsetzen</button>
+<button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #00ae42; background: transparent; color: #3ddc84; font: 600 13px Inter, system-ui, sans-serif">Stoppen</button>
+</div>
+</div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid #353c45">
+<div style="min-width: 0">
+<div style="font-size: 14px; font-weight: 600">Druck pausiert: Fehler</div>
+<div style="font-size: 12px; color: #aab2bc">mit dem Satz des Fehlers, wie auf der Druckerkarte</div>
+</div>
+<div style="display: flex; gap: 8px; flex: none">
+<button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 8px; border: none; background: #00ae42; color: #0c1410; font: 600 13px Inter, system-ui, sans-serif">Fortsetzen</button>
+<button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #00ae42; background: transparent; color: #3ddc84; font: 600 13px Inter, system-ui, sans-serif">Stoppen</button>
+</div>
+</div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid #353c45">
+<div style="min-width: 0">
+<div style="font-size: 14px; font-weight: 600">Filament einlegen</div>
+<div style="font-size: 12px; color: #aab2bc">heute nur Text und ein Link zum Drucker</div>
+</div>
+<div style="display: flex; gap: 8px; flex: none">
+<button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 8px; border: none; background: #00ae42; color: #0c1410; font: 600 13px Inter, system-ui, sans-serif">Spule zuweisen</button>
+<button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #00ae42; background: transparent; color: #3ddc84; font: 600 13px Inter, system-ui, sans-serif">Slot einrichten</button>
+</div>
+</div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid #353c45">
+<div style="min-width: 0">
+<div style="font-size: 14px; font-weight: 600">Auftrag passt nicht zum Drucker</div>
+<div style="font-size: 12px; color: #aab2bc">andere Farbe wählen oder auf einen anderen Drucker legen</div>
+</div>
+<div style="display: flex; gap: 8px; flex: none">
+<button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #00ae42; background: transparent; color: #3ddc84; font: 600 13px Inter, system-ui, sans-serif">Auftrag bearbeiten</button>
+<button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #00ae42; background: transparent; color: #3ddc84; font: 600 13px Inter, system-ui, sans-serif">Verschieben</button>
+</div>
+</div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid #353c45">
+<div style="min-width: 0">
+<div style="font-size: 14px; font-weight: 600">Farbe nicht im Lager</div>
+<div style="font-size: 12px; color: #aab2bc">heute nur der Hinweis „none left in inventory“</div>
+</div>
+<div style="display: flex; gap: 8px; flex: none">
+<button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #00ae42; background: transparent; color: #3ddc84; font: 600 13px Inter, system-ui, sans-serif">Spule anlegen</button>
+</div>
+</div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid #353c45">
+<div style="min-width: 0">
+<div style="font-size: 14px; font-weight: 600">Steckdose hat nicht eingeschaltet</div>
+<div style="font-size: 12px; color: #aab2bc">heute nur Text</div>
+</div>
+<div style="display: flex; gap: 8px; flex: none">
+<button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #00ae42; background: transparent; color: #3ddc84; font: 600 13px Inter, system-ui, sans-serif">Erneut einschalten</button>
+</div>
+</div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid #353c45">
+<div style="min-width: 0">
+<div style="font-size: 14px; font-weight: 600">Zu knappe Spule</div>
+<div style="font-size: 12px; color: #aab2bc">seit dieser Woche auf deiner Farm</div>
+</div>
+<div style="display: flex; gap: 8px; flex: none">
+<button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #7a838e; background: transparent; color: #e8eaed; font: 600 13px Inter, system-ui, sans-serif">Trotzdem drucken</button>
+</div>
+</div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid #353c45">
+<div style="min-width: 0">
+<div style="font-size: 14px; font-weight: 600">Platte räumen · Plattenwechsler leer</div>
+<div style="font-size: 12px; color: #aab2bc">bleibt wie es ist</div>
+</div>
+<div style="display: flex; gap: 8px; flex: none">
+<button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #7a838e; background: transparent; color: #e8eaed; font: 600 13px Inter, system-ui, sans-serif">Platte ist frei</button>
+<button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #7a838e; background: transparent; color: #e8eaed; font: 600 13px Inter, system-ui, sans-serif">Nachgefüllt</button>
+</div>
+</div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px">
+<div style="min-width: 0">
+<div style="font-size: 14px; font-weight: 600">Bereitgestellter Auftrag</div>
+<div style="font-size: 12px; color: #aab2bc">bleibt wie es ist</div>
+</div>
+<div style="display: flex; gap: 8px; flex: none">
+<button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #7a838e; background: transparent; color: #e8eaed; font: 600 13px Inter, system-ui, sans-serif">Start</button>
+</div>
+</div>
+</div>
+<div style="font-size: 12px; color: #aab2bc; line-height: 1.5">Grün gefüllt ist die Hauptaktion eines Eintrags, grün umrandet eine weitere neue. Jeder Knopf erscheint nur, wenn der Benutzer das Recht dafür hat. Die Sensor-Sperre bleibt ein Hinweis mit Link zum Drucker, weil man dort am Gerät etwas tun muss.</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":680,"height":700}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

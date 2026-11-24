@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>To-do: mehrere Filamente einlegen</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#3ddc84}a:hover{color:#7cf0ad}
+</style>
+</helmet>
+<div style="width: 600px; height: 700px; box-sizing: border-box; padding: 24px; background: #15181c; font-family: Inter, system-ui, sans-serif; color: #e8eaed; display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; align-items: center; gap: 10px">
+<h1 style="margin: 0; font-size: 18px; font-weight: 600">Zu erledigen</h1>
+<span style="font-size: 12px; font-weight: 600; background: #f5a524; color: #15181c; border-radius: 999px; padding: 2px 9px">1</span>
+</div>
+<div style="background: #22272d; border: 1px solid #353c45; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+<div style="font-size: 16px; font-weight: 600">A1 Links</div>
+<a href="#drucker" style="font-size: 13px; text-decoration: none">Zum Drucker</a>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; align-items: center; gap: 8px">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f5a524" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="2.5"></circle></svg>
+<div style="font-size: 15px; font-weight: 600">2 Filamente einlegen</div>
+</div>
+<div style="font-size: 13px; color: #aab2bc">SantaBox.1x.A1.swap.jobox braucht Army Red, Cotton White und Army Beige.</div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding: 0 11px">
+<div></div>
+<div style="background: #1a2a20; border: 1px solid #00ae42; border-radius: 10px; padding: 10px 8px; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center">
+<div style="width: 34px; height: 34px; border-radius: 50%; background: #8f1d21; border: 2px solid #f1f3f5"></div>
+<div style="font-size: 12px; font-weight: 600; line-height: 1.25">PLA Army Red</div>
+<div style="font-size: 11px; color: #aab2bc">im Lager: 2 Spulen</div>
+</div>
+<div></div>
+<div style="background: #1a2a20; border: 1px solid #00ae42; border-radius: 10px; padding: 10px 8px; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center">
+<div style="width: 34px; height: 34px; border-radius: 50%; background: #c9b79c; border: 2px solid #f1f3f5"></div>
+<div style="font-size: 12px; font-weight: 600; line-height: 1.25">PLA Army Beige</div>
+<div style="font-size: 11px; color: #ff8f8f">nicht im Lager</div>
+</div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: -6px 0; padding: 0 11px">
+<div></div>
+<div style="display: flex; justify-content: center">
+<svg role="img" aria-label="kommt in Slot A2" width="24" height="30" viewBox="0 0 24 30" fill="none" stroke="#00ae42" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v24"></path><path d="M5 19l7 8 7-8"></path></svg>
+</div>
+<div></div>
+<div style="display: flex; justify-content: center">
+<svg role="img" aria-label="kommt in Slot A4" width="24" height="30" viewBox="0 0 24 30" fill="none" stroke="#00ae42" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v24"></path><path d="M5 19l7 8 7-8"></path></svg>
+</div>
+</div>
+<div style="border: 1px solid #454d57; border-radius: 12px; padding: 10px; background: #1b1f24; display: flex; flex-direction: column; gap: 8px">
+<div style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: #aab2bc">AMS LITE</div>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px">
+<div style="background: #262b31; border: 1px solid #353c45; border-radius: 10px; padding: 10px 6px; display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center">
+<div style="display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700">A1
+<svg role="img" aria-label="gesperrt" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#aab2bc" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+</div>
+<div style="width: 30px; height: 30px; border-radius: 50%; background: #c8102e; border: 2px solid #5a626c"></div>
+<div style="font-size: 11px; line-height: 1.25">PLA Lava Red</div>
+<div style="font-size: 11px; color: #aab2bc">druckt gerade</div>
+</div>
+<div style="background: #2b2416; border: 2px solid #f5a524; border-radius: 10px; padding: 9px 5px; display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center">
+<div style="font-size: 12px; font-weight: 700">A2</div>
+<div style="width: 30px; height: 30px; border-radius: 50%; background: #2e9e7f; border: 2px solid #5a626c; opacity: 0.55"></div>
+<div style="font-size: 11px; line-height: 1.25">PLA Jadeite</div>
+<div style="font-size: 11px; font-weight: 600; color: #f5a524">raus</div>
+</div>
+<div style="background: #18261d; border: 1px solid #2f7d4c; border-radius: 10px; padding: 10px 6px; display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center">
+<div style="font-size: 12px; font-weight: 700">A3</div>
+<div style="width: 30px; height: 30px; border-radius: 50%; background: #f4efeb; border: 2px solid #5a626c"></div>
+<div style="font-size: 11px; line-height: 1.25">PLA Cotton White</div>
+<div style="font-size: 11px; color: #3ddc84">passt · 227 g</div>
+</div>
+<div style="background: #1b1f24; border: 1px dashed #5a626c; border-radius: 10px; padding: 10px 6px; display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center">
+<div style="font-size: 12px; font-weight: 700">A4</div>
+<div style="width: 30px; height: 30px; border-radius: 50%; border: 2px dashed #5a626c; box-sizing: border-box"></div>
+<div style="font-size: 11px; color: #aab2bc; line-height: 1.25">leer</div>
+<div style="font-size: 11px; color: #aab2bc">&nbsp;</div>
+</div>
+</div>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 10px">
+<button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 8px; border: none; background: #00ae42; color: #0c1410; font: 600 14px Inter, system-ui, sans-serif; cursor: pointer">Spule für A2 zuweisen</button>
+<button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 8px; border: 1px solid #454d57; background: transparent; color: #e8eaed; font: 500 14px Inter, system-ui, sans-serif; cursor: pointer">Army Beige ins Lager aufnehmen</button>
+</div>
+</div>
+<div style="font-size: 12px; color: #aab2bc; line-height: 1.5">Jede neue Spule steht in der Spalte ihres Slots, die Pfeile laufen also immer gerade nach unten. Das Schloss zeigt einen Slot, den der laufende Druck braucht. „raus“ markiert die Spule, die kein wartender Auftrag benötigt.</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":600,"height":700}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
