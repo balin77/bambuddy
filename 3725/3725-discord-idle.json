@@ -1,0 +1,26 @@
+{
+  "embeds": [
+    {
+      "title": "Printer idle: waiting for filament",
+      "description": "P1S right has nothing it can print. 2 jobs wait for filament.",
+      "color": 44610,
+      "fields": [
+        {
+          "name": "Printer",
+          "value": "P1S right",
+          "inline": false
+        },
+        {
+          "name": "Load",
+          "value": "🔴 PLA Lava Red (A3 has 196 g, needs 505 g)\n🟤 PLA Army Beige",
+          "inline": false
+        },
+        {
+          "name": "Jobs",
+          "value": "Lamp_Base.5x.P1S · Coaster_4x_p1s",
+          "inline": false
+        }
+      ]
+    }
+  ]
+}

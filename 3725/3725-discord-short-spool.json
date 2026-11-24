@@ -1,0 +1,26 @@
+{
+  "embeds": [
+    {
+      "title": "Queue Job Waiting",
+      "description": "Lamp_Base.5x.P1S waiting for P1S\nNot enough filament on P1S right: PLA in A3 (196 g left, needs 505 g)",
+      "color": 12986408,
+      "fields": [
+        {
+          "name": "Printer",
+          "value": "P1S right",
+          "inline": false
+        },
+        {
+          "name": "Job",
+          "value": "Lamp_Base.5x.P1S",
+          "inline": false
+        },
+        {
+          "name": "Waiting for",
+          "value": "🔴 PLA Lava Red (#C62828)",
+          "inline": false
+        }
+      ]
+    }
+  ]
+}
