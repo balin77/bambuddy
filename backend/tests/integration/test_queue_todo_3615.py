@@ -114,6 +114,8 @@ class TestTodoEntries:
                 "slot_hint": None,
                 "slot_hints": [],
                 "paused": None,
+                "ams_picture": None,
+                "ams_pictures": [],
             }
         ]
 
@@ -1121,3 +1123,81 @@ class TestPrepare:
         (group,) = (await async_client.get(URL)).json()["groups"]
         (line,) = group["prepare"]
         assert [s["nozzle"] for s in line["slot_hint"]["slots"]] == ["left"]
+
+
+class TestAmsPictureRoute:
+    """The AMS picture as the list serves it: the inventory's grams and stock join the scheduler's slots (#3726)."""
+
+    @staticmethod
+    def _hint(printer_id):
+        from backend.app.services.queue_todo import PictureSlot
+
+        picture = (
+            PictureSlot(0, 0, 0, False, False, 1, None, "PLA", "#FF0000"),
+            PictureSlot(0, 1, 1, False, False, 1, None, "PLA", "#0000FF"),
+            PictureSlot(0, 2, 2, False, False, 1, None, empty=True),
+        )
+        return SlotHint(printer_id, "free", (_slot(2),), picture=picture)
+
+    async def _spools(self, db_session, printer_id):
+        from backend.app.models.spool import Spool
+        from backend.app.models.spool_assignment import SpoolAssignment
+
+        loaded = Spool(material="PLA", label_weight=1000, weight_used=380, color_name="Cotton White", rgba="FFFFFFFF")
+        stock = [
+            Spool(material="PLA", label_weight=1000, weight_used=0, rgba="FF69B4FF"),
+            Spool(material="PLA", label_weight=1000, weight_used=0, rgba="FF69B4FF"),
+            # Archived and wrong colour spools are not stock.
+            Spool(
+                material="PLA",
+                label_weight=1000,
+                weight_used=0,
+                rgba="FF69B4FF",
+                archived_at=__import__("datetime").datetime(2026, 1, 1),
+            ),
+            Spool(material="PLA", label_weight=1000, weight_used=0, rgba="00FF00FF"),
+        ]
+        db_session.add_all([loaded, *stock])
+        await db_session.flush()
+        db_session.add(SpoolAssignment(spool_id=loaded.id, printer_id=printer_id, ams_id=0, tray_id=1))
+        await db_session.commit()
+
+    async def test_grams_looks_and_stock_come_from_the_built_in_inventory(
+        self, async_client, db_session, printer_factory, make_item
+    ):
+        a = await printer_factory(name="A")
+        item = await make_item(a.id)
+        await self._spools(db_session, a.id)
+        pink = TodoFilament("PLA", "#FF69B4", "Pink")
+        scheduler._filament_holds = {item.id: [FilamentHold(item.id, a.id, None, (pink,))]}
+        scheduler._slot_hints = {a.id: self._hint(a.id)}
+        (entry,) = _only_entries((await async_client.get(URL)).json())
+        picture = entry["ams_picture"]
+        slots = {s["tray_id"]: s for u in picture["units"] for s in u["slots"]}
+        assert (slots[1]["remaining_g"], slots[1]["color_name"]) == (620.0, "Cotton White")
+        assert slots[0]["remaining_g"] is None
+        assert (slots[2]["state"], slots[2]["incoming"]["stock_count"]) == ("empty", 2)
+
+    async def test_spoolman_mode_reads_no_inventory_and_counts_no_stock(
+        self, async_client, db_session, printer_factory, make_item
+    ):
+        a = await printer_factory(name="A")
+        item = await make_item(a.id)
+        await self._spools(db_session, a.id)
+        scheduler._filament_holds = {
+            item.id: [FilamentHold(item.id, a.id, None, (TodoFilament("PLA", "#FF69B4", "Pink"),))]
+        }
+        scheduler._slot_hints = {a.id: self._hint(a.id)}
+        with patch.object(type(scheduler), "_is_spoolman_mode", AsyncMock(return_value=True)):
+            (entry,) = _only_entries((await async_client.get(URL)).json())
+        slots = {s["tray_id"]: s for u in entry["ams_picture"]["units"] for s in u["slots"]}
+        assert slots[1]["remaining_g"] is None
+        assert slots[2]["incoming"]["stock_count"] is None
+
+    async def test_a_printer_the_caller_may_not_see_has_no_picture(self, async_client, printer_factory, make_item):
+        a = await printer_factory(name="A")
+        item = await make_item(a.id)
+        scheduler._filament_holds = {item.id: [FilamentHold(item.id, a.id, None, (RED,))]}
+        scheduler._slot_hints = {a.id + 100: self._hint(a.id + 100)}
+        (entry,) = _only_entries((await async_client.get(URL)).json())
+        assert entry["ams_picture"] is None

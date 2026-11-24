@@ -4,7 +4,7 @@ import json
 import logging
 import re
 import zipfile
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -39,6 +39,8 @@ from backend.app.models.print_batch import PrintBatch, PrintBatchPlate
 from backend.app.models.print_queue import PrintQueueItem, PrintQueueVariant
 from backend.app.models.printer import Printer
 from backend.app.models.project import Project
+from backend.app.models.spool import Spool
+from backend.app.models.spool_assignment import SpoolAssignment
 from backend.app.models.user import User
 from backend.app.schemas.print_queue import (
     ColorSubstitution,
@@ -81,7 +83,9 @@ from backend.app.services.queue_position import lock_queue_positions, max_queue_
 from backend.app.services.queue_todo import (
     PausedInfo,
     PauseEpisodes,
+    SlotExtra,
     SlotHint,
+    TodoFilament,
     TodoJob,
     build_todo,
     paused_info_from_status,
@@ -954,6 +958,71 @@ def _paused_prints(
     return paused
 
 
+async def _picture_inputs(
+    db: AsyncSession,
+    hints: Mapping[int, SlotHint],
+    prepare: Mapping[int, Any],
+) -> tuple[dict[tuple[int, int, int], SlotExtra], Callable[[TodoFilament], int | None] | None]:
+    """What the AMS picture adds to the scheduler's hints from the inventory (#3726).
+
+    The grams left and the looks of the spool assigned to each slot, and a
+    count of the spools in stock for an incoming filament. Built-in inventory
+    only: in Spoolman mode there is no live call per slot (grams the pass
+    knows come with the hints) and no count. Nothing here changes a hint.
+    """
+    from backend.app.services.print_scheduler import scheduler as _scheduler
+    from backend.app.utils.color_utils import colors_are_similar
+    from backend.app.utils.filament_types import canonical_filament_type
+
+    printer_ids = set(hints) | set(prepare)
+    if not printer_ids or await _scheduler._is_spoolman_mode(db):
+        return {}, None
+    extras: dict[tuple[int, int, int], SlotExtra] = {}
+    rows = await db.execute(
+        select(SpoolAssignment.printer_id, SpoolAssignment.ams_id, SpoolAssignment.tray_id, Spool)
+        .join(Spool, Spool.id == SpoolAssignment.spool_id)
+        .where(SpoolAssignment.printer_id.in_(printer_ids))
+    )
+    for printer_id, ams_id, tray_id, spool in rows:
+        extras[(printer_id, ams_id, tray_id)] = SlotExtra(
+            remaining_grams=max(0.0, float(spool.label_weight or 0) - float(spool.weight_used or 0)),
+            extra_colors=spool.extra_colors or "",
+            effect_type=spool.effect_type or "",
+            subtype=spool.subtype or "",
+            color_name=spool.color_name or "",
+        )
+    in_stock = (
+        await db.execute(
+            select(Spool.material, Spool.rgba)
+            .outerjoin(SpoolAssignment, SpoolAssignment.spool_id == Spool.id)
+            .where(Spool.archived_at.is_(None), SpoolAssignment.id.is_(None))
+        )
+    ).all()
+
+    def stock_for(filament: TodoFilament) -> int:
+        kind = canonical_filament_type((filament.type or "").upper())
+        return sum(
+            1
+            for material, rgba in in_stock
+            if canonical_filament_type((material or "").upper()) == kind
+            and (not filament.color or not rgba or colors_are_similar(f"#{rgba[:6]}", filament.color))
+        )
+
+    return extras, stock_for
+
+
+def _idle_printers(printer_ids: Iterable[int]) -> set[int]:
+    """The printers that are connected and not printing: where a model job would likely go first (#3726)."""
+    from backend.app.services.print_scheduler import _ACTIVE_PRINT_STATES
+
+    idle = set()
+    for printer_id in printer_ids:
+        status = printer_manager.get_status(printer_id)
+        if status is not None and status.connected and status.state not in _ACTIVE_PRINT_STATES:
+            idle.add(printer_id)
+    return idle
+
+
 @router.get("/todo", response_model=QueueTodoResponse)
 async def queue_todo(
     db: AsyncSession = Depends(get_db, scope="function"),
@@ -1083,6 +1152,15 @@ async def queue_todo(
 
     paused = _paused_prints(printer_names, actor, {row.id: row.model for row in printer_rows})
 
+    hints = visible_slot_hints(_scheduler.slot_hints_snapshot(), printer_names)
+    prepare = _scheduler.prepare_snapshot()
+    try:
+        slot_extras, stock_for = await _picture_inputs(db, hints, prepare)
+    except Exception:
+        # The picture is drawn without the inventory's grams when this fails.
+        logger.debug("To do list: inventory for the AMS picture not read", exc_info=True)
+        slot_extras, stock_for = {}, None
+
     return build_todo(
         jobs,
         printer_names,
@@ -1092,8 +1170,11 @@ async def queue_todo(
         power_failed,
         plate_changer_empty,
         _scheduler.filament_priorities_snapshot(),
-        visible_slot_hints(_scheduler.slot_hints_snapshot(), printer_names),
-        _scheduler.prepare_snapshot(),
+        hints,
+        prepare,
+        slot_extras,
+        stock_for,
+        _idle_printers(printer_names),
         paused=paused,
     )
 
