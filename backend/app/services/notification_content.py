@@ -30,6 +30,8 @@ class NotificationPresentation:
 
     fields: tuple[tuple[str, str], ...] = ()
     color: int | None = None
+    # Replaces the embed's description when the fields carry the rest of the message (#3725).
+    description: str | None = None
 
 
 def is_unmodified_template(event_type: str, title_template: str, body_template: str) -> bool:
@@ -162,3 +164,83 @@ def embed_color(filaments: Sequence[NotificationFilament]) -> int | None:
     if not rgb or color_family(rgb) == "White":
         return None
     return int(rgb[1:], 16)
+
+
+@dataclass(frozen=True)
+class FilamentNeed:
+    """A filament a printer's waiting jobs lack: not loaded at all, or loaded but too short (#3725).
+
+    *need_grams* is set for a spool that is loaded but too short, with *have_grams* what it holds
+    (None when that cannot be read); both stay None for a filament that is not loaded.
+    """
+
+    filament: NotificationFilament
+    have_grams: float | None = None
+    need_grams: float | None = None
+
+    @property
+    def line(self) -> str:
+        """ "\U0001f534 PLA Lava Red (A3 has 196 g, needs 505 g)": dot, type, name and, for a short spool, the amounts."""
+        f = self.filament
+        parts = [f.emoji, (f.type or "").strip(), (f.color_name or "").strip()]
+        note = color_note(f.color_hex)
+        if note and note not in parts[2].lower():
+            parts.append(note)
+        text = " ".join(p for p in parts if p)
+        if self.need_grams is None:
+            return text
+        slot = (f.slot or "").strip()
+        if self.have_grams is None:
+            amounts = f"needs {self.need_grams:.0f} g"
+            detail = f"{slot}, {amounts}" if slot else amounts
+        else:
+            amounts = f"has {self.have_grams:.0f} g, needs {self.need_grams:.0f} g"
+            detail = f"{slot} {amounts}" if slot else amounts
+        return f"{text} ({detail})".strip()
+
+    @property
+    def key(self) -> tuple[str, str]:
+        """What identifies the filament: type and colour. Amounts and slot change without it being another filament."""
+        return ((self.filament.type or "").strip().lower(), self.filament.hex)
+
+
+@dataclass(frozen=True)
+class IdleJob:
+    """A waiting job that cannot start for want of filament, with what it lacks."""
+
+    name: str
+    needs: tuple[FilamentNeed, ...] = ()
+
+
+# A message that lists more jobs than this says how many it left out.
+IDLE_MAX_JOBS_SHOWN = 8
+
+
+def idle_load_lines(jobs: Iterable[IdleJob]) -> list[str]:
+    """The filaments to load, once each, in the order the jobs name them.
+
+    A filament two jobs lack is one line; when it is a short spool, the larger need counts.
+    """
+    merged: dict[tuple[str, str, str], FilamentNeed] = {}
+    for job in jobs:
+        for need in job.needs:
+            key = (*need.key, (need.filament.slot or "").strip() if need.need_grams is not None else "")
+            known = merged.get(key)
+            if known is None or (need.need_grams or 0) > (known.need_grams or 0):
+                merged[key] = need
+    return [n.line for n in merged.values() if n.line]
+
+
+def idle_jobs_text(jobs: Sequence[IdleJob]) -> str:
+    """The job names for a message, joined with " · "; the ones past the limit are counted."""
+    names = [j.name for j in jobs if j.name]
+    shown = names[:IDLE_MAX_JOBS_SHOWN]
+    text = " \u00b7 ".join(shown)
+    if len(names) > len(shown):
+        text += f" \u00b7 +{len(names) - len(shown)} more"
+    return text
+
+
+def idle_jobs_wait(count: int) -> str:
+    """ "1 job waits" / "2 jobs wait"."""
+    return "1 job waits" if count == 1 else f"{count} jobs wait"

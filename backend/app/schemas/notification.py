@@ -149,6 +149,9 @@ class NotificationProviderBase(BaseModel):
     on_queue_job_assigned: bool = Field(default=False, description="Notify when model-based job is assigned to printer")
     on_queue_job_started: bool = Field(default=False, description="Notify when queue job starts printing")
     on_queue_job_waiting: bool = Field(default=True, description="Notify when job is waiting for filament or printer")
+    on_printer_idle_for_filament: bool = Field(
+        default=True, description="Notify when a printer stands idle because its waiting jobs lack filament"
+    )
     on_queue_job_skipped: bool = Field(default=True, description="Notify when job is skipped")
     on_queue_job_failed: bool = Field(default=True, description="Notify when job fails to start")
     on_queue_completed: bool = Field(default=False, description="Notify when all queue jobs finish")
@@ -260,6 +263,7 @@ class NotificationProviderUpdate(IgnoresNullForRequiredColumns):
     on_queue_job_assigned: bool | None = None
     on_queue_job_started: bool | None = None
     on_queue_job_waiting: bool | None = None
+    on_printer_idle_for_filament: bool | None = None
     on_queue_job_skipped: bool | None = None
     on_queue_job_failed: bool | None = None
     on_queue_completed: bool | None = None
