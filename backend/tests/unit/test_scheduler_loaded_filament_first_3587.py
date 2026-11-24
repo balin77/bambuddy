@@ -1721,7 +1721,7 @@ class TestWaitingNotificationFilaments:
         result = await _run(ctx, PrintScheduler(), deficit_items={item_id})
 
         kwargs = result.waiting.await_args.kwargs
-        assert kwargs["waiting_reason"] == "filament_short"
+        assert kwargs["waiting_reason"] == "Not enough filament on X1C-1: PLA in A1 (40 g left, needs 120 g)"
         assert kwargs["filaments"] == [NotificationFilament(type="PLA", slot=_ams_slot_label(0, 0))]
 
     @pytest.mark.asyncio
