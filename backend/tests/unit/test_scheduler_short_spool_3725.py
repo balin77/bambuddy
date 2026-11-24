@@ -27,6 +27,7 @@ from backend.tests.unit.test_scheduler_idle_for_filament_3725 import (
     ctx,  # noqa: F401 - fixture
     new_scheduler,
     one_pass,
+    saved_raw,
 )
 
 SENTENCE = "Not enough filament on P1S right: PLA in A3 (196 g left, needs 505 g)"
@@ -179,6 +180,32 @@ class TestModelJobs:
         result = await one_pass(ctx, scheduler, short={1, 2}, idle=lambda pid: False, state="RUNNING")
 
         assert not [r for r in _reasons(result.waiting) if r.startswith("Not enough")]
+
+    @pytest.mark.asyncio
+    async def test_another_printer_being_short_is_not_a_second_notice(self, ctx):
+        scheduler = new_scheduler(ctx)
+        item = await add_item(ctx, "Lamp", target_model="P1S")
+        await one_pass(ctx, scheduler, short={1, 2})
+        async with ctx.session_maker() as db:  # the saved reason must not be what keeps it quiet
+            (await db.get(PrintQueueItem, item)).waiting_reason = None
+            await db.commit()
+
+        other = await one_pass(ctx, scheduler, short={2}, idle=lambda pid: pid != 1)
+
+        assert not [r for r in _reasons(other.waiting) if r.startswith("Not enough")]
+
+    @pytest.mark.asyncio
+    async def test_a_restart_during_a_busy_phase_does_not_tell_again(self, ctx):
+        scheduler = new_scheduler(ctx)
+        item = await add_item(ctx, "Lamp", printer_id=1)
+        first = await one_pass(ctx, scheduler, deficits={item: DEFICIT})
+        await one_pass(ctx, scheduler, deficits={item: DEFICIT}, idle=lambda pid: False, state="RUNNING")
+
+        restarted = await one_pass(ctx, new_scheduler(ctx), deficits={item: DEFICIT})
+
+        assert _reasons(first.waiting) == [SENTENCE]
+        restarted.waiting.assert_not_awaited()
+        assert "short" in await saved_raw(ctx)
 
 
 class TestWithTheIdleMessage:
