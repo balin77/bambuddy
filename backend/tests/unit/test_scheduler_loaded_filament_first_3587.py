@@ -55,6 +55,8 @@ _DEFICIT = [
     )
 ]
 _DEFICIT_TEXT = "PLA (40 g left, needs 120 g)"
+# A short spool is told at once, whatever the maximum wait says (#3725), in the sentence of #3642.
+_SHORT_SENTENCE = "Not enough filament on X1C-1: PLA in A1 (40 g left, needs 120 g)"
 _BROWN = [{"slot_id": 1, "type": "PLA", "color": "Earth Brown"}]
 _BROWN_TEXT = "PLA Earth Brown"
 
@@ -383,7 +385,7 @@ class TestPinnedSkipInsteadOfHold:
         assert item.filament_short is False
         assert item.waiting_reason == f"Waiting for filament: {_DEFICIT_TEXT} · priority in 38 h"
         assert _dispatched(result) == [later]
-        result.waiting.assert_not_awaited()
+        assert [c.kwargs["waiting_reason"] for c in result.waiting.await_args_list] == [_SHORT_SENTENCE]
 
     @pytest.mark.asyncio
     async def test_starts_by_itself_once_it_fits(self, ctx):
@@ -482,7 +484,8 @@ class TestPinnedMaxWait:
 
         for _ in range(3):
             await _run(ctx, scheduler, waiting=waiting, deficit_items={item_id})
-        assert waiting.await_count == 0  # the skip phase is silent
+        # The skip phase is silent but for the short spool, told once at the start (#3725).
+        assert [c.kwargs["waiting_reason"] for c in waiting.await_args_list] == [_SHORT_SENTENCE]
 
         async with ctx.session_maker() as db:
             row = await db.get(PrintQueueItem, item_id)
@@ -492,7 +495,7 @@ class TestPinnedMaxWait:
         for _ in range(4):
             await _run(ctx, scheduler, waiting=waiting, deficit_items={item_id})
 
-        assert waiting.await_count == 1
+        assert waiting.await_count == 2
         kwargs = waiting.await_args.kwargs
         assert kwargs["waiting_reason"] == f"Waiting for filament: {_DEFICIT_TEXT} · has priority"
         assert kwargs["printer_id"] == 1
@@ -507,7 +510,10 @@ class TestPinnedMaxWait:
         await _run(ctx, PrintScheduler(), waiting=waiting, deficit_items={item_id})
         await _run(ctx, PrintScheduler(), waiting=waiting, deficit_items={item_id})  # a new instance
 
-        assert waiting.await_count == 1
+        # The priority message once; the short spool was told with it when the item was queued so long ago.
+        assert [c.kwargs["waiting_reason"] for c in waiting.await_args_list].count(
+            f"Waiting for filament: {_DEFICIT_TEXT} · has priority"
+        ) == 1
 
 
 class TestPinnedNoLimit:
@@ -532,8 +538,9 @@ class TestPinnedNoLimit:
         for _ in range(4):
             await _run(ctx, scheduler, waiting=waiting, deficit_items={item_id})
 
+        # With no maximum wait the message for the start is the short-spool one (#3725).
         assert waiting.await_count == 1
-        assert waiting.await_args.kwargs["waiting_reason"] == f"Waiting for filament: {_DEFICIT_TEXT}"
+        assert waiting.await_args.kwargs["waiting_reason"] == _SHORT_SENTENCE
 
     @pytest.mark.asyncio
     async def test_a_missing_hours_row_means_the_default_48(self, ctx):
@@ -770,10 +777,14 @@ class TestModelJobs:
         assert item.manual_start is False
         assert item.filament_short is False
         assert item.waiting_reason == f"Waiting for filament: {_DEFICIT_TEXT} · has priority"
-        assert result.waiting.await_count == 1
+        # The short spool at once, and the priority moment, which is news of its own (#3725).
+        assert [c.kwargs["waiting_reason"] for c in result.waiting.await_args_list] == [
+            _SHORT_SENTENCE,
+            f"Waiting for filament: {_DEFICIT_TEXT} · has priority",
+        ]
 
     @pytest.mark.asyncio
-    async def test_a_race_after_assignment_before_the_limit_is_silent(self, ctx):
+    async def test_a_race_after_assignment_before_the_limit_is_told_the_short_spool(self, ctx):
         await _mode(ctx)
         item_id = await _add_item(ctx, age_hours=10)
 
@@ -782,7 +793,7 @@ class TestModelJobs:
         item = await _get(ctx, item_id)
         assert item.printer_id is None
         assert item.waiting_reason == f"Waiting for filament: {_DEFICIT_TEXT} · priority in 38 h"
-        result.waiting.assert_not_awaited()
+        assert [c.kwargs["waiting_reason"] for c in result.waiting.await_args_list] == [_SHORT_SENTENCE]
 
     @pytest.mark.asyncio
     async def test_a_race_on_unmatched_filament_releases_and_waits(self, ctx):
@@ -974,7 +985,8 @@ class TestNotificationSurvivesBusyFlaps:
         for idle in (True, False, True, False, True):
             await _run(ctx, scheduler, waiting=waiting, deficit_items={item_id}, idle=lambda pid, idle=idle: idle)
 
-        assert waiting.await_count == 1
+        # The short spool once (it replaces the message for the start), and the priority moment once if it is reached (#3725).
+        assert waiting.await_count == (2 if hours == "48" else 1)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("hours", "age"), [("48", 100), ("None", 1)])
@@ -1007,7 +1019,8 @@ class TestNotificationSurvivesBusyFlaps:
         await _run(ctx, scheduler, waiting=waiting, deficit_items={item_id}, idle=lambda pid: False)
         await _run(ctx, scheduler, waiting=waiting, deficit_items={item_id})
 
-        assert waiting.await_count == 1
+        # The short spool at the start, the priority moment once.
+        assert waiting.await_count == 2
         assert waiting.await_args.kwargs["waiting_reason"].endswith(" · has priority")
 
     @pytest.mark.asyncio
@@ -1708,7 +1721,7 @@ class TestWaitingNotificationFilaments:
         result = await _run(ctx, PrintScheduler(), deficit_items={item_id})
 
         kwargs = result.waiting.await_args.kwargs
-        assert kwargs["waiting_reason"] == f"Waiting for filament: {_DEFICIT_TEXT}"
+        assert kwargs["waiting_reason"] == _SHORT_SENTENCE
         assert kwargs["printer_id"] == 1
         assert kwargs["filaments"] == [NotificationFilament(type="PLA", slot=_ams_slot_label(0, 0))]
 
