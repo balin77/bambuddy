@@ -8,7 +8,7 @@ import { screen, waitFor, fireEvent, render as rtlRender } from '@testing-librar
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { ToastProvider } from '../../contexts/ToastContext';
-import type { PrintQueueItem, QueueTodo, QueueTodoEntry } from '../../api/client';
+import type { QueueTodo, QueueTodoEntry } from '../../api/client';
 
 const perms = { granted: new Set<string>(), hide: false, ownerOk: (_owner: number | null | undefined) => true };
 
