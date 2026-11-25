@@ -210,8 +210,7 @@ describe('AmsPicture', () => {
     const compact = picture([unit([slot(0), slot(1, { remaining_g: 90 })])], { compact: true });
     render(<AmsPicture picture={compact} filaments={[]} />);
     const cards = screen.getAllByTestId('todo-ams-slot');
-    // The label, the number in the slot circle, and no dash.
-    expect(cards[0].textContent).toBe('A11\u00a0');
+    expect(cards[0].textContent).toBe('A1\u00a0');
     expect(cards[1]).toHaveTextContent('90 g');
     expect(screen.queryByText('—')).toBeNull();
   });
@@ -246,8 +245,8 @@ describe('the circles of the picture are the printer card\'s slot circles', () =
     expect(screen.getAllByTestId('todo-ams-circle')).toHaveLength(4);
     expect(screen.getAllByTestId('todo-ams-incoming-circle')).toHaveLength(1);
     expect(screen.queryByTestId('filament-swatch')).toBeNull();
-    // The number in a circle is the slot's, as on the printer card.
-    expect(screen.getAllByTestId('todo-ams-circle').map((c) => c.textContent)).toEqual(['1', '2', '3', '4']);
+    // No number in a circle: the label above it names the slot.
+    expect(screen.getAllByTestId('todo-ams-circle').map((c) => c.textContent)).toEqual(['', '', '', '']);
     expect(screen.getByTestId('todo-ams-incoming-circle').textContent).toBe('');
   });
 
@@ -259,8 +258,8 @@ describe('the circles of the picture are the printer card\'s slot circles', () =
     expect(screen.getByTestId('todo-ams-circle').style.backgroundImage.toLowerCase()).toMatch(/conic-gradient[^]*#ec984c/);
   });
 
-  it('keeps the alpha of a translucent spool', () => {
-    const clear = picture([unit([slot(0, { color: '#FFFFFF40', type: 'PETG', color_name: 'Clear' })])]);
+  it('keeps the alpha of a translucent spool the backend sends as rgba', () => {
+    const clear = picture([unit([slot(0, { color: '#FFFFFF', rgba: 'FFFFFF40', type: 'PETG', color_name: 'Clear' })])]);
     render(<AmsPicture picture={clear} filaments={[]} />);
     expect(screen.getByTestId('todo-ams-circle').style.backgroundImage.toLowerCase()).toContain('#ffffff40');
   });
@@ -308,28 +307,27 @@ describe('the build forms', () => {
     expect(screen.getByTestId('todo-ams-arrow')).toHaveStyle({ gridColumn: '1' });
   });
 
-  it('an H2D has an AMS per nozzle and an external holder per nozzle, numbered L and R', () => {
+  it('an H2D folds the external holders nothing goes into behind the toggle, as it does an AMS', () => {
     const h2d = picture([
       unit([slot(0), slot(1), slot(2), slot(3, { type: '', color: '', state: 'empty', incoming: incoming(0) })], { ams_id: 0, nozzle: 'right' }),
       unit([slot(0, { ams_id: 1 }), slot(1, { ams_id: 1 }), slot(2, { ams_id: 1 }), slot(3, { ams_id: 1 })], { ams_id: 1, nozzle: 'left' }),
-      extUnit([ext(0)], { nozzle: 'left' }),
-      extUnit([ext(1)], { nozzle: 'right' }),
+      extUnit([ext(0)], { nozzle: 'left', collapsed: true }),
+      extUnit([ext(1)], { nozzle: 'right', collapsed: true }),
     ]);
     render(<AmsPicture picture={h2d} filaments={[lavaRed]} />);
     expect(screen.getAllByTestId('todo-ams-unit').map((u) => u.getAttribute('aria-label'))).toEqual([
       'AMS-A · Right nozzle',
       'AMS-B · Left nozzle',
-      'External spool · Left nozzle',
-      'External spool · Right nozzle',
     ]);
-    const external = screen.getAllByTestId('todo-ams-circle').slice(-2).map((c) => c.textContent);
-    expect(external).toEqual(['L', 'R']);
+    const toggle = screen.getByRole('button', { name: /External spool · Left nozzle, External spool · Right nozzle/ });
+    fireEvent.click(toggle);
+    expect(screen.getAllByTestId('todo-ams-unit')).toHaveLength(4);
   });
 
-  it('an AMS 3H numbers its nine circles', () => {
+  it('an AMS 3H draws nine circles', () => {
     const nine = Array.from({ length: 9 }, (_, i) => slot(i, { ams_id: 32, ams_type: 6 }));
     render(<AmsPicture picture={picture([unit(nine, { ams_id: 32, ams_type: 6, kind: 'ams3h' })])} filaments={[]} />);
-    expect(screen.getAllByTestId('todo-ams-circle').map((c) => c.textContent)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9']);
+    expect(screen.getAllByTestId('todo-ams-circle').map((c) => c.textContent)).toEqual(Array(9).fill(''));
   });
 });
 
