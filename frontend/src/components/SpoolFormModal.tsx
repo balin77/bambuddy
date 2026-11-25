@@ -27,6 +27,7 @@ import { PrinterProfilesSection } from './spool-form/PrinterProfilesSection';
 import { ProfileDefaultOption, type ProfileDefaultScope } from './spool-form/ProfileDefaultOption';
 import { normaliseFlow } from '../utils/nozzleFlow';
 import { parseUTCDate, toDateTimeLocalValue } from '../utils/date';
+import { useAuth } from '../contexts/AuthContext';
 import { SpoolUsageHistory } from './SpoolUsageHistory';
 import { AssignToAmsModal } from './spoolbuddy/AssignToAmsModal';
 import {
@@ -78,6 +79,7 @@ export function SpoolFormModal({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const { hasPermission } = useAuth();
 
   const refreshSpoolQueries = () =>
     invalidateSpoolAndLocationQueries(queryClient, spoolsQueryKey);
