@@ -4310,7 +4310,7 @@ class PrintScheduler:
                     if printer_id is None and not gate_blocked:
                         self._record_model_holds(item.id, model_holds)
                         # A short spool is told at once, for the first printer that has one (#3725).
-                        for held_pid, (_, held_fils) in model_holds.items():
+                        for held_pid, (_, held_fils) in model_holds.items() if filament_first else ():
                             if short := self._short_in([FilamentHold(item.id, held_pid, None, tuple(held_fils))]):
                                 await self._notify_short_once(
                                     db,
@@ -4559,6 +4559,7 @@ class PrintScheduler:
                 (busy_printers - reserved_printers) | interlocked.keys() | drying_held,
                 require_plate_clear,
                 held=set(interlocked) | drying_held,
+                filament_first=filament_first,
                 wakeable_ids=wakeable_printer_ids,
             )
 
@@ -4718,6 +4719,7 @@ class PrintScheduler:
         unavailable: set[int],
         require_plate_clear: bool,
         held: set[int] | None = None,
+        filament_first: bool = True,
         wakeable_ids: set[int] | None = None,
     ) -> None:
         """Tell the user which printers have stood idle for five minutes with only filament-blocked jobs (#3725).
@@ -4730,6 +4732,13 @@ class PrintScheduler:
         ``_record_hold``; this only decides, once per pass.
         """
         try:
+            if not filament_first:
+                # The event belongs to "Loaded filament first": without it a job waits for its
+                # printer, not for a spool. No clock runs, so turning the setting on starts it afresh.
+                if self._idle_watch.entries:
+                    self._idle_watch.entries = {}
+                    await self._idle_watch.save_if_changed(db)
+                return
             # A plate changer with no plate left stands idle for plates, not for filament (#3575).
             qualifying: dict[int, dict[int, list[FilamentNeed]]] = {}
             for pid, blocks in self._pass_filament_blocks.items():

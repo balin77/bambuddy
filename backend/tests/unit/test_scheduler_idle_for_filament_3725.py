@@ -803,6 +803,82 @@ class TestSwitchedOffPrinters:
         due.event.assert_not_awaited()
 
 
+class TestLoadedFilamentFirst:
+    """The event exists only with "Loaded filament first" (#3725)."""
+
+    @pytest.mark.asyncio
+    async def test_nothing_with_the_setting_off_and_the_clock_starts_when_it_is_turned_on(self, ctx):
+        await _set_setting(ctx, "queue_loaded_filament_first", "false")
+        scheduler = new_scheduler(ctx)
+        item = await add_item(ctx, "Lamp", printer_id=1, manual_start=True, filament_short=True)
+        blocked = {item: DEFICIT}
+
+        results = []
+        for seconds in (0, 300, 600):
+            at(ctx, seconds)
+            results.append(await one_pass(ctx, scheduler, deficits=blocked))
+        assert all(r.event.await_count == 0 for r in results)
+        assert await saved(ctx) == {}
+
+        await _set_setting(ctx, "queue_loaded_filament_first", "true")
+        at(ctx, 700)
+        started = await one_pass(ctx, scheduler, deficits=blocked)
+        at(ctx, 999)
+        early = await one_pass(ctx, scheduler, deficits=blocked)
+        at(ctx, 1000)
+        due = await one_pass(ctx, scheduler, deficits=blocked)
+
+        started.event.assert_not_awaited()
+        early.event.assert_not_awaited()
+        due.event.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_turning_it_off_drops_a_running_clock(self, ctx):
+        scheduler = new_scheduler(ctx)
+        item = await add_item(ctx, "Lamp", printer_id=1, manual_start=True, filament_short=True)
+        await one_pass(ctx, scheduler, deficits={item: DEFICIT})
+        assert "1" in await saved(ctx)
+
+        await _set_setting(ctx, "queue_loaded_filament_first", "false")
+        at(ctx, 400)
+        due = await one_pass(ctx, scheduler, deficits={item: DEFICIT})
+
+        due.event.assert_not_awaited()
+        assert await saved(ctx) == {}
+
+
+class TestAnyModelJob:
+    @pytest.mark.asyncio
+    async def test_any_model_job_sends_one_message_per_idle_printer(self, ctx):
+        """Five idle P1S, one "Any P1S" job lacking PETG on each: five messages, each naming its printer and what it lacks."""
+        async with ctx.session_maker() as db:
+            db.add_all(
+                Printer(
+                    id=pid,
+                    name=f"P1S {pid}",
+                    serial_number=f"SN000{pid}",
+                    ip_address=f"10.0.0.{pid}",
+                    access_code="x",
+                    model="P1S",
+                    is_active=True,
+                )
+                for pid in (4, 5, 6)
+            )
+            await db.commit()
+        scheduler = new_scheduler(ctx)
+        await add_item(ctx, "Any P1S job", target_model="P1S", required_filament_types=PETG_ONLY)
+
+        due = await pass_pair(ctx, scheduler, trays=dict.fromkeys(range(1, 7), PLA_TRAYS))
+
+        assert announced_printers(due) == [1, 2, 4, 5, 6]
+        names = {call.args[0]: call.args[1] for call in due.event.await_args_list}
+        assert names == {1: "P1S right", 2: "P1S left", 4: "P1S 4", 5: "P1S 5", 6: "P1S 6"}
+        for call in due.event.await_args_list:
+            (job,) = call.args[2]
+            assert job.name == "Any P1S job"
+            assert [n.filament.type for n in job.needs] == ["PETG"]
+
+
 async def _set_setting(ctx, key, value):
     async with ctx.session_maker() as db:
         row = (await db.execute(select(Settings).where(Settings.key == key))).scalar_one_or_none()
