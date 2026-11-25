@@ -18,16 +18,18 @@ type Deficit = {
 // filament deficit (#1496) or a filament the printer has no tray for (#2799).
 // Shared by the queue page and the "To do" list (#3615). Render `modals`
 // somewhere in the tree; `overlayZIndex` lifts them above a surrounding panel.
+// `printerId` starts an "Any <model>" job on that printer; the confirmation
+// then speaks of that printer and its answer starts the job there.
 export function useStartQueueItem(overlayZIndex?: string) {
   const { t } = useTranslation();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
-  const [short, setShort] = useState<{ itemId: number; deficit: Deficit[] } | null>(null);
-  const [missing, setMissing] = useState<{ itemId: number; missing: string[] } | null>(null);
+  const [short, setShort] = useState<{ itemId: number; printerId?: number; deficit: Deficit[] } | null>(null);
+  const [missing, setMissing] = useState<{ itemId: number; printerId?: number; missing: string[] } | null>(null);
 
   const startMutation = useMutation({
-    mutationFn: ({ id, skipFilamentCheck }: { id: number; skipFilamentCheck?: boolean }) =>
-      api.startQueueItem(id, { skipFilamentCheck }),
+    mutationFn: ({ id, skipFilamentCheck, printerId }: { id: number; skipFilamentCheck?: boolean; printerId?: number }) =>
+      api.startQueueItem(id, { skipFilamentCheck, printerId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['queue'] });
       queryClient.invalidateQueries({ queryKey: QUEUE_TODO_KEY });
@@ -37,11 +39,11 @@ export function useStartQueueItem(overlayZIndex?: string) {
     },
     onError: (error: unknown, variables) => {
       if (error instanceof ApiError && error.status === 409 && error.code === 'insufficient_filament') {
-        setShort({ itemId: variables.id, deficit: (error.detail?.deficit ?? []) as Deficit[] });
+        setShort({ itemId: variables.id, printerId: variables.printerId, deficit: (error.detail?.deficit ?? []) as Deficit[] });
         return;
       }
       if (error instanceof ApiError && error.status === 409 && error.code === 'unmatched_filament') {
-        setMissing({ itemId: variables.id, missing: (error.detail?.missing ?? []) as string[] });
+        setMissing({ itemId: variables.id, printerId: variables.printerId, missing: (error.detail?.missing ?? []) as string[] });
         return;
       }
       // The translated failure, plus the backend's own reason when it sent
@@ -80,7 +82,7 @@ export function useStartQueueItem(overlayZIndex?: string) {
           confirmText={t('queue.filamentShort.printAnyway')}
           variant="warning"
           overlayZIndex={overlayZIndex}
-          onConfirm={() => startMutation.mutate({ id: short.itemId, skipFilamentCheck: true })}
+          onConfirm={() => startMutation.mutate({ id: short.itemId, skipFilamentCheck: true, printerId: short.printerId })}
           onCancel={() => setShort(null)}
         />
       )}
@@ -91,7 +93,7 @@ export function useStartQueueItem(overlayZIndex?: string) {
           confirmText={t('queue.filamentShort.printAnyway')}
           variant="warning"
           overlayZIndex={overlayZIndex}
-          onConfirm={() => startMutation.mutate({ id: missing.itemId, skipFilamentCheck: true })}
+          onConfirm={() => startMutation.mutate({ id: missing.itemId, skipFilamentCheck: true, printerId: missing.printerId })}
           onCancel={() => setMissing(null)}
         />
       )}

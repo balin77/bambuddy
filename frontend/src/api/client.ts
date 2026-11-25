@@ -3010,7 +3010,9 @@ export interface QueueTodoPicture {
 export interface QueueTodoEntry {
   kind: QueueTodoKind;
   // `short_only`: a waiting job held only by short spools, which Print anyway can start (#3659).
-  jobs: { id: number; name: string; can_start: boolean; short_only?: boolean }[];
+  // `short_only_printer_ids`: the entry's printers on which that holds, whatever the job's
+  // other printers lack; Print anyway is offered per printer and starts the job on it.
+  jobs: { id: number; name: string; can_start: boolean; short_only?: boolean; short_only_printer_ids?: number[] }[];
   filaments: QueueTodoFilament[];
   // Model-group load_filament: printers where loading lets the job start.
   printers: { id: number; name: string }[];
@@ -7247,10 +7249,14 @@ export const api = {
    * Start a staged queue item. The backend re-checks live filament deficit
    * for the assigned spool and, when short, returns 409 with a structured
    * payload so the caller can confirm and retry. Pass `skipFilamentCheck`
-   * after the user confirms "Print Anyway" (#1496).
+   * after the user confirms "Print Anyway" (#1496). `printerId` starts an
+   * "any printer of a model" job on that printer, and the check is made for it alone.
    */
-  startQueueItem: (id: number, opts?: { skipFilamentCheck?: boolean }) => {
-    const qs = opts?.skipFilamentCheck ? '?skip_filament_check=true' : '';
+  startQueueItem: (id: number, opts?: { skipFilamentCheck?: boolean; printerId?: number }) => {
+    const params = new URLSearchParams();
+    if (opts?.skipFilamentCheck) params.set('skip_filament_check', 'true');
+    if (opts?.printerId != null) params.set('printer_id', String(opts.printerId));
+    const qs = params.toString() ? `?${params.toString()}` : '';
     return request<PrintQueueItem>(`/queue/${id}/start${qs}`, { method: 'POST' });
   },
   /**

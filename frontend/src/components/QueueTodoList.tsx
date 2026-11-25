@@ -284,7 +284,8 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZInd
   group: QueueTodoGroup;
   entry: QueueTodoEntry;
   onNavigate?: () => void;
-  onStart: (id: number) => void;
+  // `printerId`: the printer an "Any <model>" job is started on.
+  onStart: (id: number, printerId?: number) => void;
   startPending: boolean;
   overlayZIndex?: string;
 }) {
@@ -328,13 +329,52 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZInd
     : t('queue.permissions.noStartPrint');
 
   const jobs = entry.jobs;
-  // Jobs that wait only for a short spool and that the caller may start (#3659).
-  const printAnywayJobs = jobs.filter((j) => j.short_only && j.can_start);
   // The AMS picture stands in for the slot sentence (#3726).
   const picture = entry.kind === 'load_filament' ? entry.ams_picture ?? null : null;
   const pictures = entry.kind === 'load_filament' ? entry.ams_pictures ?? [] : [];
   const hasPicture = picture !== null || pictures.length > 0;
   const modelPrinters = entry.kind === 'load_filament' && group.printer_id == null ? entry.printers : [];
+
+  // "Print anyway" (#3659) is offered per printer: for the jobs that are held
+  // on that printer only because spools are short, and that the caller may
+  // start. A job without a printer (`printerId` null) is judged over all of
+  // them, and a job of a printer's own group stays on its printer. The start
+  // asks the same "Insufficient filament" question as the queue row.
+  const printAnyway = (printerId: number | null, printerName?: string) => {
+    const offered = jobs.filter((j) => j.can_start && (
+      printerId == null
+        ? !!j.short_only
+        : (j.short_only_printer_ids ?? []).includes(printerId) || (printerId === group.printer_id && !!j.short_only)
+    ));
+    if (entry.kind !== 'load_filament' || offered.length === 0) return null;
+    // An "Any <model>" job is started on the printer the button is for.
+    const startOn = printerId != null && group.printer_id == null ? printerId : undefined;
+    return (
+      <div key={printerId ?? 'any'} className="flex flex-wrap gap-2 min-w-0">
+        {offered.map((job) => {
+          const what = [offered.length > 1 ? job.name : '', printerName ?? ''].filter(Boolean).join(' \u00b7 ');
+          const label = what
+            ? `${t('queue.filamentShort.printAnyway')}: ${what}`
+            : t('queue.filamentShort.printAnyway');
+          return (
+            <button
+              key={job.id}
+              type="button"
+              data-testid="todo-print-anyway"
+              onClick={() => onStart(job.id, startOn)}
+              disabled={startPending}
+              title={label}
+              aria-label={label}
+              className="flex items-center gap-1.5 min-w-0 max-w-full px-3 py-1.5 min-h-[36px] text-sm rounded-md bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Play className="w-4 h-4 flex-shrink-0" />
+              <span className="truncate">{label}</span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
   const jobLabel = jobs.length > 2
     ? t('queueTodo.jobCount', { count: jobs.length })
     : jobs.map((j) => j.name).join(', ');
@@ -518,7 +558,13 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZInd
           <AmsPictures
             pictures={pictures}
             filaments={entry.filaments}
-            renderActions={(p) => <PictureActions key={p.printer_id} picture={p} overlayZIndex={overlayZIndex} />}
+            renderActions={(p) => (
+              <>
+                <PictureActions key={p.printer_id} picture={p} overlayZIndex={overlayZIndex} />
+                {/* For the printer shown: none on a printer that lacks a filament. */}
+                {printAnyway(p.printer_id)}
+              </>
+            )}
           />
         )}
         {entry.kind === 'load_filament' && !hasPicture && <SlotHints entry={entry} />}
@@ -542,32 +588,17 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZInd
         ) : (
           action
         )}
-        {/* A job that waits only for a short spool has no Start; this asks the
-            same "Insufficient filament" question as the queue row (#3659). */}
-        {entry.kind === 'load_filament' && printAnywayJobs.length > 0 && (
-          <div className="flex flex-wrap gap-2 min-w-0">
-            {printAnywayJobs.map((job) => {
-              const label = printAnywayJobs.length > 1
-                ? `${t('queue.filamentShort.printAnyway')}: ${job.name}`
-                : t('queue.filamentShort.printAnyway');
-              return (
-                <button
-                  key={job.id}
-                  type="button"
-                  data-testid="todo-print-anyway"
-                  onClick={() => onStart(job.id)}
-                  disabled={startPending}
-                  title={label}
-                  aria-label={label}
-                  className="flex items-center gap-1.5 min-w-0 max-w-full px-3 py-1.5 min-h-[36px] text-sm rounded-md bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Play className="w-4 h-4 flex-shrink-0" />
-                  <span className="truncate">{label}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
+        {/* A job that waits only for a short spool has no Start (#3659). A
+            printer's own entry has one button per job; an "Any <model>" entry
+            has them under the picture of the printer shown, or, without
+            pictures, one per listed printer, named when there are several. */}
+        {group.printer_id != null
+          ? printAnyway(group.printer_id)
+          : pictures.length > 0
+            ? null
+            : modelPrinters.length > 0
+              ? modelPrinters.map((p) => printAnyway(p.id, modelPrinters.length > 1 ? p.name : undefined))
+              : printAnyway(null)}
       </div>
       {showRefillConfirm && entry.plate_capacity != null && (
         <ConfirmModal
@@ -627,7 +658,7 @@ export function QueueTodoList({ todo, onNavigate, heading = false, overlayZIndex
                   group={group}
                   entry={entry}
                   onNavigate={onNavigate}
-                  onStart={(id) => startMutation.mutate({ id })}
+                  onStart={(id, printerId) => startMutation.mutate({ id, printerId })}
                   startPending={startMutation.isPending}
                   overlayZIndex={overlayZIndex}
                 />
