@@ -114,7 +114,9 @@ async def test_switching_on_the_plug_of_another_teams_printer_is_refused(
     member = await _member(async_client, [mine.id])
 
     with patch("backend.app.api.routes.smart_plugs.tasmota_service.turn_on", AsyncMock(return_value=True)) as turn_on:
-        control = await async_client.post(f"/api/v1/smart-plugs/{plug.id}/control", headers=member, json={"action": "on"})
+        control = await async_client.post(
+            f"/api/v1/smart-plugs/{plug.id}/control", headers=member, json={"action": "on"}
+        )
     lookup = await async_client.get(f"/api/v1/smart-plugs/by-printer/{theirs.id}", headers=member)
 
     assert control.status_code == 404, control.text
