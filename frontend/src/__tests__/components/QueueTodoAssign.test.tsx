@@ -103,7 +103,7 @@ function renderActions(pic: QueueTodoPicture = picture) {
       </MemoryRouter>
     </QueryClientProvider>,
   );
-  return { invalidate, ...view };
+  return { invalidate, client, ...view };
 }
 
 beforeEach(() => {
@@ -158,8 +158,10 @@ describe('buttons of an entry with a picture', () => {
 
   it('offers no assigning while Spoolman is down', async () => {
     setup({ spoolman: 'down' });
-    renderActions();
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Assign spool for A3' })).toBeNull());
+    const { client } = renderActions();
+    // The status has answered (it is in the cache): only then is "no button" a statement about Spoolman being down.
+    await waitFor(() => expect(client.getQueryData(['spoolman-status'])).toBeDefined());
+    expect(screen.queryByRole('button', { name: 'Assign spool for A3' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Set up slot A3' })).toBeInTheDocument();
   });
 });
@@ -315,14 +317,23 @@ describe('putting the new spool in first', () => {
 describe('before Spoolman is known', () => {
   it('offers no assigning until the status has answered', async () => {
     setup();
+    // The answer is held back until the test lets it go: no clock involved.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let asked = false;
     server.use(
       http.get('/api/v1/spoolman/status', async () => {
-        await new Promise((r) => setTimeout(r, 300));
+        asked = true;
+        await gate;
         return HttpResponse.json({ enabled: false, connected: false, url: null });
       }),
     );
     renderActions();
+    await waitFor(() => expect(asked).toBe(true));
     expect(screen.queryByRole('button', { name: 'Assign spool for A3' })).toBeNull();
+    // Set up slot does not wait for Spoolman: drawn, and still no assign.
+    expect(screen.getByRole('button', { name: 'Set up slot A3' })).toBeInTheDocument();
+    release();
     expect(await screen.findByRole('button', { name: 'Assign spool for A3' })).toBeInTheDocument();
   });
 });
