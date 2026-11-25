@@ -7154,7 +7154,7 @@ export default {
     jobWaiting: 'İş Bekliyor',
     jobWaitingDescription: 'İş filament veya yazıcı için bekliyor',
     printerIdleForFilament: 'Yazıcı boşta: filament bekliyor',
-    printerIdleForFilamentDescription: 'Bekleyen işlerinde filament eksik olduğu için bir yazıcı 5 dakikadır boşta',
+    printerIdleForFilamentDescription: '„Önce yüklü filament“ gerekir. Bekleyen işlerinde filament eksik olduğu için bir yazıcı 5 dakikadır boşta veya akıllı prizi tarafından kapatılmış durumda',
     jobSkipped: 'İş Atlandı',
     jobSkippedDescription: 'İş atlandı (önceki başarısız oldu)',
     jobFailed: 'İş Başarısız',

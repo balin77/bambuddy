@@ -7251,7 +7251,7 @@ export default {
     jobWaiting: 'Taak wacht',
     jobWaitingDescription: 'Taak wacht op filament of printer',
     printerIdleForFilament: 'Printer staat stil: wacht op filament',
-    printerIdleForFilamentDescription: 'Een printer staat al 5 minuten stil omdat zijn wachtende taken filament missen',
+    printerIdleForFilamentDescription: 'Vereist \'Geladen filament eerst\'. Een printer staat al 5 minuten stil, of is door zijn slimme stekker uitgeschakeld, omdat zijn wachtende taken filament missen',
     jobSkipped: 'Taak overgeslagen',
     jobSkippedDescription: 'Taak overgeslagen (vorige mislukt)',
     jobFailed: 'Taak mislukt',

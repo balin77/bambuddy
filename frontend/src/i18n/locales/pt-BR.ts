@@ -7187,7 +7187,7 @@ export default {
     jobWaiting: 'Trabalho Aguardando',
     jobWaitingDescription: 'Trabalho aguardando filamento ou impressora',
     printerIdleForFilament: 'Impressora parada: aguardando filamento',
-    printerIdleForFilamentDescription: 'Uma impressora está parada há 5 minutos porque falta filamento para seus trabalhos em espera',
+    printerIdleForFilamentDescription: 'Requer «Filamento carregado primeiro». Uma impressora está parada, ou desligada pela tomada inteligente, há 5 minutos porque falta filamento para seus trabalhos em espera',
     jobSkipped: 'Trabalho Pulado',
     jobSkippedDescription: 'Trabalho pulado (anterior falhou)',
     jobFailed: 'Trabalho Falhou',

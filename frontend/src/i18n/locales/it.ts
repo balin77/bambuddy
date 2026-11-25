@@ -7187,7 +7187,7 @@ export default {
     jobWaiting: 'Lavoro in attesa',
     jobWaitingDescription: 'Lavoro in attesa di filamento o stampante',
     printerIdleForFilament: 'Stampante ferma: attende filamento',
-    printerIdleForFilamentDescription: 'Una stampante è ferma da 5 minuti perché ai suoi lavori in attesa manca il filamento',
+    printerIdleForFilamentDescription: 'Richiede «Prima il filamento caricato». Una stampante è ferma, o spenta dalla sua presa smart, da 5 minuti perché ai suoi lavori in attesa manca il filamento',
     jobSkipped: 'Lavoro saltato',
     jobSkippedDescription: 'Lavoro saltato (precedente fallito)',
     jobFailed: 'Lavoro fallito',

@@ -7241,7 +7241,7 @@ export default {
     jobWaiting: "Завдання очікує",
     jobWaitingDescription: "Завдання очікує на філамент або принтер",
     printerIdleForFilament: "Принтер простоює: чекає на філамент",
-    printerIdleForFilamentDescription: "Принтер простоює 5 хвилин, бо очікуючим завданням бракує філаменту",
+    printerIdleForFilamentDescription: "Потрібне «Спочатку завантажений філамент». Принтер простоює або вимкнений своєю розумною розеткою 5 хвилин, бо очікуючим завданням бракує філаменту",
     jobSkipped: "Завдання пропущено",
     jobSkippedDescription: "Завдання пропущено (попереднє не вдалося)",
     jobFailed: "Помилка завдання",

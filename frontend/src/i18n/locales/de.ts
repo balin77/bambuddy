@@ -7200,7 +7200,7 @@ export default {
     jobWaiting: 'Auftrag wartet',
     jobWaitingDescription: 'Auftrag wartet auf Filament oder Drucker',
     printerIdleForFilament: 'Drucker steht: wartet auf Filament',
-    printerIdleForFilamentDescription: 'Ein Drucker steht seit 5 Minuten still, weil seinen wartenden Aufträgen Filament fehlt',
+    printerIdleForFilamentDescription: 'Benötigt „Geladenes Filament zuerst“. Ein Drucker steht seit 5 Minuten still oder ist von seiner Smart-Steckdose ausgeschaltet, weil seinen wartenden Aufträgen Filament fehlt',
     jobSkipped: 'Auftrag übersprungen',
     jobSkippedDescription: 'Auftrag übersprungen (vorheriger fehlgeschlagen)',
     jobFailed: 'Auftrag fehlgeschlagen',
