@@ -104,7 +104,7 @@ beforeEach(() => {
 
 describe('Switch on again', () => {
   it('looks the plug up, switches it on, says so and refreshes the list', async () => {
-    perms.granted = new Set(['smart_plugs:control']);
+    perms.granted = new Set(['smart_plugs:read', 'smart_plugs:control']);
     const lookup = vi.spyOn(api, 'getSmartPlugByPrinter').mockResolvedValue({ id: 42 } as never);
     const control = vi.spyOn(api, 'controlSmartPlug').mockResolvedValue({ success: true } as never);
     const invalidate = renderList([powerOff]);
@@ -116,7 +116,7 @@ describe('Switch on again', () => {
   });
 
   it('says so when the printer has no plug, and switches nothing', async () => {
-    perms.granted = new Set(['smart_plugs:control']);
+    perms.granted = new Set(['smart_plugs:read', 'smart_plugs:control']);
     vi.spyOn(api, 'getSmartPlugByPrinter').mockResolvedValue(null as never);
     const control = vi.spyOn(api, 'controlSmartPlug');
     renderList([powerOff]);
@@ -133,13 +133,27 @@ describe('Switch on again', () => {
     expect(api.getSmartPlugByPrinter).not.toHaveBeenCalled();
   });
 
-  it('is absent without smart_plugs:control when the hide option is on, the entry stays as it was', () => {
-    perms.hide = true;
-    renderList([powerOff]);
-    expect(screen.queryByRole('button', { name: 'Switch on again' })).toBeNull();
-    expect(screen.getByTestId('todo-entry-power_on_failed')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Open printer' })).toBeInTheDocument();
-  });
+  it.each([['smart_plugs:control'], ['smart_plugs:read']])(
+    'is greyed out with %s alone: the plug lookup needs smart_plugs:read, the switching smart_plugs:control',
+    (only) => {
+      perms.granted = new Set([only]);
+      renderList([powerOff]);
+      expect(screen.getByRole('button', { name: 'Switch on again' })).toBeDisabled();
+      expect(api.getSmartPlugByPrinter).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([[[]], [['smart_plugs:control']], [['smart_plugs:read']]])(
+    'is absent without both smart_plugs:read and smart_plugs:control when the hide option is on (%j), the entry stays as it was',
+    (granted: string[]) => {
+      perms.hide = true;
+      perms.granted = new Set(granted);
+      renderList([powerOff]);
+      expect(screen.queryByRole('button', { name: 'Switch on again' })).toBeNull();
+      expect(screen.getByTestId('todo-entry-power_on_failed')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Open printer' })).toBeInTheDocument();
+    },
+  );
 });
 
 describe('Edit job and Move to another printer', () => {
@@ -267,7 +281,7 @@ describe('Add spool', () => {
 
 describe('a sensor interlock', () => {
   it('stays a hint with the link, whatever is granted', () => {
-    perms.granted = new Set(['smart_plugs:control', 'queue:update_all', 'inventory:create']);
+    perms.granted = new Set(['smart_plugs:read', 'smart_plugs:control', 'queue:update_all', 'inventory:create']);
     renderList([interlock]);
     expect(screen.getByText('Enclosure Door')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open printer' })).toBeInTheDocument();

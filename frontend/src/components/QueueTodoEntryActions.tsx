@@ -25,7 +25,11 @@ const mainClass = `${baseClass} bg-bambu-green text-black hover:bg-bambu-green/9
 // as the plug's own controls.
 export function PowerOnAgain({ printerId }: { printerId: number }) {
   const { t } = useTranslation();
-  const plugGate = usePermissionGate()('smart_plugs:control');
+  // The lookup of the printer's plug is a read (GET /smart-plugs/by-printer/{id}), the switching a control: both are needed.
+  const gate = usePermissionGate();
+  const readGate = gate('smart_plugs:read');
+  const controlGate = gate('smart_plugs:control');
+  const plugGate = { allowed: readGate.allowed && controlGate.allowed, render: readGate.render && controlGate.render };
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const mutation = useMutation({
