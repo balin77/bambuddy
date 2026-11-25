@@ -7,7 +7,7 @@ import type {
   QueueTodoPictureSlot,
   QueueTodoPictureUnit,
 } from '../api/client';
-import { FilamentSwatch } from './FilamentSwatch';
+import { FilamentSlotCircle } from './FilamentSlotCircle';
 import { formatSlotLabel, getAmsLabel } from '../utils/amsHelpers';
 import { getColorName } from '../utils/colors';
 
@@ -17,7 +17,12 @@ const MAX_COLUMNS = 5;
 
 type TFn = (key: string, options?: Record<string, unknown>) => string;
 
-const rgbaOf = (color: string) => (color ? `${color.replace('#', '')}FF` : '808080FF');
+// RRGGBBAA of a colour: one that carries its alpha (a translucent or clear spool) keeps it.
+const rgbaOf = (color: string) => {
+  const hex = color.replace('#', '');
+  if (!hex) return '808080FF';
+  return hex.length === 8 ? hex : `${hex.slice(0, 6)}FF`;
+};
 
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -106,7 +111,14 @@ const CARD_STATE_CLASS: Record<QueueTodoPictureSlot['state'], string> = {
   unknown: 'border border-dashed border-amber-400/70 bg-bambu-dark',
 };
 
-function SlotCard({ slot, compact, row, column }: { slot: QueueTodoPictureSlot; compact: boolean; row: number; column: number }) {
+// The number in a slot's circle, as on the printer card: 1-based, L / R for
+// the external holder of a two-nozzle printer.
+function slotNumberOf(slot: QueueTodoPictureSlot, nozzle: 'left' | 'right' | null): number | string {
+  if (slot.is_external && nozzle) return nozzle === 'left' ? 'L' : 'R';
+  return slot.tray_id + 1;
+}
+
+function SlotCard({ slot, nozzle, compact, row, column }: { slot: QueueTodoPictureSlot; nozzle: 'left' | 'right' | null; compact: boolean; row: number; column: number }) {
   const { t, i18n } = useTranslation();
   const line = stateLine(t, i18n.language, slot, compact);
   const loaded = !!slot.type;
@@ -124,18 +136,20 @@ function SlotCard({ slot, compact, row, column }: { slot: QueueTodoPictureSlot; 
         {pictureSlotLabel(slot)}
         {slot.state === 'locked' && <Lock role="img" aria-label={t('queueTodo.picture.lockedLabel')} className="w-3 h-3 text-bambu-gray" />}
       </div>
-      {loaded ? (
-        <FilamentSwatch
-          rgba={rgbaOf(slot.color)}
-          extraColors={slot.extra_colors || null}
-          effectType={slot.effect_type || null}
-          subtype={slot.subtype || null}
-          effectSize="card"
-          className={`${swatch} flex-shrink-0 border-2 border-bambu-gray/70 ${slot.state === 'out' ? 'opacity-[0.55]' : ''}`}
-        />
-      ) : (
-        <span aria-hidden="true" className={`${swatch} flex-shrink-0 rounded-full border-2 border-dashed border-bambu-gray/70`} />
-      )}
+      <FilamentSlotCircle
+        isEmpty={!loaded}
+        trayType={slot.type}
+        slotNumber={slotNumberOf(slot, nozzle)}
+        rgba={loaded ? rgbaOf(slot.color) : null}
+        extraColors={slot.extra_colors || null}
+        effectType={slot.effect_type || null}
+        subtype={slot.subtype || null}
+        testId="todo-ams-circle"
+        sizeClass={swatch}
+        numberClass={compact ? 'text-[10px]' : 'text-xs'}
+        borderColor="rgba(156,163,175,0.7)"
+        className={`flex-shrink-0 ${slot.state === 'out' ? 'opacity-[0.55]' : ''}`.trim()}
+      />
       {!compact && loaded && (
         <div className="w-full min-w-0 text-[10px] sm:text-[11px] leading-tight text-white line-clamp-2 break-words" title={filament}>
           {filament}
@@ -178,10 +192,15 @@ function IncomingCard({
       style={{ gridRow: row, gridColumn: column }}
       className="min-w-0 rounded-[10px] border border-bambu-green bg-bambu-green/10 px-1 sm:px-1.5 py-2 flex flex-col items-center gap-1 text-center"
     >
-      <FilamentSwatch
+      <FilamentSlotCircle
+        isEmpty={false}
+        trayType={incoming.type}
+        slotNumber=""
         rgba={rgbaOf(incoming.color)}
-        effectSize="card"
-        className={`${compact ? 'w-6 h-6' : 'w-[34px] h-[34px]'} flex-shrink-0 border-2 border-white/90`}
+        testId="todo-ams-incoming-circle"
+        sizeClass={compact ? 'w-6 h-6' : 'w-[34px] h-[34px]'}
+        borderColor="rgba(255,255,255,0.9)"
+        className="flex-shrink-0"
       />
       <div className="w-full min-w-0 text-[10px] sm:text-xs font-semibold leading-tight text-white line-clamp-2 break-words" title={name}>
         {name}
@@ -242,7 +261,7 @@ function Unit({ unit, filaments, compact }: { unit: QueueTodoPictureUnit; filame
                 )
               : []),
             ...line.map((slot, ci) => (
-              <SlotCard key={`slot-${slot.ams_id}-${slot.tray_id}`} slot={slot} compact={compact} row={base + 3} column={ci + 1} />
+              <SlotCard key={`slot-${slot.ams_id}-${slot.tray_id}`} slot={slot} nozzle={unit.nozzle} compact={compact} row={base + 3} column={ci + 1} />
             )),
           ];
         })}
