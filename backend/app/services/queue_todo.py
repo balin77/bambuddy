@@ -838,7 +838,7 @@ def place_filaments(
         # printer has no AMS slot at all, locked or taken or not.
         has_ams = any(not s.is_external for s in scope)
         pool = [s for s in scope if s.key not in incoming and s.global_tray_id not in locked]
-        free = [s for s in pool if s.empty and not s.is_external and s.global_tray_id not in needed]
+        free = [s for s in pool if s.empty and not (s.is_external and has_ams) and s.global_tray_id not in needed]
         replaceable = [
             s
             for s in pool

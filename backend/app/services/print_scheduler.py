@@ -1668,6 +1668,7 @@ def _picture_slots(status) -> tuple[PictureSlot, ...]:
     def has_rfid(tray: dict) -> bool:
         return any(str(tray.get(key) or "").strip("0") for key in ("tray_uuid", "tag_uid"))
 
+    has_ams_trays = any(isinstance(unit, dict) and unit.get("tray") for unit in raw.get("ams") or [])
     out: list[PictureSlot] = []
     for unit in raw.get("ams") or []:
         if not isinstance(unit, dict):
@@ -1715,7 +1716,8 @@ def _picture_slots(status) -> tuple[PictureSlot, ...]:
                 color=_hex_color(vt.get("tray_color")) if loaded else "",
                 tray_info_idx=str(vt.get("tray_info_idx") or ""),
                 tray_sub_brands=str(vt.get("tray_sub_brands") or ""),
-                empty=False,
+                # Confirmed empty only where the holder is the printer's only slot.
+                empty=not loaded and not has_ams_trays,
                 rfid=loaded and has_rfid(vt),
                 remain=remain_of(vt) if loaded else None,
             )
@@ -2487,6 +2489,31 @@ class PrintScheduler:
                         "global_tray_id": layout.global_tray_id(ams_id, tray_id),
                         "extruder_id": extruder_of.get(str(ams_id)),
                         "ams_type": int(layout.ams_type(ams_id)),
+                        "empty": True,
+                    }
+                )
+        # A printer with no AMS at all (an A1 mini) has the external holder as
+        # its only slot: empty, it is where a filament goes. Next to an AMS the
+        # holder is never confirmed empty, so never offered as free (#3726).
+        if not any(unit.get("tray") for unit in units):
+            is_dual_nozzle = reports_two_nozzles(status)
+            for idx, vt in enumerate(raw.get("vt_tray") or []):
+                if not isinstance(vt, dict) or vt.get("tray_type"):
+                    continue
+                vt_id = int(vt.get("id", 254))
+                slots.append(
+                    {
+                        "type": "",
+                        "color": "",
+                        "tray_info_idx": "",
+                        "tray_sub_brands": "",
+                        "ams_id": -1,
+                        "tray_id": idx,
+                        "is_ht": False,
+                        "is_external": True,
+                        "global_tray_id": vt_id,
+                        "extruder_id": (255 - vt_id) if is_dual_nozzle else None,
+                        "ams_type": None,
                         "empty": True,
                     }
                 )
