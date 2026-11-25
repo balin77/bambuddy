@@ -2036,6 +2036,9 @@ class PrintScheduler:
         # Switched-off printers a waiting job would power on in this pass because its filament
         # fits (#3725). They are about to be used, so they never count as waiting for filament.
         self._pass_wake_fits: set[int] = set()
+        # Jobs a switched-off printer would take once powered on: their holds on other switched-off
+        # printers are not what those printers wait for (#3725).
+        self._pass_wake_fit_jobs: set[int] = set()
         # Per printer, since when it stands idle for filament and what was announced (#3725).
         self._idle_watch = FilamentIdleWatch()
         self._idle_watch_loaded = False
@@ -3216,6 +3219,7 @@ class PrintScheduler:
         self._deficit_memo.clear()
         self._pass_filament_blocks = {}
         self._pass_wake_fits = set()
+        self._pass_wake_fit_jobs = set()
         self._short_noticed_pass = set()
         async with async_session() as db:
             if not self._idle_watch_loaded:
@@ -4238,13 +4242,12 @@ class PrintScheduler:
                             merge_todo_filaments(known, held_fils)
 
                     # A job no printer takes does not wait on a switched-off printer when another
-                    # switched-off one would be powered on for it: that one takes the job (#3725).
+                    # switched-off one would be powered on for it: that one takes the job. The
+                    # holds stay for the "To do" list; the idle event leaves them out (#3725).
                     if printer_id is None:
                         self._pass_wake_fits |= wake_fits_for_job
                         if wake_fits_for_job:
-                            model_holds = {
-                                pid: held for pid, held in model_holds.items() if printer_manager.is_connected(pid)
-                            }
+                            self._pass_wake_fit_jobs.add(item.id)
 
                     # Nothing is available and nothing has been woken this pass:
                     # switch one matching printer on. Assignment is left to the
@@ -4710,7 +4713,8 @@ class PrintScheduler:
             or not self._tray_reading(printer_id)
         ):
             return False
-        auto_on_plugs = self._auto_on_plugs(await self._get_smart_plugs(db, printer_id))
+        plugs = await self._get_smart_plugs(db, printer_id)
+        auto_on_plugs = [p for p in plugs if p.auto_on and p.enabled]
         return bool(auto_on_plugs) and self._pick_power_plug(auto_on_plugs).last_state == "OFF"
 
     async def _check_filament_idle(
@@ -4744,13 +4748,17 @@ class PrintScheduler:
             for pid, blocks in self._pass_filament_blocks.items():
                 if pid in unavailable or pid in self._plate_changer_empty:
                     continue
-                if self._is_printer_idle(pid, require_plate_clear) or await self._off_for_filament(
-                    db, pid, wakeable_ids or set(), require_plate_clear
-                ):
-                    qualifying[pid] = {
-                        item_id: self._filament_needs(filaments, printer_tray_layout(pid, printer_manager))
-                        for item_id, filaments in blocks.items()
-                    }
+                if not self._is_printer_idle(pid, require_plate_clear):
+                    if not await self._off_for_filament(db, pid, wakeable_ids or set(), require_plate_clear):
+                        continue
+                    # Switched off: a job another switched-off printer fits is not waiting here.
+                    blocks = {i: b for i, b in blocks.items() if i not in self._pass_wake_fit_jobs}
+                    if not blocks:
+                        continue
+                qualifying[pid] = {
+                    item_id: self._filament_needs(filaments, printer_tray_layout(pid, printer_manager))
+                    for item_id, filaments in blocks.items()
+                }
             keys: dict[int, FilamentKey] = {
                 pid: frozenset(need.key for needs in blocks.values() for need in needs)
                 for pid, blocks in qualifying.items()

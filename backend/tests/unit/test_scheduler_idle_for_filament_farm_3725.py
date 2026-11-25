@@ -13,11 +13,19 @@ from backend.app.services.print_scheduler import PrintScheduler
 from backend.app.services.queue_todo import ShortTray, TodoFilament
 from backend.tests.unit.test_scheduler_idle_for_filament_3725 import (
     DEFICIT,
+    PETG_ONLY,
+    PETG_TRAYS,
+    PLA_TRAYS,
+    _set_setting,
     add_item,
+    add_plug,
+    announced_printers,
     at,
     ctx,  # noqa: F401 - fixture
     new_scheduler,
+    off,
     one_pass,
+    pass_pair,
 )
 
 RED = [{"slot_id": 1, "type": "PLA", "color": "#C12E1F", "color_name": "Lava Red"}]
@@ -157,3 +165,51 @@ class TestPlateChanger:
         at(ctx, 1300)
         await check({})
         sent.assert_awaited_once()
+
+
+class TestSwitchedOffPrintersThroughTheHolds:
+    """A switched-off printer reaches the event through the holds the "To do" list reads (#3725)."""
+
+    @pytest.mark.asyncio
+    async def test_a_pinned_job_hold_on_an_off_printer_fires(self, ctx):  # noqa: F811
+        await add_plug(ctx, 1)
+        await add_item(ctx, "Lamp", printer_id=1, required_filament_types=PETG_ONLY)
+
+        due = await pass_pair(ctx, new_scheduler(ctx), **off(1), trays={1: PLA_TRAYS})
+
+        assert announced_printers(due) == [1]
+
+    @pytest.mark.asyncio
+    async def test_a_model_job_hold_on_an_off_printer_fires(self, ctx):  # noqa: F811
+        await add_plug(ctx, 1)
+        await add_item(ctx, "Lamp", target_model="P1S", required_filament_types=PETG_ONLY)
+
+        due = await pass_pair(ctx, new_scheduler(ctx), **off(1), trays={1: PLA_TRAYS})
+
+        assert 1 in announced_printers(due)
+
+    @pytest.mark.asyncio
+    async def test_a_fitting_off_printer_means_the_other_one_is_not_waiting(self, ctx):  # noqa: F811
+        """Printer 2 was last loaded with PETG: the job goes there once it is switched on, printer 1 waits for nothing."""
+        await add_plug(ctx, 1)
+        await add_plug(ctx, 2)
+        scheduler = new_scheduler(ctx)
+        await add_item(ctx, "Lamp", target_model="P1S", required_filament_types=PETG_ONLY)
+        extra = (patch.object(scheduler, "_wake_printer_for_model", AsyncMock(return_value=(None, None))),)
+
+        due = await pass_pair(ctx, scheduler, **off(1, 2), trays={1: PLA_TRAYS, 2: PETG_TRAYS}, extra=extra)
+
+        due.event.assert_not_awaited()
+        assert 1 in scheduler._pass_filament_blocks  # the To do list keeps the hold
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("kind", ["pinned", "model"])
+    async def test_nothing_for_an_off_printer_without_loaded_filament_first(self, ctx, kind):  # noqa: F811
+        await _set_setting(ctx, "queue_loaded_filament_first", "false")
+        await add_plug(ctx, 1)
+        fields = {"printer_id": 1} if kind == "pinned" else {"target_model": "P1S"}
+        await add_item(ctx, "Lamp", required_filament_types=PETG_ONLY, **fields)
+
+        due = await pass_pair(ctx, new_scheduler(ctx), **off(1), trays={1: PLA_TRAYS})
+
+        due.event.assert_not_awaited()

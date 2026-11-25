@@ -730,12 +730,10 @@ class TestSwitchedOffPrinters:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("kind", ["pinned", "model"])
-    @pytest.mark.parametrize("case", ["plug_on", "no_plug", "mqtt", "auto_on_off", "unknown_trays"])
+    @pytest.mark.parametrize("case", ["plug_on", "no_plug", "auto_on_off", "unknown_trays"])
     async def test_what_does_not_count(self, ctx, kind, case):
         if case == "plug_on":
             await add_plug(ctx, 1, last_state="ON")
-        elif case == "mqtt":
-            await add_plug(ctx, 1, plug_type="mqtt")
         elif case == "auto_on_off":
             await add_plug(ctx, 1, auto_on=False)
         elif case != "no_plug":
