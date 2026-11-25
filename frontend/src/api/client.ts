@@ -3004,8 +3004,11 @@ export interface QueueTodoPicture {
   printer_name: string;
   compact: boolean;
   units: QueueTodoPictureUnit[];
-  // Filaments (indexes into the entry's) with no slot to go to.
+  // Filaments (indexes into `filaments`, else into the entry's) with no slot to go to.
   unplaced: number[];
+  // What the picture is drawn for, on a model entry's pictures: its printer
+  // can miss other filaments than the entry lists.
+  filaments?: QueueTodoFilament[] | null;
 }
 export interface QueueTodoEntry {
   kind: QueueTodoKind;

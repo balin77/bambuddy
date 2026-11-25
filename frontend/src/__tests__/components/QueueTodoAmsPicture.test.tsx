@@ -432,4 +432,57 @@ describe('the picture in the To do list', () => {
     expect(screen.getByTestId('todo-ams-picture')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /Shelf X1C/ })).toHaveLength(1);
   });
+
+  const modelList = (e: object): QueueTodo => ({
+    count: 1,
+    groups: [{ printer_id: null, printer_name: 'A1', target_model: 'A1', entries: [{ ...entry({}), ...e }], prepare: [] }],
+  });
+
+  it('does not repeat the printer under the filaments when the title names it', () => {
+    render(<QueueTodoList todo={modelList({ printers: [{ id: 1, name: 'Shelf P1S right' }], ams_pictures: [replaceA3] })} />);
+    expect(screen.getByRole('link', { name: 'Shelf P1S right' })).toBeInTheDocument();
+    expect(screen.queryByTestId('todo-ams-printer-name')).toBeNull();
+    expect(screen.getAllByText('Shelf P1S right')).toHaveLength(1);
+  });
+
+  it('names the printer of the one picture when the title lists several', () => {
+    const printers = [{ id: 1, name: 'Shelf P1S right' }, { id: 2, name: 'Shelf X1C' }];
+    render(<QueueTodoList todo={modelList({ printers, ams_pictures: [replaceA3] })} />);
+    expect(screen.getByTestId('todo-ams-printer-name')).toHaveTextContent('Shelf P1S right');
+  });
+
+  it('lists the filaments of the printer shown and names the other candidate when it is picked', () => {
+    const missing = (name: string): QueueTodoFilament => ({ type: 'PLA', color: '#C49449', color_name: name, no_stock: false });
+    const four = ['Charcoal Black', 'Muted White', 'Gold', 'Muted Red'].map(missing);
+    const three = four.slice(1);
+    const idle = picture(
+      [unit(four.map((_f, i) => slot(i, { state: 'out', incoming: incoming(i, { color_name: four[i].color_name }) })))],
+      { printer_id: 2, printer_name: 'A1 rechts', filaments: four },
+    );
+    const printing = picture(
+      [unit([0, 1, 2, 3].map((i) => slot(i, { state: 'locked' })))],
+      { printer_id: 1, printer_name: 'A1 Links', filaments: three, unplaced: [0, 1, 2] },
+    );
+    render(<QueueTodoList todo={modelList({ filaments: four, printers: [{ id: 2, name: 'A1 rechts' }], ams_pictures: [idle, printing] })} />);
+    const row = screen.getByTestId('todo-entry-load_filament');
+    expect(within(row).getAllByTestId('todo-filament')).toHaveLength(4);
+    expect(within(row).getByRole('link', { name: 'A1 rechts' })).toBeInTheDocument();
+    expect(within(row).getAllByTestId('todo-ams-incoming')).toHaveLength(4);
+    fireEvent.click(within(row).getByRole('button', { name: 'A1 Links' }));
+    expect(within(row).getAllByTestId('todo-filament').map((li) => li.textContent)).toEqual(['PLA Muted White', 'PLA Gold', 'PLA Muted Red']);
+    expect(within(row).getByRole('link', { name: 'A1 Links' })).toBeInTheDocument();
+    expect(within(row).queryByRole('link', { name: 'A1 rechts' })).toBeNull();
+    expect(within(row).getByTestId('todo-ams-unplaced')).toHaveTextContent('PLA Muted White, PLA Gold, PLA Muted Red');
+  });
+
+  it('writes no nozzle on the units of a single-nozzle printer', () => {
+    const a1 = picture([
+      unit([slot(0, { ams_type: 2 })], { ams_type: 2, kind: 'ams_lite' }),
+      unit([slot(0, { ams_id: 255, is_external: true, ams_type: null })], { ams_id: 255, ams_type: null, kind: 'external' }),
+    ]);
+    render(<AmsPicture picture={a1} filaments={[lavaRed]} />);
+    const names = screen.getAllByRole('region').map((r) => r.getAttribute('aria-label') ?? '');
+    expect(names).toHaveLength(2);
+    expect(names.filter((n) => /nozzle|·/i.test(n))).toEqual([]);
+  });
 });

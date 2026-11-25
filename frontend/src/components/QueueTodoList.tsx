@@ -333,7 +333,17 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZInd
   const picture = entry.kind === 'load_filament' ? entry.ams_picture ?? null : null;
   const pictures = entry.kind === 'load_filament' ? entry.ams_pictures ?? [] : [];
   const hasPicture = picture !== null || pictures.length > 0;
-  const modelPrinters = entry.kind === 'load_filament' && group.printer_id == null ? entry.printers : [];
+  // The printer of an "Any <model>" entry whose picture is shown: the first
+  // one until another is picked. Its picture brings the filaments it misses,
+  // which can differ from the entry's (#3726).
+  const [pickedPrinter, setPickedPrinter] = useState<number | null>(null);
+  const shownPicture = pictures.find((p) => p.printer_id === pickedPrinter) ?? pictures[0] ?? null;
+  const filaments = shownPicture?.filaments ?? entry.filaments;
+  const listedPrinters = entry.kind === 'load_filament' && group.printer_id == null ? entry.printers : [];
+  // The title names the printers the entry lists, or the other candidate when that one is shown.
+  const modelPrinters = shownPicture && listedPrinters.length > 0 && !listedPrinters.some((p) => p.id === shownPicture.printer_id)
+    ? [{ id: shownPicture.printer_id, name: shownPicture.printer_name }]
+    : listedPrinters;
 
   // "Print anyway" (#3659) is offered per printer: for the jobs that are held
   // on that printer only because spools are short, and that the caller may
@@ -483,7 +493,7 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZInd
               ))}
             </>
           ) : hasPicture ? (
-            loadTitle(t, entry.filaments)
+            loadTitle(t, filaments)
           ) : (
             t(KIND_TEXT_KEY[entry.kind])
           )}
@@ -517,8 +527,8 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZInd
         )}
         {entry.kind === 'load_filament' && (
           <ul className="flex flex-wrap gap-x-3 gap-y-1">
-            {entry.filaments.map((f, i) => (
-              <li key={i} className="flex items-center gap-1.5 min-w-0 max-w-full text-xs text-bambu-gray-light">
+            {filaments.map((f, i) => (
+              <li key={i} data-testid="todo-filament" className="flex items-center gap-1.5 min-w-0 max-w-full text-xs text-bambu-gray-light">
                 {f.color && (
                   <span
                     data-testid="todo-swatch"
@@ -558,6 +568,10 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZInd
           <AmsPictures
             pictures={pictures}
             filaments={entry.filaments}
+            selected={shownPicture?.printer_id ?? null}
+            onSelect={setPickedPrinter}
+            // The title already names the one printer there is.
+            nameSingle={!(modelPrinters.length === 1 && modelPrinters[0].id === pictures[0].printer_id)}
             renderActions={(p) => (
               <>
                 <PictureActions key={p.printer_id} picture={p} overlayZIndex={overlayZIndex} />
@@ -574,9 +588,9 @@ function EntryRow({ group, entry, onNavigate, onStart, startPending, overlayZInd
           </div>
         )}
         {/* A missing filament (not a short spool): add a spool, or change the job (#3726). */}
-        {entry.kind === 'load_filament' && entry.filaments.some((f) => !f.short) && (
+        {entry.kind === 'load_filament' && filaments.some((f) => !f.short) && (
           <>
-            <AddSpoolActions filaments={entry.filaments} main={!hasPicture} overlayZIndex={overlayZIndex} />
+            <AddSpoolActions filaments={filaments} main={!hasPicture} overlayZIndex={overlayZIndex} />
             <JobActions jobs={jobs} canMove={group.printer_id != null} overlayZIndex={overlayZIndex} />
           </>
         )}

@@ -312,16 +312,27 @@ export function AmsPicture({ picture, filaments }: AmsPictureProps) {
 interface AmsPicturesProps {
   // One per printer an "Any <model>" entry lists, the one likely to take the job first at the front.
   pictures: QueueTodoPicture[];
+  // The entry's filaments: a picture that brings its own is drawn for those.
   filaments: QueueTodoFilament[];
   // What goes under the picture shown: the actions for that printer.
   renderActions?: (picture: QueueTodoPicture) => ReactNode;
+  // The printer shown, when the caller keeps it (to list that printer's filaments).
+  selected?: number | null;
+  onSelect?: (printerId: number) => void;
+  // False when the caller's title already names the one printer there is.
+  nameSingle?: boolean;
 }
 
 // A model job's picture: the printer it would likely go to first, with a
 // switch to the other candidates.
-export function AmsPictures({ pictures, filaments, renderActions }: AmsPicturesProps) {
+export function AmsPictures({ pictures, filaments, renderActions, selected: selectedProp, onSelect, nameSingle = true }: AmsPicturesProps) {
   const { t } = useTranslation();
-  const [selected, setSelected] = useState<number | null>(null);
+  const [ownSelected, setOwnSelected] = useState<number | null>(null);
+  const selected = selectedProp === undefined ? ownSelected : selectedProp;
+  const setSelected = (printerId: number) => {
+    setOwnSelected(printerId);
+    onSelect?.(printerId);
+  };
   if (pictures.length === 0) return null;
   const current = pictures.find((p) => p.printer_id === selected) ?? pictures[0];
   return (
@@ -347,8 +358,10 @@ export function AmsPictures({ pictures, filaments, renderActions }: AmsPicturesP
           ))}
         </div>
       )}
-      {pictures.length === 1 && <div className="text-xs text-bambu-gray-light">{current.printer_name}</div>}
-      <AmsPicture picture={current} filaments={filaments} />
+      {pictures.length === 1 && nameSingle && (
+        <div data-testid="todo-ams-printer-name" className="text-xs text-bambu-gray-light">{current.printer_name}</div>
+      )}
+      <AmsPicture picture={current} filaments={current.filaments ?? filaments} />
       {renderActions?.(current)}
     </div>
   );
