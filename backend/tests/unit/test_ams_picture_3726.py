@@ -202,6 +202,49 @@ class TestPlacementAgainstTheHint:
         assert external == [(255, "external", "left", [0]), (255, "external", "right", [1])]
 
 
+class TestPrinterWithoutAms:
+    """A printer with no AMS (A1 mini): the external spool is its only slot."""
+
+    @pytest.mark.asyncio
+    async def test_an_empty_external_holder_is_the_slot_the_new_spool_goes_above(self):
+        vt = [{"id": 254, "tray_type": "", "tray_color": "", "tray_info_idx": ""}]
+        scheduler = _scheduler_with({1: _need(RED)})
+        hint = (await _hints(scheduler, {1: _status([], vt=vt)}, [_job(1)], _holds(1)))[1]
+        assert hint is not None
+        assert hint.state == HINT_FREE
+        picture = picture_dict(hint, 1, "Desk A1 mini", (PINK,))
+        assert picture is not None
+        (unit,) = picture["units"]
+        assert (unit["kind"], unit["ams_id"], unit["collapsed"]) == ("external", 255, False)
+        (slot,) = unit["slots"]
+        assert slot["is_external"] is True
+        assert slot["state"] == "empty"
+        assert slot["incoming"]["filament_index"] == 0
+        assert picture["unplaced"] == []
+
+    @pytest.mark.asyncio
+    async def test_an_external_spool_of_the_wrong_filament_goes_out_for_the_new_one(self):
+        vt = [{"id": 254, "tray_type": "PETG", "tray_color": "00FF00FF", "tray_info_idx": ""}]
+        scheduler = _scheduler_with({1: _need(RED)})
+        hint = (await _hints(scheduler, {1: _status([], vt=vt)}, [_job(1)], _holds(1)))[1]
+        assert hint.state == HINT_REPLACEABLE
+        picture = picture_dict(hint, 1, "Desk A1 mini", (PINK,))
+        (slot,) = [s for u in picture["units"] for s in u["slots"]]
+        assert slot["state"] == "out"
+        assert slot["incoming"]["filament_index"] == 0
+        assert picture["unplaced"] == []
+
+    @pytest.mark.asyncio
+    async def test_an_empty_external_holder_next_to_an_ams_is_still_not_offered(self):
+        ams = _loaded_ams(RED, BLUE, WHITE, GREEN)
+        vt = [{"id": 254, "tray_type": "", "tray_color": "", "tray_info_idx": ""}]
+        scheduler = _scheduler_with({1: _need(RED), 2: _need(BLUE, WHITE, GREEN)})
+        hint = (await _hints(scheduler, {1: _status(ams, vt=vt)}, [_job(1), _job(2)], _holds(1)))[1]
+        assert (255, 0) not in {(s.ams_id, s.tray_id) for s in hint.slots}
+        picture = picture_dict(hint, 1, "P", (PINK,))
+        assert _slots_of(picture)[(255, 0)]["incoming"] is None
+
+
 class TestUnits:
     AMS_AB = [
         {
