@@ -333,6 +333,9 @@ class TodoJob:
     # Whether the caller may start it now (only read for a staged job, or a job
     # that waits only for a short spool, #3659).
     can_start: bool = False
+    # Whether Start can bind a model job to one of its printers. Not a job with
+    # printer alternatives (#671): its printer is chosen with its file.
+    pinnable: bool = True
 
 
 CAUSE_RUNOUT_AMS = "runout_ams"
@@ -746,6 +749,28 @@ def _waits_only_for_short_spool(job: TodoJob, holds: Iterable[FilamentHold]) -> 
     return bool(filaments) and all(f.short for f in filaments)
 
 
+def _short_only_printers(job: TodoJob, holds: Iterable[FilamentHold]) -> set[int]:
+    """The printers on which a waiting (not staged) job is held only because spools are short.
+
+    Judged per printer, unlike ``_waits_only_for_short_spool``: an "Any
+    <model>" job can have every filament loaded (too little of it) on one
+    printer and lack one on another. On the first it can be started anyway,
+    whatever the others lack. Only printers the job could go to count, and a
+    model job only when Start can bind it to one (``TodoJob.pinnable``).
+    """
+    if job.manual_start or (job.pinned_id is None and not job.pinnable):
+        return set()
+    by_printer: dict[int, list[TodoFilament]] = {}
+    for hold in holds:
+        if hold.printer_id is not None:
+            by_printer.setdefault(hold.printer_id, []).extend(hold.filaments)
+    return {
+        printer_id
+        for printer_id, filaments in by_printer.items()
+        if printer_id in job.printer_ids and filaments and all(f.short for f in filaments)
+    }
+
+
 # States of a slot in the AMS picture (#3726).
 PICTURE_KEEP = "keep"
 PICTURE_OUT = "out"
@@ -1007,6 +1032,10 @@ def build_todo(
     neither entries nor lines is left out. A paused print is listed whether or
     not a job waits (#3648); ``paused`` maps a printer id to it.
 
+    Each job of a load entry names the entry's printers on which it is held
+    only because spools are short (``short_only_printer_ids``): "Print anyway"
+    is offered for those, per printer.
+
     A load entry also carries the AMS picture of its printer, ``ams_picture``
     (a model entry ``ams_pictures``, one per listed printer, the one that
     would likely take the job first, an idle one with the fewest spools to
@@ -1056,12 +1085,20 @@ def build_todo(
         if all(j["id"] != job.id for j in entry["jobs"]):
             # A job that waits only for a short spool can be started anyway (#3659).
             short_only = kind == KIND_LOAD_FILAMENT and _waits_only_for_short_spool(job, holds.get(job.id, []))
+            # Per printer of the entry: a model job is offered where it is
+            # short, whatever its other printers lack.
+            short_on: list[int] = []
+            if kind == KIND_LOAD_FILAMENT:
+                shown = [group.printer_id] if group.printer_id is not None else [p["id"] for p in entry["printers"]]
+                short_ids = _short_only_printers(job, holds.get(job.id, []))
+                short_on = sorted(pid for pid in shown if pid in short_ids or (short_only and pid == job.pinned_id))
             entry["jobs"].append(
                 {
                     "id": job.id,
                     "name": job.name,
-                    "can_start": (kind == KIND_START_STAGED or short_only) and job.can_start,
+                    "can_start": (kind == KIND_START_STAGED or short_only or bool(short_on)) and job.can_start,
                     "short_only": short_only,
+                    "short_only_printer_ids": short_on,
                 }
             )
 

@@ -1133,6 +1133,7 @@ async def queue_todo(
                 label,
                 bool(item.manual_start),
                 can_start,
+                pinnable=not item.variants,
             )
         )
 
@@ -3461,10 +3462,35 @@ async def stop_queue_item(
     return {"message": "Print stopped" if stop_sent else "Queue item cancelled (printer was offline)"}
 
 
+async def _ensure_model_job_can_take(db: AsyncSession, item: PrintQueueItem, printer_id: int) -> None:
+    """Refuse to start ``item`` on ``printer_id`` unless the scheduler could send it there itself.
+
+    Only an "any printer of a model" job is bound by Start: a job that has a
+    printer stays on it, and a job with printer alternatives (#671) gets its
+    printer together with its file at dispatch. The printer has to be one the
+    scheduler picks from for the job: active, of its model, in its location,
+    and one its creator may use (#1727). The caller's own scope is checked by
+    the route.
+    """
+    from backend.app.services.print_scheduler import scheduler as _scheduler
+
+    if item.printer_id is not None:
+        raise HTTPException(400, "This job is assigned to another printer")
+    if not item.target_model or item.variants:
+        raise HTTPException(400, "Only a job for any printer of a model can be started on a chosen printer")
+    if item.dispatching_at is not None:
+        raise HTTPException(409, "Item is being dispatched — cancel it first to make changes")
+    creator_scope = await _scheduler._creator_printer_scope(db, item.created_by_id)
+    candidates = await _scheduler._printers_for_model(db, item.target_model, item.target_location, creator_scope)
+    if all(printer.id != printer_id for printer in candidates):
+        raise HTTPException(400, "This printer cannot take the job")
+
+
 @router.post("/{item_id}/start")
 async def start_queue_item(
     item_id: int,
     skip_filament_check: bool = Query(default=False),
+    printer_id: int | None = Query(default=None),
     db: AsyncSession = Depends(get_db, scope="function"),
     auth_result: tuple[User | ApiKeyActor | None, bool] = Depends(
         require_ownership_permission(
@@ -3491,8 +3517,17 @@ async def start_queue_item(
     ``skip_filament_check=true``. The same goes for a filament the printer has
     no tray for at all (#2799): ``409`` with ``code=unmatched_filament`` and
     the missing filaments.
+
+    ``printer_id`` starts an "any printer of a model" job on that printer: the
+    job is bound to it the way the scheduler binds one, so "Print Anyway"
+    given for the short spools of one printer cannot take the job to another
+    printer of the model that lacks the filament altogether. The checks above
+    are then made for that printer alone. A job that already has a printer
+    accepts only its own.
     """
     user, can_modify_all = auth_result
+    # The same 404 as a printer that does not exist, before anything is read.
+    printer_scope.ensure(printer_id)
 
     result = await db.execute(
         select(PrintQueueItem)
@@ -3526,10 +3561,16 @@ async def start_queue_item(
     if item.status != "pending":
         raise HTTPException(400, f"Can only start pending items, current status: '{item.status}'")
 
+    # The printer a model job is bound to by this start, when one is named.
+    bind_to: int | None = None
+    if printer_id is not None and printer_id != item.printer_id:
+        await _ensure_model_job_can_take(db, item, printer_id)
+        bind_to = printer_id
+
     item.estimated_cost = await _trusted_item_estimated_cost(
         db,
         item,
-        printer_id=item.printer_id,
+        printer_id=bind_to if bind_to is not None else item.printer_id,
         plate_id=item.plate_id,
         ams_mapping=item.ams_mapping,
     )
@@ -3552,10 +3593,11 @@ async def start_queue_item(
         if not deficit_rows and item.printer_id is None:
             # An "any model" job that waits because the spools on its printers
             # are short (Loaded filament first, #3587) has no printer for the
-            # check above; its printers are named one by one (#3659). As with
-            # the check below, a failure must not break Start.
+            # check above; its printers are named one by one (#3659), or the
+            # one it is started on alone. As with the check below, a failure
+            # must not break Start.
             try:
-                deficit_rows = await _scheduler.model_job_filament_deficit(db, item)
+                deficit_rows = await _scheduler.model_job_filament_deficit(db, item, bind_to)
             except Exception:
                 logger.exception("Queue item %s: filament check before start failed", item_id)
         if deficit_rows:
@@ -3573,12 +3615,17 @@ async def start_queue_item(
         # "Print Anyway".
         # A convenience, not a gate: the scheduler holds the item again if the
         # filament is still missing, so a failure here must not break Start.
+        # A job about to be bound to a printer is asked about that printer.
+        if bind_to is not None:
+            item.printer_id = bind_to
         try:
             missing = await _scheduler.missing_filament_for_start(db, item)
         except Exception:
             logger.exception("Queue item %s: filament check before start failed", item_id)
             missing = None
         if missing:
+            if bind_to is not None:
+                item.printer_id = None
             raise HTTPException(
                 status_code=409,
                 detail={
@@ -3586,6 +3633,12 @@ async def start_queue_item(
                     "missing": missing,
                 },
             )
+
+    if bind_to is not None:
+        # Bound as the scheduler binds a model job: it keeps its model, and the
+        # fixed-printer branch dispatches it once the printer is free.
+        item.printer_id = bind_to
+        item.waiting_reason = None
 
     # Print Anyway / no deficit: clear the flags and let the scheduler dispatch.
     item.manual_start = False
@@ -3608,8 +3661,9 @@ async def start_queue_item(
     await db.refresh(item, ["archive", "printer", "library_file", "created_by", "batch"])
 
     logger.info(
-        "Manually started queue item %s (cleared manual_start; skip_filament_check=%s)",
+        "Manually started queue item %s (cleared manual_start; skip_filament_check=%s; bound to printer: %s)",
         item_id,
         skip_filament_check,
+        bind_to,
     )
     return _enrich_response(item)

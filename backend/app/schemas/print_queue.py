@@ -611,6 +611,9 @@ class QueueTodoJob(BaseModel):
     can_start: bool = False
     # Waiting (not staged) and held only because spools are short: "Print anyway" can start it (#3659).
     short_only: bool = False
+    # The entry's printers on which that holds, whatever the job's other printers
+    # lack: "Print anyway" is offered per printer, and starts the job on it.
+    short_only_printer_ids: list[int] = []
 
 
 class QueueTodoPrinter(BaseModel):

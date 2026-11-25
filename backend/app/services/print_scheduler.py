@@ -6649,7 +6649,9 @@ class PrintScheduler:
         missing = _unresolved_required(required, mapping)
         return [_describe_filament(req, "nozzle_id") for req in missing] or None
 
-    async def model_job_filament_deficit(self, db: AsyncSession, item: PrintQueueItem) -> list[dict]:
+    async def model_job_filament_deficit(
+        self, db: AsyncSession, item: PrintQueueItem, printer_id: int | None = None
+    ) -> list[dict]:
         """The short spools of an "any model" job waiting for filament, per printer (#3659).
 
         With Loaded filament first on (#3587) such a job is not staged, so Start
@@ -6665,14 +6667,14 @@ class PrintScheduler:
         cross-model job too: its candidates' files would have to be folded
         onto the row to be checked (``_resolve_variant``), which a request
         must not do. Changes nothing.
+
+        ``printer_id`` asks about that printer alone: the one the job is about
+        to be started on. It is asked whatever the reason says, as the reason
+        speaks for all the job's printers.
         """
-        if (
-            item.skip_filament_check
-            or item.printer_id is not None
-            or not item.target_model
-            or item.variants
-            or f"(needs {_SHORT_FILAMENT_NEED})" not in (item.waiting_reason or "")
-        ):
+        if item.skip_filament_check or item.printer_id is not None or not item.target_model or item.variants:
+            return []
+        if printer_id is None and f"(needs {_SHORT_FILAMENT_NEED})" not in (item.waiting_reason or ""):
             return []
         from backend.app.core.auth import is_auth_enabled
 
@@ -6689,6 +6691,8 @@ class PrintScheduler:
         self._filament_req_memo.clear()
         result: list[dict] = []
         for printer in await self._printers_for_model(db, item.target_model, item.target_location, scope):
+            if printer_id is not None and printer.id != printer_id:
+                continue
             if required_types and self._get_missing_filament_types(printer.id, required_types):
                 continue
             try:

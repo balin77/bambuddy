@@ -31,7 +31,7 @@ def _job_dicts(jobs, holds):
 
 def test_a_job_held_only_by_a_short_spool_can_be_started_anyway():
     jobs = _job_dicts([_job(1)], {1: [FilamentHold(1, 1, None, (SHORT,))]})
-    assert jobs == [{"id": 1, "name": "job1", "can_start": True, "short_only": True}]
+    assert jobs == [{"id": 1, "name": "job1", "can_start": True, "short_only": True, "short_only_printer_ids": [1]}]
 
 
 def test_an_any_model_job_held_by_short_spools_can_be_started_anyway():
