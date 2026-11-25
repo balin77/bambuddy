@@ -21,6 +21,7 @@ from backend.app.models.library import LibraryFile
 from backend.app.models.print_queue import PrintQueueItem
 from backend.app.models.printer import Printer
 from backend.app.models.settings import Settings
+from backend.app.models.smart_plug import SmartPlug
 from backend.app.services.filament_deficit import FilamentDeficit
 from backend.app.services.filament_idle_watch import SETTING_KEY
 from backend.app.services.print_scheduler import PrintScheduler
@@ -110,6 +111,8 @@ async def one_pass(
     idle_event=None,
     waiting=None,
     extra=(),
+    trays=None,
+    plate_clear=frozenset(),
 ):
     """One check_queue pass; ``deficits``/``unmatched``: item id -> what the pinned gate finds."""
     idle_event = idle_event if idle_event is not None else AsyncMock()
@@ -139,6 +142,7 @@ async def one_pass(
 
     launched = MagicMock()
     status = SimpleNamespace(raw_data={}, state=state)
+    trays = trays or {}
     patches = [
         patch("backend.app.services.print_scheduler.async_session", ctx.session_maker),
         patch("backend.app.core.database.async_session", ctx.session_maker),
@@ -146,7 +150,11 @@ async def one_pass(
         patch("backend.app.services.print_scheduler.printer_manager.get_status", MagicMock(return_value=status)),
         patch(
             "backend.app.services.print_scheduler.printer_manager.is_awaiting_plate_clear",
-            MagicMock(return_value=False),
+            MagicMock(side_effect=lambda pid: pid in plate_clear),
+        ),
+        patch(
+            "backend.app.services.print_scheduler.printer_manager.last_known_trays",
+            MagicMock(side_effect=lambda pid: trays.get(pid, {})),
         ),
         patch(
             "backend.app.services.print_scheduler.ha_sensor_manager.blocked_printers",
@@ -166,7 +174,6 @@ async def one_pass(
         patch.object(scheduler, "_is_printer_idle", MagicMock(side_effect=lambda pid, *a, **k: idle(pid))),
         patch.object(scheduler, "_check_auto_drying", AsyncMock()),
         patch.object(scheduler, "_ensure_ams_mapping", AsyncMock(return_value=None)),
-        patch.object(scheduler, "_get_smart_plugs", AsyncMock(return_value=[])),
         patch.object(scheduler, "_launch_uploads", launched),
     ]
     with ExitStack() as stack:
@@ -245,8 +252,7 @@ class TestFiresAfterFiveMinutes:
 class TestStagedJobs:
     @pytest.mark.asyncio
     async def test_a_job_staged_for_a_short_spool_counts(self, ctx):
-        """Without loaded filament first the deficit gate stages the job; its printer stands idle all the same."""
-        await _set_setting(ctx, "queue_loaded_filament_first", "false")
+        """Staged for a short spool, its printer stands idle all the same."""
         scheduler = new_scheduler(ctx)
         item = await add_item(ctx, "Lamp", printer_id=1, manual_start=True, filament_short=True)
         await one_pass(ctx, scheduler, deficits={item: DEFICIT})
@@ -611,6 +617,185 @@ class TestRestart:
 
         # The start, then the announcement.
         assert writes.await_count == 2
+
+
+PLA_TRAYS = {"ams": [{"tray": [{"tray_type": "PLA", "tray_color": "FFFFFFFF"}]}]}
+PETG_TRAYS = {"ams": [{"tray": [{"tray_type": "PETG", "tray_color": "FFFFFFFF"}]}]}
+PETG_ONLY = json.dumps(["PETG"])
+PLA_ONLY = json.dumps(["PLA"])
+
+
+async def add_plug(ctx, printer_id, *, last_state="OFF", plug_type="tasmota", auto_on=True):
+    async with ctx.session_maker() as db:
+        db.add(
+            SmartPlug(
+                name=f"plug {printer_id}",
+                ip_address="10.1.0.1",
+                plug_type=plug_type,
+                printer_id=printer_id,
+                auto_on=auto_on,
+                last_state=last_state,
+            )
+        )
+        await db.commit()
+
+
+def off(*printers):
+    """The printers in ``printers`` are switched off: not connected, so not idle."""
+    return {
+        "connected": lambda pid: pid not in printers,
+        "idle": lambda pid: pid not in printers,
+    }
+
+
+async def pass_pair(ctx, scheduler, **kw):
+    """The first pass and the one five minutes later; returns the second."""
+    await one_pass(ctx, scheduler, **kw)
+    at(ctx, 300)
+    return await one_pass(ctx, scheduler, **kw)
+
+
+def announced_printers(result):
+    return sorted(call.args[0] for call in result.event.await_args_list)
+
+
+class TestSwitchedOffPrinters:
+    """A printer its smart plug switched off waits for filament like an idle one (#3725)."""
+
+    @pytest.mark.asyncio
+    async def test_pinned_job_on_a_plug_off_printer_fires_after_five_minutes(self, ctx):
+        await add_plug(ctx, 1)
+        scheduler = new_scheduler(ctx)
+        await add_item(ctx, "Lamp", printer_id=1, required_filament_types=PETG_ONLY)
+        kw = {**off(1), "trays": {1: PLA_TRAYS}}
+
+        first = await one_pass(ctx, scheduler, **kw)
+        at(ctx, 299)
+        early = await one_pass(ctx, scheduler, **kw)
+        at(ctx, 300)
+        due = await one_pass(ctx, scheduler, **kw)
+        at(ctx, 900)
+        again = await one_pass(ctx, scheduler, **kw)
+
+        first.event.assert_not_awaited()
+        early.event.assert_not_awaited()
+        due.event.assert_awaited_once()
+        again.event.assert_not_awaited()
+        printer_id, printer_name, jobs, _db = due.event.await_args.args
+        assert (printer_id, printer_name) == (1, "P1S right")
+        assert [j.name for j in jobs] == ["Lamp"]
+        (need,) = jobs[0].needs
+        assert need.filament.type == "PETG"
+
+    @pytest.mark.asyncio
+    async def test_model_job_on_a_plug_off_printer_fires_after_five_minutes(self, ctx):
+        await add_plug(ctx, 1)
+        scheduler = new_scheduler(ctx)
+        await add_item(ctx, "Lamp", target_model="P1S", required_filament_types=PETG_ONLY)
+
+        due = await pass_pair(ctx, scheduler, **off(1), trays={1: PLA_TRAYS})
+
+        assert 1 in announced_printers(due)
+        call = next(c for c in due.event.await_args_list if c.args[0] == 1)
+        (need,) = call.args[2][0].needs
+        assert need.filament.type == "PETG"
+
+    @pytest.mark.asyncio
+    async def test_once_per_standstill_also_for_a_switched_off_printer(self, ctx):
+        await add_plug(ctx, 1)
+        scheduler = new_scheduler(ctx)
+        await add_item(ctx, "Lamp", printer_id=1, required_filament_types=PETG_ONLY)
+        kw = {**off(1), "trays": {1: PLA_TRAYS}}
+        await one_pass(ctx, scheduler, **kw)
+        at(ctx, 300)
+        assert (await one_pass(ctx, scheduler, **kw)).event.await_count == 1
+
+        at(ctx, 1200)
+        later = await one_pass(ctx, scheduler, **kw)
+        # It was on and printing in between, then off again: a new standstill.
+        at(ctx, 1300)
+        await one_pass(ctx, scheduler, idle=lambda pid: False, state="RUNNING", trays={1: PLA_TRAYS})
+        at(ctx, 1400)
+        await one_pass(ctx, scheduler, **kw)
+        at(ctx, 1700)
+        second = await one_pass(ctx, scheduler, **kw)
+
+        later.event.assert_not_awaited()
+        second.event.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("kind", ["pinned", "model"])
+    @pytest.mark.parametrize("case", ["plug_on", "no_plug", "mqtt", "auto_on_off", "unknown_trays"])
+    async def test_what_does_not_count(self, ctx, kind, case):
+        if case == "plug_on":
+            await add_plug(ctx, 1, last_state="ON")
+        elif case == "mqtt":
+            await add_plug(ctx, 1, plug_type="mqtt")
+        elif case == "auto_on_off":
+            await add_plug(ctx, 1, auto_on=False)
+        elif case != "no_plug":
+            await add_plug(ctx, 1)
+        fields = {"printer_id": 1} if kind == "pinned" else {"target_model": "P1S"}
+        await add_item(ctx, "Lamp", required_filament_types=PETG_ONLY, **fields)
+        trays = {} if case == "unknown_trays" else {1: PLA_TRAYS}
+
+        due = await pass_pair(ctx, new_scheduler(ctx), **off(1), trays=trays)
+
+        assert 1 not in announced_printers(due) if due.event.await_count else True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("kind", ["pinned", "model"])
+    async def test_a_job_that_would_switch_it_on_means_it_is_not_waiting(self, ctx, kind):
+        await add_plug(ctx, 1)
+        scheduler = new_scheduler(ctx)
+        if kind == "pinned":
+            await add_item(ctx, "Needs PETG", printer_id=1, required_filament_types=PETG_ONLY, position=1)
+            await add_item(ctx, "Fits", printer_id=1, required_filament_types=PLA_ONLY, position=2)
+        else:
+            await add_item(ctx, "Needs PETG", target_model="P1S", required_filament_types=PETG_ONLY, position=1)
+            await add_item(ctx, "Fits", target_model="P1S", required_filament_types=PLA_ONLY, position=2)
+        extra = (
+            patch.object(scheduler, "_power_on_and_wait", AsyncMock(return_value=False)),
+            patch.object(scheduler, "_wake_printer_for_model", AsyncMock(return_value=(None, None))),
+        )
+
+        due = await pass_pair(ctx, scheduler, **off(1), trays={1: PLA_TRAYS}, extra=extra)
+
+        assert 1 not in announced_printers(due) if due.event.await_count else True
+
+    @pytest.mark.asyncio
+    async def test_a_model_job_that_another_off_printer_fits_does_not_hold_the_first(self, ctx):
+        """P1S right lacks PETG, P1S left was last loaded with it: the job goes there once it is switched on."""
+        await add_plug(ctx, 1)
+        await add_plug(ctx, 2)
+        scheduler = new_scheduler(ctx)
+        await add_item(ctx, "Lamp", target_model="P1S", required_filament_types=PETG_ONLY)
+        extra = (patch.object(scheduler, "_wake_printer_for_model", AsyncMock(return_value=(None, None))),)
+
+        due = await pass_pair(ctx, scheduler, **off(1, 2), trays={1: PLA_TRAYS, 2: PETG_TRAYS}, extra=extra)
+
+        due.event.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_plate_to_clear_is_not_waiting_for_filament(self, ctx):
+        await add_plug(ctx, 1)
+        await _set_setting(ctx, "require_plate_clear", "true")
+        await add_item(ctx, "Lamp", printer_id=1, required_filament_types=PETG_ONLY)
+
+        due = await pass_pair(ctx, new_scheduler(ctx), **off(1), trays={1: PLA_TRAYS}, plate_clear={1})
+
+        due.event.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_failed_power_on_cooling_off_is_not_waiting_for_filament(self, ctx):
+        await add_plug(ctx, 1)
+        scheduler = new_scheduler(ctx)
+        await add_item(ctx, "Lamp", printer_id=1, required_filament_types=PETG_ONLY)
+        scheduler._wake_failures[1] = float("inf")
+
+        due = await pass_pair(ctx, scheduler, **off(1), trays={1: PLA_TRAYS})
+
+        due.event.assert_not_awaited()
 
 
 async def _set_setting(ctx, key, value):

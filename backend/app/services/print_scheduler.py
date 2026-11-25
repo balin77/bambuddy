@@ -1793,6 +1793,9 @@ class PrintScheduler:
         # printer id -> queue item id -> (item, what it lacks there). Only for a
         # printer that was idle where the job was held back for filament.
         self._pass_filament_blocks: dict[int, dict[int, tuple[PrintQueueItem, list[FilamentNeed]]]] = {}
+        # Switched-off printers a waiting job would power on in this pass because its filament
+        # fits (#3725). They are about to be used, so they never count as waiting for filament.
+        self._pass_wake_fits: set[int] = set()
         # The amounts of a short spool the last deficit check found, by (item id, printer id),
         # for the pass: the model matcher only asks whether a printer is short.
         self._short_facts: dict[tuple[int, int], list[FilamentDeficit]] = {}
@@ -2018,6 +2021,7 @@ class PrintScheduler:
         self._unmatched_req_memo.clear()
         self._filament_scope_memo.clear()
         self._pass_filament_blocks = {}
+        self._pass_wake_fits = set()
         self._short_facts = {}
         self._short_noticed_pass = set()
         async with async_session() as db:
@@ -2600,8 +2604,9 @@ class PrintScheduler:
                         # filament cannot run it. A file its creator may not
                         # print (#3522) is not waiting for a spool: it goes on
                         # as with the mode off and is held for that below.
+                        missing_here_needs: list[dict] = []
                         missing_here = (
-                            self._wake_declined_for_filament(item)
+                            self._wake_declined_for_filament(item, missing_here_needs)
                             if filament_first and auto_on_plugs and not await self._filament_scope_violation(db, item)
                             else None
                         )
@@ -2610,6 +2615,9 @@ class PrintScheduler:
                             wake_reason = f"{_FILAMENT_WAIT_PREFIX}{missing_here}{suffix}"
                             previous_reason = item.waiting_reason
                             await hold_item(item, wake_reason, notify=False)
+                            # Off with its filament short: it counts as waiting for filament
+                            # if its plug switched it off (_off_for_filament, #3725).
+                            self._record_filament_block(item, item.printer_id, _override_needs(missing_here_needs))
                             if has_priority:
                                 reserve_for_filament_wait(item.printer_id)
                             await self._notify_filament_wait_once(
@@ -2623,6 +2631,8 @@ class PrintScheduler:
                             skip_reasons["filament_wait"] = skip_reasons.get("filament_wait", 0) + 1
                             continue
                         if auto_on_plugs:
+                            # This job would switch the printer on: it is not waiting (#3725).
+                            self._pass_wake_fits.add(item.printer_id)
                             logger.info("Printer %s offline, attempting to power on via smart plug(s)", item.printer_id)
                             # Power on using the plug that actually feeds the printer, and
                             # wait for it to boot on that one only (#2629).
@@ -2884,6 +2894,8 @@ class PrintScheduler:
                     # printer whose spools are short or whose slots do not match, the details
                     # the checks below were asked for.
                     blocked_on: dict[int, list[dict]] = {}
+                    # Switched-off printers this job's filament fits (#3725).
+                    wake_fits_for_job: set[int] = set()
                     short_detail: dict[int, list[FilamentDeficit]] = {}
                     unmatched_detail: dict[int, list[dict]] = {}
                     # Candidates that cleared the cross-model gate below. The
@@ -2991,6 +3003,7 @@ class PrintScheduler:
                                 short_is_missing=filament_first,
                                 missing_overrides=missing_for_notice,
                                 blocked_out=blocked_on,
+                                wake_fits_out=wake_fits_for_job,
                             )
                             # "Only if the previous print succeeded" is about the
                             # printer the job lands on: one whose last print failed
@@ -3012,6 +3025,11 @@ class PrintScheduler:
                     # A job no printer takes waits on each idle printer that lacked filament
                     # for it. One that was given a printer does not: it starts there (#3725).
                     if printer_id is None:
+                        self._pass_wake_fits |= wake_fits_for_job
+                        if wake_fits_for_job:
+                            # Switching a printer on will take the job: the switched-off printers
+                            # that lack filament are not what it waits for (#3725).
+                            blocked_on = {pid: d for pid, d in blocked_on.items() if printer_manager.is_connected(pid)}
                         # A short spool is told at once, for the first printer that has one (#3725).
                         for blocked_pid in blocked_on:
                             if short_detail.get(blocked_pid):
@@ -3339,6 +3357,7 @@ class PrintScheduler:
                 (busy_printers - reserved_printers) | interlocked.keys() | drying_held,
                 require_plate_clear,
                 held=set(interlocked) | drying_held,
+                wakeable_ids=wakeable_printer_ids,
             )
 
             # Log the decisions BEFORE dispatching. The dispatch below blocks for
@@ -3428,23 +3447,59 @@ class PrintScheduler:
         except Exception as e:
             logger.debug("Could not load the idle-for-filament state: %s", e)
 
+    async def _off_for_filament(
+        self, db: AsyncSession, printer_id: int, wakeable_ids: set[int], require_plate_clear: bool
+    ) -> bool:
+        """A printer its smart plug switched off, held there only by the filament its jobs lack (#3725).
+
+        It counts like an idle one: nothing will switch it on because no waiting job fits
+        what it last had loaded. All of: not connected; a plug that may power it on (enabled,
+        auto on, not MQTT: ``wakeable_ids``) and that reads OFF; a last known tray reading;
+        no plate to clear; no failed power-on cooling off; and no job this pass that would
+        switch it on (``_pass_wake_fits``). Not for a printer without such a plug, one whose
+        plug is on but which is not connected, or one whose trays were never read.
+
+        The last known trays are kept in memory only: after a server restart a switched-off
+        printer counts only once it has been on since.
+        """
+        if (
+            printer_manager.is_connected(printer_id)
+            or printer_id not in wakeable_ids
+            or printer_id in self._pass_wake_fits
+            or _plate_clear_holds(printer_id, require_plate_clear)
+            or self._wake_recently_failed(printer_id)
+            or not self._tray_reading(printer_id)
+        ):
+            return False
+        auto_on_plugs = self._auto_on_plugs(await self._get_smart_plugs(db, printer_id))
+        return bool(auto_on_plugs) and self._pick_power_plug(auto_on_plugs).last_state == "OFF"
+
     async def _check_filament_idle(
-        self, db: AsyncSession, unavailable: set[int], require_plate_clear: bool, held: set[int] | None = None
+        self,
+        db: AsyncSession,
+        unavailable: set[int],
+        require_plate_clear: bool,
+        held: set[int] | None = None,
+        wakeable_ids: set[int] | None = None,
     ) -> None:
         """Tell the user which printers have stood idle for five minutes with only filament-blocked jobs (#3725).
 
         A printer qualifies when it is idle (not busy for another reason, not held
-        by a sensor or drying, no plate to clear), has at least one job that was
+        by a sensor or drying, no plate to clear) or switched off by its smart plug
+        (``_off_for_filament``), has at least one job that was
         held back for filament where it is, and this pass sent nothing to it.
         What a job lacks was collected where it was held back
         (``_record_filament_block``); this only decides, once per pass.
         """
         try:
-            qualifying = {
-                pid: blocks
-                for pid, blocks in self._pass_filament_blocks.items()
-                if pid not in unavailable and self._is_printer_idle(pid, require_plate_clear)
-            }
+            qualifying = {}
+            for pid, blocks in self._pass_filament_blocks.items():
+                if pid in unavailable:
+                    continue
+                if self._is_printer_idle(pid, require_plate_clear) or await self._off_for_filament(
+                    db, pid, wakeable_ids or set(), require_plate_clear
+                ):
+                    qualifying[pid] = blocks
             keys: dict[int, FilamentKey] = {
                 pid: frozenset(need.key for _, needs in blocks.values() for need in needs)
                 for pid, blocks in qualifying.items()
@@ -4258,6 +4313,7 @@ class PrintScheduler:
         short_is_missing: bool = False,
         missing_overrides: list[dict] | None = None,
         blocked_out: dict[int, list[dict]] | None = None,
+        wake_fits_out: set[int] | None = None,
     ) -> tuple[int | None, str | None]:
         """Find an idle, connected printer matching the model with compatible filaments.
 
@@ -4300,11 +4356,15 @@ class PrintScheduler:
             missing_overrides: A list the caller owns. The requirements a printer lacks
                                are appended to it as override-shaped dicts, the data
                                behind the colour names in the reason (#3641).
-            blocked_out: A dict the caller owns. Each printer that was idle and passed over for
-                         want of filament (not a busy, offline or excluded one) gets an entry
-                         (#3725): the override-shaped requirements it lacks, empty where the
-                         check that refused it (``is_short``, ``unmatched_on``) keeps the
-                         details. The caller uses it only when no printer is returned.
+            blocked_out: A dict the caller owns. Each printer that was idle, or switched off with
+                         a last known filament that cannot run the job, and passed over for want
+                         of filament (not a busy or excluded one) gets an entry (#3725): the
+                         override-shaped requirements it lacks, empty where the check that
+                         refused it (``is_short``, ``unmatched_on``) keeps the details. The
+                         caller uses it only when no printer is returned.
+            wake_fits_out: A set the caller owns. Each switched-off printer whose last known
+                           filament fits the job, and that a plug can power on, is added (#3725):
+                           the wake step would take it, so it is not waiting for filament.
 
         Returns:
             Tuple of (printer_id, waiting_reason):
@@ -4378,13 +4438,20 @@ class PrintScheduler:
                 # (#2876). It is also the printer the smart-plug step will now
                 # decline to switch on, and "Offline:" on its own would leave
                 # that decision looking like nothing happening at all.
-                shortfall = self._cached_filament_shortfall(printer.id, required_filament_types, filament_overrides)
+                shortfall_needs: list[dict] = []
+                shortfall = self._cached_filament_shortfall(
+                    printer.id, required_filament_types, filament_overrides, shortfall_needs
+                )
                 if shortfall:
                     printers_missing_filament.append((printer.name, shortfall))
+                    if blocked_out is not None:
+                        blocked_out.setdefault(printer.id, []).extend(shortfall_needs)
                 elif wakeable_ids is not None and printer.id not in wakeable_ids:
                     printers_offline_no_plug.append(printer.name)
                 else:
                     printers_offline.append(printer.name)
+                    if wake_fits_out is not None:
+                        wake_fits_out.add(printer.id)
                 continue
 
             if not is_idle:
@@ -4793,6 +4860,7 @@ class PrintScheduler:
         printer_id: int,
         required_types: list[str] | None,
         filament_overrides: list[dict] | None,
+        missing_out: list[dict] | None = None,
     ) -> list[str]:
         """What a switched-off printer's last known filament cannot provide (#2876).
 
@@ -4811,6 +4879,9 @@ class PrintScheduler:
         returns nothing to report and the printer is treated as it was before.
         A farm restarted while its printers were off must not conclude that
         none of them can print.
+
+        ``missing_out``: a list the caller owns; what the printer lacks is appended
+        as override-shaped dicts (#3725).
         """
         if not required_types and not filament_overrides:
             return []
@@ -4830,6 +4901,9 @@ class PrintScheduler:
                 force_color_map = {
                     (o.get("type") or "").upper(): o.get("color_name") or o.get("color", "?") for o in force_overrides
                 }
+                if missing_out is not None:
+                    by_type = {(o.get("type") or "").upper(): o for o in force_overrides}
+                    missing_out.extend(by_type.get(t.upper(), {"type": t}) for t in missing)
                 return [
                     f"{t} ({force_color_map[t_upper]})" if (t_upper := t.upper()) in force_color_map else t
                     for t in missing
@@ -4838,12 +4912,16 @@ class PrintScheduler:
         if force_overrides:
             missing_colors = self._get_missing_force_color_slots(printer_id, force_overrides, raw_data)
             if missing_colors:
+                if missing_out is not None:
+                    missing_out.extend(self._missing_force_color_overrides(printer_id, force_overrides, raw_data))
                 return missing_colors
 
         # Preference overrides read as a preference but the matcher treats zero
         # matches as a skip, so a printer with none of the wanted colours is
         # rejected there too. Waking it would only produce that same rejection.
         if pref_overrides and self._count_override_color_matches(printer_id, pref_overrides, raw_data) == 0:
+            if missing_out is not None:
+                missing_out.extend(pref_overrides)
             return [f"{o.get('type', '?')} ({o.get('color_name') or o.get('color', '?')})" for o in pref_overrides]
 
         return []
@@ -10151,7 +10229,7 @@ class PrintScheduler:
         """Read-only: the slots whose spool cannot finish ``item``, [] when nothing to say (#3587)."""
         return await self._filament_deficit_verdict(db, item) or []
 
-    def _wake_declined_for_filament(self, item: PrintQueueItem) -> str | None:
+    def _wake_declined_for_filament(self, item: PrintQueueItem, missing_out: list[dict] | None = None) -> str | None:
         """What a pinned job lacks on its switched-off printer, None to switch it on (#3587).
 
         Declines only on positive evidence: the trays this printer last
@@ -10162,6 +10240,9 @@ class PrintScheduler:
         then reports lets a later pass decide. The inventory-based deficit is
         not used: it pools spools on the printer's live backup setting and may
         ask Spoolman, neither of which is available while it is off.
+
+        ``missing_out``: a list the caller owns; what the printer lacks is appended
+        as override-shaped dicts (#3725).
         """
         if item.printer_id is None or item.skip_filament_check:
             return None
@@ -10175,7 +10256,7 @@ class PrintScheduler:
         # the model matcher's), which would keep the printer off for a job it
         # would print, and its trays would never refresh while it is off.
         forced = [o for o in overrides or [] if o.get("force_color_match")]
-        shortfall = self._cached_filament_shortfall(item.printer_id, required_types, forced or None)
+        shortfall = self._cached_filament_shortfall(item.printer_id, required_types, forced or None, missing_out)
         return ", ".join(shortfall) if shortfall else None
 
     async def _filament_wait_wanted(self, db: AsyncSession, item: PrintQueueItem) -> _FilamentWait:
