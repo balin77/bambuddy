@@ -66,6 +66,7 @@ import {
   Workflow,
   ThumbsUp,
   Eraser,
+  ListChecks,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { PipelineRunsView } from './PipelineRunsPage';
@@ -1859,16 +1860,17 @@ export function QueuePage() {
     const id = Number(new URLSearchParams(window.location.search).get('batch'));
     return Number.isInteger(id) && id > 0 ? id : null;
   });
-  const [activeTab, setActiveTab] = useState<'queue' | 'batches' | 'history' | 'timeline' | 'pipelines'>(() => {
+  const [activeTab, setActiveTab] = useState<'queue' | 'todo' | 'batches' | 'history' | 'timeline' | 'pipelines'>(() => {
     // URL deep-link wins so the legacy /pipelines/runs redirect lands on the
     // right tab. localStorage holds the per-user last-selected fallback.
     const search = new URLSearchParams(window.location.search);
     const url = search.get('tab');
     // A link to one batch (/queue?batch=<id>) opens the tab that shows it.
     if (search.get('batch')) return 'batches';
-    if (url === 'pipelines' || url === 'history' || url === 'timeline' || url === 'queue' || url === 'batches') {
+    if (url === 'pipelines' || url === 'history' || url === 'timeline' || url === 'queue' || url === 'batches' || url === 'todo') {
       return url;
     }
+    // The To do tab is not restored: it is empty again once the work is done.
     const saved = localStorage.getItem('queue.activeTab');
     if (saved === 'history' || saved === 'timeline' || saved === 'pipelines' || saved === 'batches') return saved;
     return 'queue';
@@ -2044,7 +2046,7 @@ export function QueuePage() {
   // Start with the filament "Print anyway" confirmations (#1496, #2799),
   // shared with the "To do" list (#3615).
   const { startMutation, modals: startModals } = useStartQueueItem();
-  const { data: queueTodo } = useQueueTodo();
+  const { data: queueTodo, isLoading: queueTodoLoading } = useQueueTodo();
 
   const reorderMutation = useMutation({
     mutationFn: (items: { id: number; position: number }[]) => api.reorderQueue(items),
@@ -2762,6 +2764,8 @@ export function QueuePage() {
       <div className="flex gap-1 border-b border-bambu-dark-tertiary mb-6 overflow-x-auto">
         {([
           { id: 'queue' as const, label: t('queue.tabs.queue'), icon: Clock, count: pendingItems.length + activeItems.length },
+          // #3615: same query as the To do button in the navigation, so the counts agree.
+          { id: 'todo' as const, label: t('queueTodo.title'), icon: ListChecks, count: queueTodo?.count ?? 0 },
           { id: 'batches' as const, label: t('queue.tabs.batches'), icon: Package, count: activeBatchCount },
           { id: 'history' as const, label: t('queue.tabs.history'), icon: ListOrdered, count: historyTotal },
           { id: 'timeline' as const, label: t('queue.tabs.timeline'), icon: GanttChart, count: null as number | null },
@@ -2793,7 +2797,7 @@ export function QueuePage() {
       </div>
 
       {/* Summary Stats — about the print queue, not pipelines. */}
-      {activeTab !== 'pipelines' && activeTab !== 'batches' && <QueueStatsBar
+      {activeTab !== 'pipelines' && activeTab !== 'batches' && activeTab !== 'todo' && <QueueStatsBar
         activeCount={activeItems.length}
         pendingCount={pendingItems.length}
         totalTime={totalQueueTime}
@@ -2801,9 +2805,6 @@ export function QueuePage() {
         historyCount={historyTotal}
         t={t}
       />}
-
-      {/* #3615: everything the queue waits on, grouped by printer. Empty renders nothing. */}
-      {activeTab === 'queue' && <QueueTodoList todo={queueTodo} heading />}
 
       {/* #1818: Resume-after-failure banner. One row per printer whose queue
           is gated by a prior failed/aborted print. Visible regardless of
@@ -2873,7 +2874,7 @@ export function QueuePage() {
       {/* Filters — about the print queue items (printer / status / location).
           The Pipelines tab has its own pipeline + status filters inside the
           dashboard, so this row is hidden when that tab is active. */}
-      {activeTab !== 'pipelines' && activeTab !== 'batches' && (
+      {activeTab !== 'pipelines' && activeTab !== 'batches' && activeTab !== 'todo' && (
       <div className="flex flex-wrap items-center gap-2 sm:gap-4 mb-6">
         <select
           className="px-2 sm:px-3 py-2 text-sm sm:text-base bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none min-w-0 flex-1 sm:flex-none"
@@ -2988,6 +2989,18 @@ export function QueuePage() {
         <PipelineRunsView />
       ) : activeTab === 'batches' ? (
         <BatchOrdersView hasPermission={hasPermission} t={t} focusBatchId={focusBatchId} />
+      ) : activeTab === 'todo' ? (
+        // #3615: everything the queue waits on, grouped by printer.
+        queueTodoLoading ? (
+          <div className="text-center py-12 text-bambu-gray">{t('common.loading')}</div>
+        ) : queueTodo && queueTodo.groups.some((group) => group.entries.length > 0 || (group.prepare ?? []).length > 0) ? (
+          <QueueTodoList todo={queueTodo} onOpenQueue={() => setActiveTab('queue')} />
+        ) : (
+          <Card className="p-12 text-center border-dashed" data-testid="queue-todo-empty">
+            <ListChecks className="w-16 h-16 text-bambu-gray mx-auto mb-4 opacity-50" />
+            <p className="text-bambu-gray max-w-md mx-auto">{t('queueTodo.empty')}</p>
+          </Card>
+        )
       ) : isLoading || (activeTab === 'history' && historyLoading) ? (
         <div className="text-center py-12 text-bambu-gray">{t('common.loading')}</div>
       ) : queue?.length === 0 && !historyLoading && historyTotal === 0 ? (

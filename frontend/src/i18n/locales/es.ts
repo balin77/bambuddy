@@ -8901,6 +8901,7 @@ export default {
   // "To do" list of what the queue waits on (#3615)
   queueTodo: {
     title: "Pendiente",
+    empty: "Nada pendiente. La cola no espera a nadie.",
     badgeLabel: "Pendiente: {{count}}",
     anyModel: "Cualquier {{model}}",
     jobCount_one: "{{count}} trabajo",
