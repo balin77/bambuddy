@@ -41,6 +41,7 @@ from backend.app.core.auth import (
     RequestActor,
     RequestPrinterScope,
     require_actor_still_exists,
+    require_clear_plate_permission,
     require_media_token_ownership,
     require_ownership_permission,
     require_permission_if_auth_enabled,
@@ -2595,8 +2596,11 @@ async def upload_file(
 ):
     """Upload a file to the library.
 
-    ``clears_plate`` marks a file that clears its own plate (#3576).
+    ``clears_plate`` marks a file that clears its own plate (#3576); switching
+    it on takes printers:clear_plate.
     """
+    if clears_plate:
+        require_clear_plate_permission(actor)
     try:
         if not file.filename:
             raise HTTPException(status_code=400, detail="Filename is required")
@@ -2785,6 +2789,10 @@ async def extract_zip_file(
         generate_stl_thumbnails: If True, generate thumbnails for STL files
     """
     import tempfile
+
+    # Marking the extracted files as clearing their plate takes printers:clear_plate (#3576)
+    if clears_plate:
+        require_clear_plate_permission(actor)
 
     if not file.filename or not file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="Only ZIP files are supported")
@@ -5682,6 +5690,7 @@ async def update_file(
             Permission.LIBRARY_UPDATE_OWN,
         )
     ),
+    actor: User | ApiKeyActor | None = RequestActor,
 ):
     """Update a file's metadata."""
     user, can_modify_all = auth_result
@@ -5696,6 +5705,11 @@ async def update_file(
     if not can_modify_all:
         if file.created_by_id != user.id:
             raise HTTPException(status_code=403, detail="You can only update your own files")
+
+    # Switching plate clearing on takes printers:clear_plate (#3576); a file
+    # that already has it keeps it through an edit of its other fields.
+    if data.clears_plate and not file.clears_plate:
+        require_clear_plate_permission(actor)
 
     if data.filename is not None:
         # Bambu printer SD cards are FAT32/exFAT; reject the same set Bambu
