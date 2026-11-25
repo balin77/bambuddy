@@ -718,8 +718,11 @@ class QueueTodoPicture(BaseModel):
     compact: bool = False
     # Every unit of the printer; the ones nothing goes into are ``collapsed``.
     units: list[QueueTodoPictureUnit]
-    # Filaments (indexes into the entry's) with no slot to go to.
+    # Filaments (indexes into ``filaments``, else into the entry's) with no slot to go to.
     unplaced: list[int] = []
+    # What the picture is drawn for, on a model entry's pictures: its printer
+    # can miss other filaments than the entry lists. None: the entry's.
+    filaments: list[QueueTodoFilament] | None = None
 
 
 class QueueTodoPrinterSlotHint(QueueTodoSlotHint):

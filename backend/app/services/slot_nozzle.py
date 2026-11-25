@@ -136,6 +136,29 @@ def reports_two_nozzles(state) -> bool:
     )
 
 
+def has_second_nozzle(state) -> bool:
+    """Whether the live state shows a second nozzle, for what is said about a slot's nozzle.
+
+    Stricter than ``reports_two_nozzles`` on one point: an ``ams_extruder_map``
+    that names only extruder 0 proves nothing. The map is read from each AMS
+    unit's info bits, and a single-nozzle printer's AMS reports them too (an
+    X1C or an A1 with its AMS lite comes back as ``{"0": 0}``), so by the map
+    alone such a printer would have a "right nozzle" and, for its external
+    spool, a "left" one. A second nozzle is one of: a diameter on the second
+    nozzle entry, an AMS on extruder 1, or two external inputs on a printer
+    that is no rack printer.
+    """
+    raw_data = getattr(state, "raw_data", None) or {}
+    nozzles = getattr(state, "nozzles", None) or []
+    vt_trays = raw_data.get("vt_tray") or []
+    extruder_map = raw_data.get("ams_extruder_map") or {}
+    return bool(
+        (len(nozzles) > 1 and getattr(nozzles[1], "nozzle_diameter", ""))
+        or (isinstance(extruder_map, dict) and 1 in extruder_map.values())
+        or (isinstance(vt_trays, list) and len(vt_trays) > 1 and not TrayLayout.from_units(None, vt_trays).rack)
+    )
+
+
 def nozzle_flow_for_extruder(state, extruder: int | None, model: str | None = None) -> str | None:
     """The flow type fitted to ``extruder``, or None when the printer is silent.
 

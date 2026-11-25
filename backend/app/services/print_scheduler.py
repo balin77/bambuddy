@@ -98,7 +98,7 @@ from backend.app.services.queue_todo import (
     tray_fits_filament,
     unique_filaments,
 )
-from backend.app.services.slot_nozzle import reports_two_nozzles
+from backend.app.services.slot_nozzle import has_second_nozzle, reports_two_nozzles
 from backend.app.services.smart_plug_manager import publish_plug_state, smart_plug_manager
 from backend.app.services.spool_assignment_notifications import (
     _global_tray_from_assignment,
@@ -1665,7 +1665,8 @@ def _picture_slots(status) -> tuple[PictureSlot, ...]:
     raw = status.raw_data or {}
     layout = TrayLayout.from_state(status)
     extruder_of = raw.get("ams_extruder_map") or {}
-    two_nozzles = reports_two_nozzles(status)
+    # A single-nozzle printer's AMS names extruder 0 as well: no nozzle to speak of there.
+    two_nozzles = has_second_nozzle(status)
 
     def remain_of(tray: dict) -> int | None:
         value = tray.get("remain")
@@ -1743,7 +1744,7 @@ def _with_picture(hint: SlotHint | None, status, needed: Iterable[int], running:
         picture=_picture_slots(status),
         needed=frozenset(needed),
         running=frozenset(running),
-        nozzle_split=reports_two_nozzles(status) and not fts_installed,
+        nozzle_split=has_second_nozzle(status) and not fts_installed,
     )
 
 
@@ -2504,7 +2505,7 @@ class PrintScheduler:
         # its only slot: empty, it is where a filament goes. Next to an AMS the
         # holder is never confirmed empty, so never offered as free (#3726).
         if not any(unit.get("tray") for unit in units):
-            is_dual_nozzle = reports_two_nozzles(status)
+            is_dual_nozzle = has_second_nozzle(status)
             for idx, vt in enumerate(raw.get("vt_tray") or []):
                 if not isinstance(vt, dict) or vt.get("tray_type"):
                     continue
@@ -2620,7 +2621,7 @@ class PrintScheduler:
             prefer_lowest,
             status.ams_filament_backup,
             bool(getattr(getattr(status, "fila_switch", None), "installed", False)),
-            reports_two_nozzles(status),
+            has_second_nozzle(status),
             tuple(sorted(running)),
             # External holders reported empty (an absent one is not in the list).
             tuple(
@@ -2693,7 +2694,8 @@ class PrintScheduler:
         # The matcher takes a filament that names a nozzle only from the trays
         # on that nozzle, unless a Filament Track Switch routes any of them.
         fts_installed = bool(getattr(getattr(status, "fila_switch", None), "installed", False))
-        split_by_nozzle = reports_two_nozzles(status) and not fts_installed
+        # ``has_second_nozzle``: a single-nozzle printer's AMS names extruder 0 too.
+        split_by_nozzle = has_second_nozzle(status) and not fts_installed
         for slot in slots:
             extruder = slot["extruder_id"]
             slot["nozzle"] = ("right" if extruder == 0 else "left") if split_by_nozzle and extruder in (0, 1) else None

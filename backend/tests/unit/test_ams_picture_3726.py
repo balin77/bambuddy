@@ -564,3 +564,148 @@ class TestPrepare:
         )
         assert picture["units"][0]["slots"][0]["state"] == "locked"
         assert picture["unplaced"] == [0]
+
+
+MUTED_WHITE = TodoFilament("PLA", "#BBADA4", "Muted White", forced=True)
+CHARCOAL = TodoFilament("PLA", "#2F2E30", "Charcoal Black", forced=True)
+GOLD = TodoFilament("PLA", "#C49449", "Gold", forced=True)
+MUTED_RED = TodoFilament("PLA", "#D84B2E", "Muted Red", forced=True)
+
+
+def _a1(*colors, **fields):
+    """An A1 with its AMS lite and one external spool; the AMS reports extruder 0, as on any single-nozzle printer."""
+    ams = [{"id": 0, "ams_type": 2, "tray": [_tray(i, "PLA", c) for i, c in enumerate(colors)]}]
+    vt = [{"id": 254, "tray_type": "", "tray_color": "", "tray_info_idx": ""}]
+    status = _status(ams, vt=vt, **fields)
+    status.raw_data["ams_extruder_map"] = {"0": 0}
+    return status
+
+
+class TestModelJobWithAnIdleAndAPrintingPrinter:
+    """A job for any A1: one A1 prints with all four trays, the other is idle and holds none of the four filaments."""
+
+    NAMES = {1: "A1 Links", 2: "A1 rechts"}
+
+    async def _todo(self, idle=(2,)):
+        four = (MUTED_WHITE, CHARCOAL, GOLD, MUTED_RED)
+        need = [
+            {"slot_id": i + 1, "type": "PLA", "color": f.color, "tray_info_idx": "", "force_color_match": True}
+            for i, f in enumerate(four)
+        ]
+        scheduler = _scheduler_with({1: need})
+        # Charcoal Black, Army Beige, Cotton White, Army Red: all four in the running print.
+        printing = _a1("2F2E30", "D3B7A7", "FFFFFF", "BC4039", state="RUNNING", print_ams_mapping=[0, 1, 2, 3])
+        # Pastel Banana, Sakura Pink, Arctic Teal, Cotton White.
+        idle_one = _a1("F9DFB9", "E8AFCF", "0A2989", "FFFFFF")
+        holds = {
+            101: [
+                FilamentHold(101, 1, "A1", (MUTED_WHITE, GOLD, MUTED_RED)),
+                FilamentHold(101, 2, "A1", four),
+            ]
+        }
+        hints = await _hints(scheduler, {1: printing, 2: idle_one}, [_job(1, None)], holds)
+        job = TodoJob(101, "LatteShot.A1.3mf", frozenset({1, 2}), None, "a1", "A1", False)
+        return build_todo(
+            [job], self.NAMES, holds, [], {}, [], None, None, hints, None, None, None, idle_printers=set(idle)
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_entry_is_for_the_idle_printer_and_the_printing_one_is_the_other_candidate(self):
+        todo = await self._todo()
+        assert todo["count"] == 1
+        (group,) = todo["groups"]
+        (entry,) = group["entries"]
+        assert entry["printers"] == [{"id": 2, "name": "A1 rechts"}]
+        assert sorted(f["color_name"] for f in entry["filaments"]) == [
+            "Charcoal Black",
+            "Gold",
+            "Muted Red",
+            "Muted White",
+        ]
+        idle_picture, printing_picture = entry["ams_pictures"]
+        assert (idle_picture["printer_id"], printing_picture["printer_id"]) == (2, 1)
+
+    @pytest.mark.asyncio
+    async def test_each_picture_is_drawn_for_the_filaments_its_own_printer_misses(self):
+        todo = await self._todo()
+        idle_picture, printing_picture = todo["groups"][0]["entries"][0]["ams_pictures"]
+        # The idle printer: four spools above four slots, nothing locked.
+        assert len(idle_picture["filaments"]) == 4
+        assert idle_picture["unplaced"] == []
+        incoming = {key: s["incoming"]["filament_index"] for key, s in _slots_of(idle_picture).items() if s["incoming"]}
+        assert sorted(incoming) == [(0, 0), (0, 1), (0, 2), (0, 3)]
+        assert sorted(incoming.values()) == [0, 1, 2, 3]
+        assert "locked" not in _states(idle_picture).values()
+        # The printing one: its own three, with no slot while the print holds every tray.
+        assert sorted(f["color_name"] for f in printing_picture["filaments"]) == ["Gold", "Muted Red", "Muted White"]
+        assert printing_picture["unplaced"] == [0, 1, 2]
+        assert {_states(printing_picture)[(0, i)] for i in range(4)} == {"locked"}
+        assert QueueTodoResponse.model_validate(todo).groups[0].entries[0].ams_pictures[1].filaments is not None
+
+    @pytest.mark.asyncio
+    async def test_with_no_idle_printer_the_one_that_misses_the_fewest_is_listed_and_the_other_follows(self):
+        (entry,) = (await self._todo(idle=()))["groups"][0]["entries"]
+        assert entry["printers"] == [{"id": 1, "name": "A1 Links"}]
+        assert len(entry["filaments"]) == 3
+        assert [(p["printer_id"], len(p["filaments"])) for p in entry["ams_pictures"]] == [(1, 3), (2, 4)]
+
+    def test_another_job_that_misses_something_else_on_the_other_printer_adds_to_its_picture(self):
+        holds = {
+            101: [FilamentHold(101, 1, "A1", (GOLD, MUTED_RED)), FilamentHold(101, 2, "A1", (GOLD,))],
+            102: [FilamentHold(102, 1, "A1", (GOLD, CHARCOAL)), FilamentHold(102, 2, "A1", (GOLD,))],
+        }
+        jobs = [TodoJob(i, f"Job_{i}.3mf", frozenset({1, 2}), None, "a1", "A1", False) for i in (101, 102)]
+        slot = PictureSlot(0, 0, 0, False, False, 2, None, "PLA", "#FFFFFF")
+        hints = {pid: SlotHint(pid, HINT_REPLACEABLE, picture=(slot,)) for pid in (1, 2)}
+        todo = build_todo(jobs, self.NAMES, holds, [], {}, [], None, None, hints, idle_printers={2})
+        (entry,) = todo["groups"][0]["entries"]
+        assert [j["id"] for j in entry["jobs"]] == [101, 102]
+        other = entry["ams_pictures"][1]
+        assert other["printer_id"] == 1
+        assert sorted(f["color_name"] for f in other["filaments"]) == ["Charcoal Black", "Gold", "Muted Red"]
+
+
+class TestNozzleLabels:
+    @pytest.mark.asyncio
+    async def test_a_single_nozzle_printer_whose_ams_reports_extruder_0_names_no_nozzle(self):
+        scheduler = _scheduler_with({1: _need(RED)})
+        status = _a1(RED, BLUE, WHITE, GREEN)
+        hint = (await _hints(scheduler, {1: status}, [_job(1)], _holds(1)))[1]
+        picture = picture_dict(hint, 1, "A1 rechts", (PINK,))
+        assert [(u["kind"], u["nozzle"]) for u in picture["units"]] == [("ams_lite", None), ("external", None)]
+        assert hint.nozzle_split is False
+        # The sentence form of the hint has no part per nozzle either.
+        assert hint.by_nozzle == ()
+        assert {s.nozzle for s in hint.slots} == {None}
+
+    @pytest.mark.asyncio
+    async def test_a_single_nozzle_printer_without_an_ams_names_no_nozzle_on_its_external_spool(self):
+        vt = [{"id": 254, "tray_type": "", "tray_color": "", "tray_info_idx": ""}]
+        status = _status([], vt=vt)
+        # The map of an AMS that was there before stays in the state.
+        status.raw_data["ams_extruder_map"] = {"0": 0}
+        scheduler = _scheduler_with({1: _need(RED)})
+        hint = (await _hints(scheduler, {1: status}, [_job(1)], _holds(1)))[1]
+        (unit,) = picture_dict(hint, 1, "A1 mini", (PINK,))["units"]
+        assert (unit["kind"], unit["nozzle"]) == ("external", None)
+        assert [s.nozzle for s in hint.slots] == [None]
+
+    @pytest.mark.asyncio
+    async def test_a_two_nozzle_printer_with_one_ams_on_the_right_keeps_its_labels(self):
+        ams = [{"id": 0, "tray": [_tray(0, "PLA", RED), _tray(1, exists=False)]}]
+        vt = [
+            {"id": 254, "tray_type": "", "tray_color": "", "tray_info_idx": ""},
+            {"id": 255, "tray_type": "", "tray_color": "", "tray_info_idx": ""},
+        ]
+        status = _status(ams, vt=vt)
+        status.raw_data["ams_extruder_map"] = {"0": 0}
+        status.nozzles[1].nozzle_diameter = "0.4"
+        scheduler = _scheduler_with({1: _need(RED)})
+        hint = (await _hints(scheduler, {1: status}, [_job(1)], _holds(1)))[1]
+        units = picture_dict(hint, 1, "H2D", (PINK,))["units"]
+        assert [(u["kind"], u["nozzle"]) for u in units] == [
+            ("ams", "right"),
+            ("external", "left"),
+            ("external", "right"),
+        ]
+        assert hint.nozzle_split is True

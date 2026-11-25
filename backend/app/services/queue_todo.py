@@ -994,6 +994,27 @@ def picture_dict(
     }
 
 
+def _filament_dicts(filaments: Iterable[TodoFilament], trays: bool) -> list[dict]:
+    """The filaments as the response lists them; ``trays`` False leaves the short trays out."""
+    return [
+        {
+            "type": f.type,
+            "color": f.color,
+            "color_name": f.color_name,
+            "no_stock": f.no_stock,
+            "nozzle": f.nozzle,
+            "short": f.short,
+            "short_trays": [
+                {"ams_id": t.ams_id, "tray_id": t.tray_id, "remaining_grams": t.remaining_grams} for t in f.short_trays
+            ]
+            if trays
+            else [],
+            "required_grams": f.required_grams,
+        }
+        for f in filaments
+    ]
+
+
 def _outs(picture: dict) -> int:
     return sum(1 for u in picture["units"] for s in u["slots"] if s["state"] == PICTURE_OUT)
 
@@ -1039,7 +1060,10 @@ def build_todo(
     A load entry also carries the AMS picture of its printer, ``ams_picture``
     (a model entry ``ams_pictures``, one per listed printer, the one that
     would likely take the job first, an idle one with the fewest spools to
-    take out, at the front), and a prepare line a compact one (#3726). They
+    take out, at the front), and a prepare line a compact one (#3726). A
+    model entry lists the printers that miss the fewest filaments, among the
+    idle ones when any is idle; the job's other printers with a hold follow in
+    ``ams_pictures``, and every picture there has its own ``filaments``. They
     are drawn from the same hints; ``slot_extras`` bring the inventory's grams
     and looks, ``stock_for`` the spools in stock, ``idle_printers`` the
     printers that are connected and not printing. None of them changes an
@@ -1078,6 +1102,9 @@ def build_todo(
                 entry["_filaments"] = _merge_short(entry["_filaments"], extra["_filaments"])
             for pid, fils in extra.get("_by_printer", {}).items():
                 entry["_by_printer"][pid] = _merge_short(entry["_by_printer"].get(pid, fils), fils)
+            # What the entry's jobs miss on a printer it does not list, together.
+            for pid, fils in extra.get("_others", {}).items():
+                merge_todo_filaments(entry["_others"].setdefault(pid, []), fils)
         if kind == KIND_LOAD_FILAMENT and priorities and job.id in priorities:
             state = priorities[job.id]
             if _more_urgent(state, (entry["priority"], entry["priority_hours"]) if entry["priority"] else None):
@@ -1146,19 +1173,28 @@ def build_todo(
                 add(group, KIND_LOAD_FILAMENT, _fil_key(hold.filaments), job, _filaments=_sorted(hold.filaments))
         else:
             # A model job's per-printer holds become one entry: the printers
-            # that miss the fewest filaments are where loading them lets it start.
+            # that miss the fewest filaments are where loading them lets it
+            # start. A printer that is idle can take it now, so when one is
+            # idle only the idle ones are counted; the job's other printers
+            # (printing, or missing more) are reached through the entry's
+            # picture switch, each with its own filaments.
             visible = [h for h in holds_of_job if h.printer_id in printers]
             if visible:
-                fewest = min(len(h.filaments) for h in visible)
+                pool = [h for h in visible if h.printer_id in idle_printers] or visible
+                fewest = min(len(h.filaments) for h in pool)
                 by_set: dict[tuple, tuple[tuple[TodoFilament, ...], set[int]]] = {}
                 own: dict[tuple, dict[int, tuple[TodoFilament, ...]]] = {}
+                others: dict[int, list[TodoFilament]] = {}
                 for hold in visible:
-                    if len(hold.filaments) == fewest:
+                    assert hold.printer_id is not None
+                    if hold in pool and len(hold.filaments) == fewest:
                         sets = by_set.setdefault(_fil_key(hold.filaments), (_sorted(hold.filaments), set()))
-                        assert hold.printer_id is not None
                         sets[1].add(hold.printer_id)
                         # A short spool is a tray of that printer.
                         own.setdefault(_fil_key(hold.filaments), {})[hold.printer_id] = _sorted(hold.filaments)
+                    else:
+                        merge_todo_filaments(others.setdefault(hold.printer_id, []), hold.filaments)
+                listed = {pid for _fils, ids in by_set.values() for pid in ids}
                 for key, (fils, ids) in by_set.items():
                     add(
                         group_for(None, job.model_key, job.model_label, index),
@@ -1167,6 +1203,7 @@ def build_todo(
                         job,
                         _filaments=fils,
                         _by_printer=own[key],
+                        _others={pid: list(more) for pid, more in others.items() if pid not in listed},
                         printers=[{"id": pid, "name": printers[pid]} for pid in sorted(ids)],
                     )
             else:
@@ -1228,27 +1265,11 @@ def build_todo(
                     continue
                 fils = entry.pop("_filaments", ())
                 by_printer = entry.pop("_by_printer", {})
+                others = {pid: _sorted(more) for pid, more in entry.pop("_others", {}).items()}
                 # The trays of a short spool are named for a printer: an entry
                 # for an "Any <model>" group says "short", its printers' hints
                 # say where.
-                entry["filaments"] = [
-                    {
-                        "type": f.type,
-                        "color": f.color,
-                        "color_name": f.color_name,
-                        "no_stock": f.no_stock,
-                        "nozzle": f.nozzle,
-                        "short": f.short,
-                        "short_trays": []
-                        if group.printer_id is None
-                        else [
-                            {"ams_id": t.ams_id, "tray_id": t.tray_id, "remaining_grams": t.remaining_grams}
-                            for t in f.short_trays
-                        ],
-                        "required_grams": f.required_grams,
-                    }
-                    for f in fils
-                ]
+                entry["filaments"] = _filament_dicts(fils, trays=group.printer_id is not None)
                 if kind == KIND_LOAD_FILAMENT:
                     if group.printer_id is not None:
                         hint = slot_hints.get(group.printer_id)
@@ -1264,26 +1285,28 @@ def build_todo(
                             and (shown := _hint_dict(slot_hints[p["id"]], by_printer.get(p["id"], fils), index_of))
                             is not None
                         ]
-                        pictures = [
-                            picture
-                            for p in entry["printers"]
-                            if p["id"] in slot_hints
-                            and (
-                                picture := picture_dict(
-                                    slot_hints[p["id"]],
-                                    p["id"],
-                                    p["name"],
-                                    by_printer.get(p["id"], fils),
-                                    slot_extras,
-                                    stock_for,
-                                )
-                            )
-                            is not None
-                        ]
+                        # One picture per printer the job could go to: the
+                        # ones the entry lists, then the job's other printers.
+                        # Each carries the filaments it is drawn for, as the
+                        # others miss a different set.
+                        candidates = [(p["id"], p["name"], by_printer.get(p["id"], fils)) for p in entry["printers"]]
+                        candidates += [(pid, printers[pid], more) for pid, more in others.items()]
+                        pictures = []
+                        for pid, name, own_fils in candidates:
+                            picture = picture_dict(slot_hints.get(pid), pid, name, own_fils, slot_extras, stock_for)
+                            if picture is not None:
+                                picture["filaments"] = _filament_dicts(own_fils, trays=False)
+                                pictures.append(picture)
                         # The printer that would likely take the job first: idle
-                        # and connected, with the fewest spools to take out.
+                        # and connected, a listed one before another, with the
+                        # fewest spools to take out.
                         pictures.sort(
-                            key=lambda pic: (pic["printer_id"] not in idle_printers, _outs(pic), pic["printer_id"])
+                            key=lambda pic: (
+                                pic["printer_id"] not in idle_printers,
+                                pic["printer_id"] in others,
+                                _outs(pic),
+                                pic["printer_id"],
+                            )
                         )
                         entry["ams_pictures"] = pictures
                 entries.append(entry)
