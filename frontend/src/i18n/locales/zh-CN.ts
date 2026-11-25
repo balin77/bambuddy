@@ -7507,7 +7507,7 @@ export default {
     jobWaiting: '任务等待中',
     jobWaitingDescription: '任务正在等待耗材或打印机',
     printerIdleForFilament: '打印机空闲：等待耗材',
-    printerIdleForFilamentDescription: '等待中的任务缺少耗材，打印机已空闲 5 分钟',
+    printerIdleForFilamentDescription: '需要启用“优先使用已装载的耗材”。等待中的任务缺少耗材，打印机已空闲或被智能插座关闭 5 分钟',
     jobSkipped: '任务已跳过',
     jobSkippedDescription: '任务已跳过（上一个失败）',
     jobFailed: '任务失败',

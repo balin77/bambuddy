@@ -7603,7 +7603,7 @@ errors: {
     jobWaiting: 'Jobb väntar',
     jobWaitingDescription: 'Jobb väntar på filament eller skrivare',
     printerIdleForFilament: 'Skrivaren står still: väntar på filament',
-    printerIdleForFilamentDescription: 'En skrivare har stått still i 5 minuter eftersom dess väntande jobb saknar filament',
+    printerIdleForFilamentDescription: 'Kräver ”Laddat filament först”. En skrivare har stått still, eller stängts av av sin smarta kontakt, i 5 minuter eftersom dess väntande jobb saknar filament',
     jobSkipped: 'Jobb hoppades över',
     jobSkippedDescription: 'Jobb hoppades över (föregående misslyckades)',
     jobFailed: 'Jobb misslyckades',

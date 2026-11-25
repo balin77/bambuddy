@@ -7522,7 +7522,7 @@ export default {
     jobWaiting: 'ジョブ待機中',
     jobWaitingDescription: 'フィラメントまたはプリンター待ちのジョブ',
     printerIdleForFilament: 'プリンター待機中：フィラメント待ち',
-    printerIdleForFilamentDescription: '待機中のジョブにフィラメントが足りず、プリンターが5分間アイドル状態です',
+    printerIdleForFilamentDescription: '「装填済みフィラメントを優先」が必要です。待機中のジョブにフィラメントが足りず、プリンターが5分間アイドル状態、またはスマートプラグで電源オフになっています',
     jobSkipped: 'ジョブスキップ',
     jobSkippedDescription: 'ジョブがスキップされました（前のジョブが失敗）',
     jobFailed: 'ジョブ失敗',

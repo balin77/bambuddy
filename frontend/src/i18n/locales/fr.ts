@@ -7509,7 +7509,7 @@ export default {
     jobWaiting: 'Tâche en attente',
     jobWaitingDescription: 'Tâche en attente de filament ou imprimante',
     printerIdleForFilament: 'Imprimante inactive : attend du filament',
-    printerIdleForFilamentDescription: 'Une imprimante est inactive depuis 5 minutes car il manque du filament à ses tâches en attente',
+    printerIdleForFilamentDescription: 'Nécessite « Filament chargé d\'abord ». Une imprimante est inactive, ou éteinte par sa prise connectée, depuis 5 minutes car il manque du filament à ses tâches en attente',
     jobSkipped: 'Tâche ignorée',
     jobSkippedDescription: 'Tâche ignorée (échec précédent)',
     jobFailed: 'Tâche échouée',

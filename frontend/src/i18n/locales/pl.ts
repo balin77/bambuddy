@@ -7574,7 +7574,7 @@ export default {
     jobWaiting: 'Zadanie oczekuje',
     jobWaitingDescription: 'Zadanie czeka na filament lub drukarkę',
     printerIdleForFilament: 'Drukarka bezczynna: czeka na filament',
-    printerIdleForFilamentDescription: 'Drukarka jest bezczynna od 5 minut, bo jej oczekującym zadaniom brakuje filamentu',
+    printerIdleForFilamentDescription: 'Wymaga „Najpierw załadowany filament”. Drukarka jest bezczynna lub wyłączona przez swoje inteligentne gniazdko od 5 minut, bo jej oczekującym zadaniom brakuje filamentu',
     jobSkipped: 'Pominięto zadanie',
     jobSkippedDescription: 'Zadanie pominięte (poprzednie nieudane)',
     jobFailed: 'Zadanie nieudane',
