@@ -24,7 +24,7 @@ import { ConfirmModal } from './ConfirmModal';
 import { QUEUE_TODO_KEY } from '../hooks/useQueueTodo';
 import { useStartQueueItem } from '../hooks/useStartQueueItem';
 import { AmsPicture, AmsPictures } from './QueueTodoAmsPicture';
-import { PictureActions } from './QueueTodoSlotActions';
+import { PictureWithActions } from './QueueTodoSlotActions';
 import { AddSpoolActions, JobActions, PowerOnAgain } from './QueueTodoEntryActions';
 import { PausedActions } from './QueueTodoPausedActions';
 import { formatSlotLabel } from '../utils/amsHelpers';
@@ -565,12 +565,7 @@ function EntryRow({ group, entry, onNavigate, onOpenQueue, onStart, startPending
             ))}
           </ul>
         )}
-        {picture && (
-          <>
-            <AmsPicture picture={picture} filaments={entry.filaments} />
-            <PictureActions picture={picture} overlayZIndex={overlayZIndex} />
-          </>
-        )}
+        {picture && <PictureWithActions picture={picture} filaments={entry.filaments} overlayZIndex={overlayZIndex} />}
         {pictures.length > 0 && (
           <AmsPictures
             pictures={pictures}
@@ -579,13 +574,11 @@ function EntryRow({ group, entry, onNavigate, onOpenQueue, onStart, startPending
             onSelect={setPickedPrinter}
             // The title already names the one printer there is.
             nameSingle={!(modelPrinters.length === 1 && modelPrinters[0].id === pictures[0].printer_id)}
-            renderActions={(p) => (
-              <>
-                <PictureActions key={p.printer_id} picture={p} overlayZIndex={overlayZIndex} />
-                {/* For the printer shown: none on a printer that lacks a filament. */}
-                {printAnyway(p.printer_id)}
-              </>
+            renderPicture={(p, shown) => (
+              <PictureWithActions key={p.printer_id} picture={p} filaments={shown} overlayZIndex={overlayZIndex} />
             )}
+            // For the printer shown: none on a printer that lacks a filament.
+            renderActions={(p) => printAnyway(p.printer_id)}
           />
         )}
         {entry.kind === 'load_filament' && !hasPicture && <SlotHints entry={entry} />}

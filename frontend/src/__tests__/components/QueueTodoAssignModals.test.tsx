@@ -44,7 +44,7 @@ vi.mock('../../components/SpoolFormModal', () => ({
   },
 }));
 
-import { PictureActions } from '../../components/QueueTodoSlotActions';
+import { PictureWithActions } from '../../components/QueueTodoSlotActions';
 
 const picture: QueueTodoPicture = {
   printer_id: 7,
@@ -72,12 +72,18 @@ beforeEach(() => {
   );
 });
 
+// A slot of the picture is the button; its menu holds what the entry offers for it.
+async function chooseFromSlotMenu(item: string) {
+  fireEvent.click(await screen.findByRole('button', { name: /^B2 - / }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: item }));
+}
+
 function renderActions() {
   return rtlRender(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <MemoryRouter>
         <ToastProvider>
-          <PictureActions picture={picture} overlayZIndex="z-[70]" />
+          <PictureWithActions picture={picture} filaments={[]} overlayZIndex="z-[70]" />
         </ToastProvider>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -94,7 +100,7 @@ describe('the To do panel and its dialogs', () => {
       </QueryClientProvider>,
     );
     fireEvent.click(await screen.findByRole('button', { name: /To do: 1/ }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Set up slot B2' }));
+    await chooseFromSlotMenu('Configure');
     await screen.findByTestId('configure-modal');
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.getByRole('dialog', { name: 'To do' })).toBeInTheDocument();
@@ -108,10 +114,32 @@ describe('the To do panel and its dialogs', () => {
   });
 });
 
+describe('the To do panel and a slot menu', () => {
+  it('Escape closes the open slot menu and leaves the panel open; the menu is above the panel', async () => {
+    server.use(http.get('/api/v1/queue/todo', () => HttpResponse.json({ count: 1, groups: [{ printer_id: 7, printer_name: 'Shelf X1C', target_model: null, prepare: [], entries: [{ kind: 'load_filament', jobs: [{ id: 1, name: 'Lamp_Base.5x.P1S.3mf', can_start: true }], filaments: [], printers: [], detail: null, ams_picture: picture }] }] })));
+    const { QueueTodoLauncher } = await import('../../components/QueueTodoLauncher');
+    rtlRender(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter><ToastProvider><QueueTodoLauncher /></ToastProvider></MemoryRouter>
+      </QueryClientProvider>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /To do: 1/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^B2 - / }));
+    const menu = await screen.findByRole('menu');
+    expect(menu.className).toContain('z-[70]');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+    expect(screen.getByRole('dialog', { name: 'To do' })).toBeInTheDocument();
+    // With the menu closed, Escape closes the panel.
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'To do' })).toBeNull());
+  });
+});
+
 describe('dialogs opened from an entry', () => {
   it('sets the slot up with the slot, its nozzle and diameter, above the panel', async () => {
     renderActions();
-    fireEvent.click(await screen.findByRole('button', { name: 'Set up slot B2' }));
+    await chooseFromSlotMenu('Configure');
     await screen.findByTestId('configure-modal');
     await waitFor(() => expect(configureProps).toHaveBeenLastCalledWith(expect.objectContaining({ nozzleDiameter: '0.4', printerState: 'IDLE' })));
     const props = configureProps.mock.lastCall![0];
@@ -123,7 +151,7 @@ describe('dialogs opened from an entry', () => {
 
   it('opens the new-spool form from the picker', async () => {
     renderActions();
-    fireEvent.click(await screen.findByRole('button', { name: 'Assign spool for B2' }));
+    await chooseFromSlotMenu('Assign Spool');
     fireEvent.click(await screen.findByRole('button', { name: 'Add new spool' }));
     await screen.findByTestId('spool-form-modal');
     expect(formProps.mock.lastCall![0]).toMatchObject({ mode: 'create', overlayZIndex: 'z-[70]' });

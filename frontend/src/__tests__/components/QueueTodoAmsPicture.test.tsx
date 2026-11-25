@@ -391,6 +391,29 @@ describe('the picture in the To do list', () => {
     expect(screen.getByTestId('todo-short')).toBeInTheDocument();
   });
 
+  it('makes the slots of an entry buttons that open a menu, says so in one line, and has no button row', () => {
+    render(<QueueTodoList todo={listOf({ ams_picture: replaceA3 })} />);
+    const row = screen.getByTestId('todo-entry-load_filament');
+    expect(within(row).queryByRole('button', { name: /Assign spool for|Set up slot/ })).toBeNull();
+    expect(within(row).getByTestId('todo-slot-menu-hint')).toBeInTheDocument();
+    const slotA3 = within(row).getByRole('button', { name: /^A3 - PLA Lava Red/ });
+    expect(slotA3).toHaveAttribute('data-testid', 'todo-ams-slot');
+    expect(slotA3).toHaveAttribute('aria-haspopup', 'menu');
+    // The grid placement is that of the plain card.
+    expect(slotA3).toHaveStyle({ gridColumn: '3', gridRow: '3' });
+    fireEvent.click(slotA3);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Configure' })).toBeInTheDocument();
+    // On the page the menu sits where the printer card's does; a panel passes its own layer.
+    expect(screen.getByRole('menu').className).toContain('z-[60]');
+  });
+
+  it('draws a picture without actions as plain cards', () => {
+    render(<AmsPicture picture={replaceA3} filaments={[lavaRed]} />);
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.queryByTestId('todo-ams-slot-menu-mark')).toBeNull();
+  });
+
   it('keeps the sentence when the entry has no picture', () => {
     const slotHint = { state: 'free' as const, slots: [{ ams_id: 0, tray_id: 3, is_ht: false, is_external: false, ams_type: 1, nozzle: null, type: '', color: '', tray_info_idx: '', tray_sub_brands: '' }], unknown_jobs: 0, by_nozzle: [] };
     render(<QueueTodoList todo={listOf({ slot_hint: slotHint, ams_picture: null })} />);
@@ -417,6 +440,8 @@ describe('the picture in the To do list', () => {
     expect(screen.getByTestId('todo-ams-picture')).toHaveAttribute('data-compact', 'true');
     expect(screen.queryByTestId('todo-prepare-hint')).toBeNull();
     expect(screen.getByTestId('todo-prepare-row')).toHaveTextContent('Lamp_Shade.3mf');
+    // A look ahead, nothing to do yet: its slots are no buttons.
+    expect(within(screen.getByTestId('todo-ams-picture')).queryByRole('button')).toBeNull();
   });
 
   it('draws the printer a model job would likely go to first, with the others one tap away', () => {
@@ -468,7 +493,11 @@ describe('the picture in the To do list', () => {
     expect(within(row).getAllByTestId('todo-filament')).toHaveLength(4);
     expect(within(row).getByRole('link', { name: 'A1 rechts' })).toBeInTheDocument();
     expect(within(row).getAllByTestId('todo-ams-incoming')).toHaveLength(4);
+    // The slots of the printer shown are the buttons; none on the one that is printing.
+    expect(within(row).getAllByTestId('todo-ams-slot').map((s) => s.getAttribute('role'))).toEqual(['button', 'button', 'button', 'button']);
     fireEvent.click(within(row).getByRole('button', { name: 'A1 Links' }));
+    expect(within(row).getAllByTestId('todo-ams-slot').map((s) => s.getAttribute('role'))).toEqual([null, null, null, null]);
+    expect(within(row).queryByTestId('todo-slot-menu-hint')).toBeNull();
     expect(within(row).getAllByTestId('todo-filament').map((li) => li.textContent)).toEqual(['PLA Muted White', 'PLA Gold', 'PLA Muted Red']);
     expect(within(row).getByRole('link', { name: 'A1 Links' })).toBeInTheDocument();
     expect(within(row).queryByRole('link', { name: 'A1 rechts' })).toBeNull();

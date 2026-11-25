@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useId, type ReactNode, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useId, type HTMLAttributes, type ReactNode, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -82,7 +82,7 @@ const INTERACTIVE_SELECTOR = 'a[href], button, input, select, textarea, [role="b
  * mouseenter, which a tap on the material text turned into a text selection
  * instead.
  */
-function useSlotCard(disabled: boolean | undefined) {
+function useSlotCard(disabled: boolean | undefined, { hover = true }: { hover?: boolean } = {}) {
   const [isVisible, setIsVisible] = useState(false);
   const triggerRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -90,6 +90,7 @@ function useSlotCard(disabled: boolean | undefined) {
   const lastTouchRef = useRef(Number.NEGATIVE_INFINITY);
   const pointerTypeRef = useRef<string | null>(null);
   const openedByHoverRef = useRef(false);
+  const openedByKeyboardRef = useRef(false);
   const cardId = useId();
 
   const clearTimer = useCallback(() => {
@@ -127,9 +128,10 @@ function useSlotCard(disabled: boolean | undefined) {
     setIsVisible(false);
   }, [clearTimer]);
 
-  const toggle = () => {
+  const toggle = (byKeyboard = false) => {
     clearTimer();
     openedByHoverRef.current = false;
+    openedByKeyboardRef.current = byKeyboard;
     setIsVisible((v) => !v);
   };
 
@@ -198,8 +200,9 @@ function useSlotCard(disabled: boolean | undefined) {
       'aria-controls': isVisible ? cardId : undefined,
       onPointerEnter: notePointer,
       onPointerDown: notePointer,
-      onMouseEnter: handleMouseEnter,
-      onMouseLeave: handleMouseLeave,
+      // Without hover the card opens on a tap, a click or the keyboard only.
+      onMouseEnter: hover ? handleMouseEnter : undefined,
+      onMouseLeave: hover ? handleMouseLeave : undefined,
       onClick: (e: MouseEvent<HTMLElement>) => {
         // The card is portaled, but React still bubbles its events to the
         // tile. Only a click on the tile itself counts, and a control inside
@@ -222,7 +225,7 @@ function useSlotCard(disabled: boolean | undefined) {
         if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          if (!e.repeat) toggle();
+          if (!e.repeat) toggle(true);
         }
       },
     };
@@ -230,11 +233,11 @@ function useSlotCard(disabled: boolean | undefined) {
 
   const cardProps = {
     id: cardId,
-    onMouseEnter: handleMouseEnter,
-    onMouseLeave: handleMouseLeave,
+    onMouseEnter: hover ? handleMouseEnter : undefined,
+    onMouseLeave: hover ? handleMouseLeave : undefined,
   };
 
-  return { isVisible, dismiss, triggerRef, cardRef, cardProps, triggerProps };
+  return { isVisible, dismiss, triggerRef, cardRef, cardProps, triggerProps, openedByKeyboardRef };
 }
 
 // Keyboard focus ring for the slot tile; mouse clicks never show it.
@@ -755,10 +758,121 @@ interface EmptySlotHoverCardProps {
 
 export function EmptySlotHoverCard({ children, className = '', configureSlot, onAssignSpool, actions, kind, assigned, slotLabel }: EmptySlotHoverCardProps) {
   const { t } = useTranslation();
-  const { isVisible, dismiss, triggerRef, cardRef, cardProps, triggerProps } = useSlotCard(false);
+  return (
+    <SlotMenuCard
+      className={`relative ${TILE_FOCUS_CLASS} ${className}`}
+      tileProps={{ 'data-testid': 'empty-slot' }}
+      ariaLabel={t('printers.amsSlot.tileLabel', {
+        slot: slotLabel ?? t('ams.slot'),
+        material: assigned
+          ? assigned.label
+          : kind === 'reset' ? t('ams.emptySlotReset') : t('ams.emptySlot'),
+      })}
+      header={assigned ? (
+        <div className="px-3 py-1.5 text-xs space-y-1">
+          <div className="flex items-center gap-1.5 text-white whitespace-nowrap">
+            <span
+              className="w-2.5 h-2.5 rounded-full border border-amber-500 border-dashed flex-shrink-0"
+              style={{ backgroundColor: assigned.colorHex ? `#${assigned.colorHex.slice(0, 6)}` : 'transparent' }}
+            />
+            {assigned.label}
+          </div>
+          <div className="text-amber-400 max-w-[14rem]">{t('ams.assignedNotConfigured')}</div>
+        </div>
+      ) : (
+        <div className="px-3 py-1.5 text-xs text-bambu-gray whitespace-nowrap">
+          {kind === 'reset' ? t('ams.emptySlotReset') : t('ams.emptySlot')}
+        </div>
+      )}
+      slotActions={{
+        unassign: assigned?.onUnassign ? { onSelect: assigned.onUnassign } : undefined,
+        assign: onAssignSpool && !assigned ? { onSelect: onAssignSpool } : undefined,
+        configure: configureSlot?.enabled ? { onSelect: () => configureSlot.onConfigure?.() } : undefined,
+      }}
+      actions={actions}
+    >
+      {children}
+    </SlotMenuCard>
+  );
+}
+
+/** One entry of a slot's menu. */
+export interface SlotMenuAction {
+  onSelect: () => void;
+  /** Drawn but not usable; `disabledReason` is its tooltip. */
+  disabled?: boolean;
+  disabledReason?: string;
+}
+
+/** What a slot's menu offers. The order on screen is fixed: unassign, assign, configure. */
+export interface SlotMenuActions {
+  unassign?: SlotMenuAction;
+  assign?: SlotMenuAction;
+  configure?: SlotMenuAction;
+}
+
+type TileProps = HTMLAttributes<HTMLDivElement> & { [key: `data-${string}`]: string | undefined };
+
+interface SlotMenuCardProps {
+  /** The slot tile. */
+  children: ReactNode;
+  className: string;
+  /** Further attributes of the tile (test id, grid placement). */
+  tileProps?: TileProps;
+  ariaLabel: string;
+  /** First line of the card: what the slot is. */
+  header: ReactNode;
+  slotActions: SlotMenuActions;
+  /** Further buttons under a divider (the printer card's load / unload). */
+  actions?: ReactNode;
+  /**
+   * A menu rather than a card with details: it opens on a tap, a click or
+   * Enter / Space only (not on hover), its entries are menu items the arrow
+   * keys move between, and they are at least 44 px high on a phone.
+   */
+  menu?: boolean;
+  /** Side of the tile the card opens on. 'bottom' turns to the top when it does not fit below. */
+  placement?: 'top' | 'bottom';
+  /** Stacking class of the card; a caller inside a panel passes one above it. */
+  zIndexClass?: string;
+  /** Attribute set on the tile while its card is open. */
+  openAttribute?: `data-${string}`;
+}
+
+const enabledMenuItems = (card: HTMLElement | null) =>
+  Array.from(card?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? []);
+
+const ITEM_BLUE = { idle: 'bg-bambu-blue/20', hover: 'hover:bg-bambu-blue/40', text: 'text-bambu-blue' };
+const ITEM_RED = {
+  idle: 'bg-red-100 dark:bg-red-500/20',
+  hover: 'hover:bg-red-200 dark:hover:bg-red-500/40',
+  text: 'text-red-700 dark:text-red-400',
+};
+
+/**
+ * A slot tile and the card of actions it opens: unassign, assign a spool,
+ * configure the slot. Shared by the printer card's empty slots and the slots
+ * of the To do list's AMS picture.
+ */
+export function SlotMenuCard({
+  children,
+  className,
+  tileProps,
+  ariaLabel,
+  header,
+  slotActions,
+  actions,
+  menu = false,
+  placement = 'top',
+  zIndexClass = 'z-[60]',
+  openAttribute,
+}: SlotMenuCardProps) {
+  const { t } = useTranslation();
+  const { isVisible, dismiss, triggerRef, cardRef, cardProps, triggerProps, openedByKeyboardRef } = useSlotCard(false, { hover: !menu });
   // Screen-space coords for the portaled card — same pattern as
   // FilamentHoverCard, see comment there (#1336 follow-up).
   const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const [side, setSide] = useState<'top' | 'bottom'>(placement);
 
   useLayoutEffect(() => {
     if (!isVisible) {
@@ -772,8 +886,10 @@ export function EmptySlotHoverCard({ children, className = '', configureSlot, on
       const cardWidth = cardRef.current.offsetWidth;
       const centerX = triggerRect.left + triggerRect.width / 2;
       const left = Math.max(8, Math.min(centerX - cardWidth / 2, window.innerWidth - cardWidth - 8));
-      const top = triggerRect.top - cardHeight - 8;
-      setCoords({ top, left });
+      const spaceBelow = window.innerHeight - triggerRect.bottom;
+      const below = placement === 'bottom' && (spaceBelow >= cardHeight + 12 || spaceBelow >= triggerRect.top);
+      setSide(below ? 'bottom' : 'top');
+      setCoords({ top: below ? triggerRect.bottom + 8 : triggerRect.top - cardHeight - 8, left });
     };
     compute();
     const rafId = requestAnimationFrame(compute);
@@ -784,31 +900,78 @@ export function EmptySlotHoverCard({ children, className = '', configureSlot, on
       window.removeEventListener('scroll', compute, true);
       window.removeEventListener('resize', compute);
     };
-  }, [isVisible, triggerRef, cardRef]);
+  }, [isVisible, triggerRef, cardRef, placement]);
+
+  // A menu opened from the keyboard takes the focus, once it is placed.
+  const placed = coords !== null;
+  useEffect(() => {
+    if (!menu || !placed || !openedByKeyboardRef.current) return;
+    openedByKeyboardRef.current = false;
+    enabledMenuItems(cardRef.current)[0]?.focus();
+  }, [menu, placed, cardRef, openedByKeyboardRef]);
+
+  const onMenuKeyDown = (e: KeyboardEvent<HTMLElement>) => {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+    const list = enabledMenuItems(cardRef.current);
+    if (list.length === 0) return;
+    e.preventDefault();
+    const at = list.indexOf(document.activeElement as HTMLElement);
+    const last = list.length - 1;
+    const next =
+      e.key === 'Home' ? 0
+        : e.key === 'End' ? last
+          : e.key === 'ArrowDown' ? (at + 1) % list.length
+            : at <= 0 ? last : at - 1;
+    list[next].focus();
+  };
+
+  const itemBase = `w-full flex items-center justify-start gap-1.5 px-2 py-1.5 ${
+    menu ? 'min-h-[44px] sm:min-h-[32px] text-sm outline-none focus-visible:ring-2 focus-visible:ring-bambu-green/70' : 'text-xs'
+  } font-medium rounded transition-colors`;
+  const item = (action: SlotMenuAction | undefined, label: string, icon: ReactNode, look: typeof ITEM_BLUE, title?: string) =>
+    action && (
+      <button
+        role={menu ? 'menuitem' : undefined}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (action.disabled) return;
+          dismiss();
+          // The menu item goes away with the menu: the focus returns to the tile.
+          if (menu) triggerRef.current?.focus();
+          action.onSelect();
+        }}
+        disabled={action.disabled || undefined}
+        className={`${itemBase} ${look.idle} ${action.disabled ? 'opacity-50 cursor-not-allowed' : look.hover} ${look.text}`}
+        title={action.disabled ? action.disabledReason : title}
+      >
+        {icon}
+        {label}
+      </button>
+    );
+  const hasItems = !!(slotActions.unassign || slotActions.assign || slotActions.configure);
 
   return (
     <div
       ref={triggerRef}
-      className={`relative ${TILE_FOCUS_CLASS} ${className}`}
-      data-testid="empty-slot"
-      {...triggerProps(
-        t('printers.amsSlot.tileLabel', {
-          slot: slotLabel ?? t('ams.slot'),
-          material: assigned
-            ? assigned.label
-            : kind === 'reset' ? t('ams.emptySlotReset') : t('ams.emptySlot'),
-        }),
-      )}
+      className={className}
+      {...tileProps}
+      {...triggerProps(ariaLabel)}
+      aria-haspopup={menu ? 'menu' : undefined}
+      {...(openAttribute && isVisible ? { [openAttribute]: 'true' } : {})}
     >
       {children}
 
       {isVisible && createPortal(
         <div
           ref={cardRef}
-          className="fixed z-[60] select-text"
+          role={menu ? 'menu' : undefined}
+          aria-label={menu ? ariaLabel : undefined}
+          onKeyDown={menu ? onMenuKeyDown : undefined}
+          className={`fixed ${zIndexClass} select-text`}
           style={{
             top: coords?.top ?? -9999,
             left: coords?.left ?? -9999,
+            maxWidth: 'calc(100vw - 16px)',
             visibility: coords ? 'visible' : 'hidden',
           }}
           {...cardProps}
@@ -817,62 +980,17 @@ export function EmptySlotHoverCard({ children, className = '', configureSlot, on
             bg-bambu-dark-secondary border border-bambu-dark-tertiary
             rounded-md shadow-lg overflow-hidden
           ">
-            {assigned ? (
-              <div className="px-3 py-1.5 text-xs space-y-1">
-                <div className="flex items-center gap-1.5 text-white whitespace-nowrap">
-                  <span
-                    className="w-2.5 h-2.5 rounded-full border border-amber-500 border-dashed flex-shrink-0"
-                    style={{ backgroundColor: assigned.colorHex ? `#${assigned.colorHex.slice(0, 6)}` : 'transparent' }}
-                  />
-                  {assigned.label}
-                </div>
-                <div className="text-amber-400 max-w-[14rem]">{t('ams.assignedNotConfigured')}</div>
-              </div>
-            ) : (
-              <div className="px-3 py-1.5 text-xs text-bambu-gray whitespace-nowrap">
-                {kind === 'reset' ? t('ams.emptySlotReset') : t('ams.emptySlot')}
-              </div>
-            )}
-            {/* Configure slot button */}
-            {(configureSlot?.enabled || onAssignSpool || assigned?.onUnassign || actions) && (
+            {header}
+            {(hasItems || actions) && (
               <div className="px-2 pb-2 space-y-1">
                 {/* Assign before Configure, matching the filled-slot card
                     above (#2791).  The two cards are separate render paths
                     and had drifted into opposite orders, so the menu
                     reshuffled itself depending on whether the slot happened
                     to hold filament. */}
-                {assigned?.onUnassign && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); dismiss(); assigned.onUnassign?.(); }}
-                    className="w-full flex items-center justify-start gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors bg-red-100 dark:bg-red-500/20 hover:bg-red-200 dark:hover:bg-red-500/40 text-red-700 dark:text-red-400"
-                  >
-                    <Unlink className="w-3.5 h-3.5" />
-                    {t('inventory.unassignSpool')}
-                  </button>
-                )}
-                {onAssignSpool && !assigned && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); dismiss(); onAssignSpool(); }}
-                    className="w-full flex items-center justify-start gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors bg-bambu-blue/20 hover:bg-bambu-blue/40 text-bambu-blue"
-                  >
-                    <Package className="w-3.5 h-3.5" />
-                    {t('inventory.assignSpool')}
-                  </button>
-                )}
-                {configureSlot?.enabled && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      dismiss();
-                      configureSlot.onConfigure?.();
-                    }}
-                    className="w-full flex items-center justify-start gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors bg-bambu-blue/20 hover:bg-bambu-blue/40 text-bambu-blue"
-                    title={t('ams.configureSlot')}
-                  >
-                    <Settings2 className="w-3.5 h-3.5" />
-                    {t('ams.configure')}
-                  </button>
-                )}
+                {item(slotActions.unassign, t('inventory.unassignSpool'), <Unlink className="w-3.5 h-3.5" />, ITEM_RED)}
+                {item(slotActions.assign, t('inventory.assignSpool'), <Package className="w-3.5 h-3.5" />, ITEM_BLUE)}
+                {item(slotActions.configure, t('ams.configure'), <Settings2 className="w-3.5 h-3.5" />, ITEM_BLUE, t('ams.configureSlot'))}
                 {actions && (
                   <div className="pt-1 mt-1 border-t border-bambu-dark-tertiary space-y-1">
                     {actions}
@@ -881,12 +999,13 @@ export function EmptySlotHoverCard({ children, className = '', configureSlot, on
               </div>
             )}
           </div>
-          <div className="
-            absolute left-1/2 -translate-x-1/2 top-full w-0 h-0
-            border-l-[5px] border-l-transparent
-            border-r-[5px] border-r-transparent
-            border-t-[5px] border-t-bambu-dark-tertiary
-          " />
+          <div
+            className={`absolute left-1/2 -translate-x-1/2 w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent ${
+              side === 'top'
+                ? 'top-full border-t-[5px] border-t-bambu-dark-tertiary'
+                : 'bottom-full border-b-[5px] border-b-bambu-dark-tertiary'
+            }`}
+          />
         </div>,
         document.body,
       )}

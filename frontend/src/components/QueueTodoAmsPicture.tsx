@@ -1,12 +1,13 @@
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Lock } from 'lucide-react';
+import { ChevronDown, Lock } from 'lucide-react';
 import type {
   QueueTodoFilament,
   QueueTodoPicture,
   QueueTodoPictureSlot,
   QueueTodoPictureUnit,
 } from '../api/client';
+import { SlotMenuCard, type SlotMenuActions } from './FilamentHoverCard';
 import { FilamentSlotCircle } from './FilamentSlotCircle';
 import { formatSlotLabel, getAmsLabel } from '../utils/amsHelpers';
 import { getColorName } from '../utils/colors';
@@ -111,23 +112,42 @@ const CARD_STATE_CLASS: Record<QueueTodoPictureSlot['state'], string> = {
   unknown: 'border border-dashed border-amber-400/70 bg-bambu-dark',
 };
 
-function SlotCard({ slot, compact, row, column }: { slot: QueueTodoPictureSlot; compact: boolean; row: number; column: number }) {
+// The menu a slot opens, or null for a slot that is no button.
+type SlotMenuOf = (slot: QueueTodoPictureSlot) => SlotMenuActions | null;
+
+// A slot that opens a menu: a button, in the look of the printer card's slots.
+const SLOT_BUTTON_CLASS =
+  'relative cursor-pointer select-none outline-none transition-shadow hover:ring-2 hover:ring-bambu-green/50 focus-visible:ring-2 focus-visible:ring-bambu-green/70 aria-expanded:ring-2 aria-expanded:ring-bambu-green/70';
+
+interface SlotCardProps {
+  slot: QueueTodoPictureSlot;
+  compact: boolean;
+  row: number;
+  column: number;
+  menu: SlotMenuActions | null;
+  menuZIndex?: string;
+}
+
+function SlotCard({ slot, compact, row, column, menu, menuZIndex }: SlotCardProps) {
   const { t, i18n } = useTranslation();
   const line = stateLine(t, i18n.language, slot, compact);
   const loaded = !!slot.type;
   const colorName = slot.color_name || (slot.color ? getColorName(slot.color, slot.tray_sub_brands || null, slot.tray_info_idx) : '');
   const filament = [slot.type, colorName].filter(Boolean).join(' ');
   const swatch = compact ? 'w-[22px] h-[22px]' : 'w-[30px] h-[30px]';
-  return (
-    <div
-      data-testid="todo-ams-slot"
-      data-state={slot.state}
-      style={{ gridRow: row, gridColumn: column }}
-      className={`min-w-0 rounded-[10px] px-1 sm:px-1.5 ${compact ? 'py-1.5' : 'py-2.5'} flex flex-col items-center gap-1 text-center ${CARD_STATE_CLASS[slot.state]}`}
-    >
+  const tile = {
+    'data-testid': 'todo-ams-slot',
+    'data-state': slot.state,
+    style: { gridRow: row, gridColumn: column },
+  };
+  const className = `min-w-0 rounded-[10px] px-1 sm:px-1.5 ${compact ? 'py-1.5' : 'py-2.5'} flex flex-col items-center gap-1 text-center ${CARD_STATE_CLASS[slot.state]}`;
+  const incomingName = slot.incoming ? [slot.incoming.type, slot.incoming.color_name].filter(Boolean).join(' ') || slot.incoming.color : '';
+  const body = (
+    <>
       <div className="flex items-center gap-1 text-xs font-bold text-white">
         {pictureSlotLabel(slot)}
         {slot.state === 'locked' && <Lock role="img" aria-label={t('queueTodo.picture.lockedLabel')} className="w-3 h-3 text-bambu-gray" />}
+        {menu && <ChevronDown aria-hidden="true" data-testid="todo-ams-slot-menu-mark" className="-ml-0.5 w-3 h-3 text-bambu-gray-light" />}
       </div>
       <FilamentSlotCircle
         isEmpty={!loaded}
@@ -150,7 +170,37 @@ function SlotCard({ slot, compact, row, column }: { slot: QueueTodoPictureSlot; 
         </div>
       )}
       <div className={`w-full min-w-0 text-[10px] sm:text-[11px] leading-tight break-words ${line.className}`}>{line.text || ' '}</div>
-    </div>
+    </>
+  );
+  if (!menu) {
+    return (
+      <div {...tile} className={className}>
+        {body}
+      </div>
+    );
+  }
+  return (
+    <SlotMenuCard
+      menu
+      placement="bottom"
+      zIndexClass={menuZIndex}
+      // The To do panel leaves Escape to what an entry has open.
+      openAttribute="data-todo-modal-open"
+      className={`${className} ${SLOT_BUTTON_CLASS}`}
+      tileProps={tile}
+      ariaLabel={t('printers.amsSlot.tileLabel', {
+        slot: pictureSlotLabel(slot),
+        material: [filament, line.text].filter(Boolean).join(', '),
+      })}
+      header={
+        <div data-testid="todo-ams-slot-menu-title" className="px-3 py-1.5 text-xs text-bambu-gray break-words">
+          {[pictureSlotLabel(slot), incomingName || filament].filter(Boolean).join(' · ')}
+        </div>
+      }
+      slotActions={menu}
+    >
+      {body}
+    </SlotMenuCard>
   );
 }
 
@@ -208,7 +258,19 @@ function IncomingCard({
 // filament of a slot is in row 1 of the same column, its arrow in row 2, the
 // slot in row 3, so an arrow always runs straight down and none crosses
 // another. A slot nothing goes into gets an empty cell above it.
-function Unit({ unit, filaments, compact }: { unit: QueueTodoPictureUnit; filaments: QueueTodoFilament[]; compact: boolean }) {
+function Unit({
+  unit,
+  filaments,
+  compact,
+  slotMenu,
+  menuZIndex,
+}: {
+  unit: QueueTodoPictureUnit;
+  filaments: QueueTodoFilament[];
+  compact: boolean;
+  slotMenu?: SlotMenuOf;
+  menuZIndex?: string;
+}) {
   const { t } = useTranslation();
   const columns = Math.min(MAX_COLUMNS, Math.max(unit.slots.length, 4));
   const lines = chunk(unit.slots, MAX_COLUMNS);
@@ -255,7 +317,15 @@ function Unit({ unit, filaments, compact }: { unit: QueueTodoPictureUnit; filame
                 )
               : []),
             ...line.map((slot, ci) => (
-              <SlotCard key={`slot-${slot.ams_id}-${slot.tray_id}`} slot={slot} compact={compact} row={base + 3} column={ci + 1} />
+              <SlotCard
+                key={`slot-${slot.ams_id}-${slot.tray_id}`}
+                slot={slot}
+                compact={compact}
+                row={base + 3}
+                column={ci + 1}
+                menu={slotMenu?.(slot) ?? null}
+                menuZIndex={menuZIndex}
+              />
             )),
           ];
         })}
@@ -268,11 +338,15 @@ interface AmsPictureProps {
   picture: QueueTodoPicture;
   // The entry's filaments: what an incoming card says about its filament.
   filaments: QueueTodoFilament[];
+  // What a slot offers: a slot with a menu is a button that opens it.
+  slotMenu?: SlotMenuOf;
+  // Stacking class of the menu, for a picture inside a panel.
+  menuZIndex?: string;
 }
 
 // The printer's AMS with where each filament of the entry goes (#3726).
 // Units nothing goes into are folded behind a toggle.
-export function AmsPicture({ picture, filaments }: AmsPictureProps) {
+export function AmsPicture({ picture, filaments, slotMenu, menuZIndex }: AmsPictureProps) {
   const { t } = useTranslation();
   // Per printer: switching to another one starts folded again.
   const [expandedFor, setExpandedFor] = useState<number | null>(null);
@@ -288,7 +362,14 @@ export function AmsPicture({ picture, filaments }: AmsPictureProps) {
   return (
     <div data-testid="todo-ams-picture" data-compact={picture.compact ? 'true' : 'false'} className="min-w-0 space-y-2">
       {shown.map((unit) => (
-        <Unit key={`${unit.kind}-${unit.ams_id}-${unit.slots[0]?.tray_id}`} unit={unit} filaments={filaments} compact={picture.compact} />
+        <Unit
+          key={`${unit.kind}-${unit.ams_id}-${unit.slots[0]?.tray_id}`}
+          unit={unit}
+          filaments={filaments}
+          compact={picture.compact}
+          slotMenu={slotMenu}
+          menuZIndex={menuZIndex}
+        />
       ))}
       {folded.length > 0 && (
         <button
@@ -316,6 +397,8 @@ interface AmsPicturesProps {
   filaments: QueueTodoFilament[];
   // What goes under the picture shown: the actions for that printer.
   renderActions?: (picture: QueueTodoPicture) => ReactNode;
+  // Draws the picture shown, for a caller whose slots open a menu.
+  renderPicture?: (picture: QueueTodoPicture, filaments: QueueTodoFilament[]) => ReactNode;
   // The printer shown, when the caller keeps it (to list that printer's filaments).
   selected?: number | null;
   onSelect?: (printerId: number) => void;
@@ -325,7 +408,7 @@ interface AmsPicturesProps {
 
 // A model job's picture: the printer it would likely go to first, with a
 // switch to the other candidates.
-export function AmsPictures({ pictures, filaments, renderActions, selected: selectedProp, onSelect, nameSingle = true }: AmsPicturesProps) {
+export function AmsPictures({ pictures, filaments, renderActions, renderPicture, selected: selectedProp, onSelect, nameSingle = true }: AmsPicturesProps) {
   const { t } = useTranslation();
   const [ownSelected, setOwnSelected] = useState<number | null>(null);
   const selected = selectedProp === undefined ? ownSelected : selectedProp;
@@ -361,7 +444,9 @@ export function AmsPictures({ pictures, filaments, renderActions, selected: sele
       {pictures.length === 1 && nameSingle && (
         <div data-testid="todo-ams-printer-name" className="text-xs text-bambu-gray-light">{current.printer_name}</div>
       )}
-      <AmsPicture picture={current} filaments={current.filaments ?? filaments} />
+      {renderPicture
+        ? renderPicture(current, current.filaments ?? filaments)
+        : <AmsPicture picture={current} filaments={current.filaments ?? filaments} />}
       {renderActions?.(current)}
     </div>
   );
