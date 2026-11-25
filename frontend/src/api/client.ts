@@ -2965,6 +2965,8 @@ export interface QueueTodoPictureSlot {
   ams_type: number | null;
   type: string;
   color: string;
+  // RRGGBBAA of a translucent or clear spool; empty when the colour is opaque.
+  rgba?: string;
   extra_colors: string;
   effect_type: string;
   subtype: string;

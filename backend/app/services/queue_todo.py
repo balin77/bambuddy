@@ -147,6 +147,8 @@ class PictureSlot:
     color: str = ""
     tray_info_idx: str = ""
     tray_sub_brands: str = ""
+    # RRGGBBAA of a translucent or clear spool (alpha below FF); empty otherwise.
+    rgba: str = ""
     empty: bool = False
     rfid: bool = False
     remain: int | None = None
@@ -914,6 +916,7 @@ def picture_dict(
             "ams_type": slot.ams_type,
             "type": slot.type,
             "color": slot.color,
+            "rgba": slot.rgba,
             "extra_colors": extra.extra_colors,
             "effect_type": extra.effect_type,
             "subtype": extra.subtype,

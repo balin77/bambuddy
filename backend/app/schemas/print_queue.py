@@ -680,6 +680,8 @@ class QueueTodoPictureSlot(BaseModel):
     ams_type: int | None = None
     type: str = ""
     color: str = ""
+    # RRGGBBAA of a translucent or clear spool (alpha below FF); empty when opaque.
+    rgba: str = ""
     extra_colors: str = ""
     effect_type: str = ""
     subtype: str = ""

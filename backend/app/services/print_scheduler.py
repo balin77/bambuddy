@@ -1648,6 +1648,12 @@ def _hex_color(color: str | None) -> str:
     return f"#{color.replace('#', '')[:6]}" if color else "#808080"
 
 
+def _translucent_rgba(color: str | None) -> str:
+    """The printer's RRGGBBAA of a tray colour when its alpha is below FF (a translucent or clear spool), else "" (#3726)."""
+    hex_color = (color or "").replace("#", "")
+    return hex_color[:8].upper() if len(hex_color) >= 8 and hex_color[6:8].lower() != "ff" else ""
+
+
 def _picture_slots(status) -> tuple[PictureSlot, ...]:
     """Every slot the printer reports, for the To do list's AMS picture (#3726).
 
@@ -1691,6 +1697,7 @@ def _picture_slots(status) -> tuple[PictureSlot, ...]:
                     type=str(tray.get("tray_type") or ""),
                     color=_hex_color(tray.get("tray_color")) if loaded else "",
                     tray_info_idx=str(tray.get("tray_info_idx") or ""),
+                    rgba=_translucent_rgba(tray.get("tray_color")) if loaded else "",
                     tray_sub_brands=str(tray.get("tray_sub_brands") or ""),
                     empty=not loaded and (presence is False or (presence is None and tray.get("state") in (9, 10))),
                     rfid=loaded and has_rfid(tray),
@@ -1715,6 +1722,7 @@ def _picture_slots(status) -> tuple[PictureSlot, ...]:
                 type=str(vt.get("tray_type") or ""),
                 color=_hex_color(vt.get("tray_color")) if loaded else "",
                 tray_info_idx=str(vt.get("tray_info_idx") or ""),
+                rgba=_translucent_rgba(vt.get("tray_color")) if loaded else "",
                 tray_sub_brands=str(vt.get("tray_sub_brands") or ""),
                 # Confirmed empty only where the holder is the printer's only slot.
                 empty=not loaded and not has_ams_trays,
