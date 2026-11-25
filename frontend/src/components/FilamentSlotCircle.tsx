@@ -20,7 +20,22 @@
  *                a string for non-numeric labels (e.g. "L" / "R" for the
  *                dual-nozzle external trays, where carrying a separate
  *                Ext-L/Ext-R caption underneath made the row taller).
+ *
+ * Optional, for the To do list's AMS picture (#3726); with none of them set
+ * the circle is drawn exactly as on the printer card:
+ *   rgba / extraColors / effectType / subtype - the looks of a spool as
+ *                FilamentSwatch draws them (multicolour as segments, the
+ *                alpha of a translucent or clear filament over a checkerboard).
+ *                They take the place of trayColor in the background.
+ *   sizeClass / numberClass - size of the circle and of its number
+ *                (default w-3.5 h-3.5 and text-[6px]).
+ *   className  - extra classes (e.g. a dimmed circle).
+ *   borderColor - border colour of a filled circle.
+ *   title      - tooltip.
+ *   testId     - data-testid.
  */
+
+import { buildFilamentBackground } from './filamentSwatchHelpers';
 
 interface FilamentSlotCircleProps {
   trayColor?: string | null;
@@ -29,6 +44,16 @@ interface FilamentSlotCircleProps {
   emptyKind?: 'physical' | 'reset' | null;
   pendingColor?: string | null;
   slotNumber: number | string;
+  rgba?: string | null;
+  extraColors?: string | null;
+  effectType?: string | null;
+  subtype?: string | null;
+  sizeClass?: string;
+  numberClass?: string;
+  className?: string;
+  borderColor?: string;
+  title?: string;
+  testId?: string;
 }
 
 function isLightFilamentColor(hex: string): boolean {
@@ -39,29 +64,57 @@ function isLightFilamentColor(hex: string): boolean {
   return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6;
 }
 
-export function FilamentSlotCircle({ trayColor, trayType, isEmpty, emptyKind, pendingColor, slotNumber }: FilamentSlotCircleProps) {
+export function FilamentSlotCircle({
+  trayColor,
+  trayType,
+  isEmpty,
+  emptyKind,
+  pendingColor,
+  slotNumber,
+  rgba,
+  extraColors,
+  effectType,
+  subtype,
+  sizeClass = 'w-3.5 h-3.5',
+  numberClass = 'text-[6px]',
+  className,
+  borderColor,
+  title,
+  testId,
+}: FilamentSlotCircleProps) {
   // Reset slots get a quieter border than physical-empty so they read as
   // "cleared but possibly still has a spool the firmware hasn't confirmed
   // gone" rather than "definitely no spool".
   const emptyBorderColor = emptyKind === 'reset' ? '#3d3d3d' : '#666';
   const pending = isEmpty && pendingColor ? pendingColor.slice(0, 6) : null;
-  const fill = pending ?? trayColor;
+  // The looks of a spool (multicolour, translucent, effect) are FilamentSwatch's.
+  const looks = !isEmpty && (rgba || extraColors || effectType);
+  const fill = pending ?? (looks && rgba ? rgba.replace('#', '').slice(0, 6) : trayColor);
+  const painted = looks
+    ? buildFilamentBackground({ effectSize: 'card', rgba, extraColors, effectType, subtype })
+    : null;
   return (
     <div
-      className="w-3.5 h-3.5 rounded-full mx-auto mb-0.5 border-2 flex items-center justify-center"
+      className={`${sizeClass} rounded-full mx-auto mb-0.5 border-2 flex items-center justify-center${className ? ` ${className}` : ''}`}
       data-pending-config={pending ? 'true' : undefined}
+      title={title}
+      data-testid={testId}
       style={{
-        backgroundColor: fill ? `#${fill}` : (trayType ? '#333' : 'transparent'),
-        borderColor: pending ? '#f59e0b' : isEmpty ? emptyBorderColor : 'rgba(255,255,255,0.1)',
+        ...(painted
+          ? { backgroundImage: painted.backgroundImage, backgroundSize: painted.backgroundSize }
+          : { backgroundColor: fill ? `#${fill}` : (trayType ? '#333' : 'transparent') }),
+        borderColor: pending ? '#f59e0b' : isEmpty ? emptyBorderColor : (borderColor ?? 'rgba(255,255,255,0.1)'),
         borderStyle: isEmpty ? 'dashed' : 'solid',
       }}
     >
-      <span
-        className="text-[6px] font-bold leading-none select-none"
-        style={{ color: fill && isLightFilamentColor(fill) ? '#000' : '#fff' }}
-      >
-        {slotNumber}
-      </span>
+      {slotNumber !== '' && (
+        <span
+          className={`${numberClass} font-bold leading-none select-none`}
+          style={{ color: fill && isLightFilamentColor(fill) ? '#000' : '#fff' }}
+        >
+          {slotNumber}
+        </span>
+      )}
     </div>
   );
 }

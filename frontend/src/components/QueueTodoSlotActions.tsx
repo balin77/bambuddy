@@ -69,7 +69,8 @@ export function PictureActions({ picture, overlayZIndex }: SlotActionsProps) {
   const buttonClass =
     'min-h-[44px] sm:min-h-[36px] px-4 rounded-lg text-sm font-semibold break-words text-left';
 
-  const picking = target !== null ? slots.find(({ slot }) => sameSlot(slot, target)) : undefined;
+  // Spoolman going down with the picker open ends the picking: the picker would otherwise fall back to the built-in inventory, the other mode's.
+  const picking = target !== null && mayAssign ? slots.find(({ slot }) => sameSlot(slot, target)) : undefined;
   const incoming = picking?.slot.incoming;
   const model = printers?.find((p) => p.id === picture.printer_id)?.model ?? null;
   const configuringEntry = configuring ? slots.find(({ slot }) => sameSlot(slot, configuring)) : undefined;
