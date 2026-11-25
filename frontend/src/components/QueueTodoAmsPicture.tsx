@@ -111,14 +111,7 @@ const CARD_STATE_CLASS: Record<QueueTodoPictureSlot['state'], string> = {
   unknown: 'border border-dashed border-amber-400/70 bg-bambu-dark',
 };
 
-// The number in a slot's circle, as on the printer card: 1-based, L / R for
-// the external holder of a two-nozzle printer.
-function slotNumberOf(slot: QueueTodoPictureSlot, nozzle: 'left' | 'right' | null): number | string {
-  if (slot.is_external && nozzle) return nozzle === 'left' ? 'L' : 'R';
-  return slot.tray_id + 1;
-}
-
-function SlotCard({ slot, nozzle, compact, row, column }: { slot: QueueTodoPictureSlot; nozzle: 'left' | 'right' | null; compact: boolean; row: number; column: number }) {
+function SlotCard({ slot, compact, row, column }: { slot: QueueTodoPictureSlot; compact: boolean; row: number; column: number }) {
   const { t, i18n } = useTranslation();
   const line = stateLine(t, i18n.language, slot, compact);
   const loaded = !!slot.type;
@@ -139,8 +132,9 @@ function SlotCard({ slot, nozzle, compact, row, column }: { slot: QueueTodoPictu
       <FilamentSlotCircle
         isEmpty={!loaded}
         trayType={slot.type}
-        slotNumber={slotNumberOf(slot, nozzle)}
-        rgba={loaded ? rgbaOf(slot.color) : null}
+        // No number: the card's own label above says which slot it is.
+        slotNumber=""
+        rgba={loaded ? (slot.rgba || rgbaOf(slot.color)) : null}
         extraColors={slot.extra_colors || null}
         effectType={slot.effect_type || null}
         subtype={slot.subtype || null}
@@ -261,7 +255,7 @@ function Unit({ unit, filaments, compact }: { unit: QueueTodoPictureUnit; filame
                 )
               : []),
             ...line.map((slot, ci) => (
-              <SlotCard key={`slot-${slot.ams_id}-${slot.tray_id}`} slot={slot} nozzle={unit.nozzle} compact={compact} row={base + 3} column={ci + 1} />
+              <SlotCard key={`slot-${slot.ams_id}-${slot.tray_id}`} slot={slot} compact={compact} row={base + 3} column={ci + 1} />
             )),
           ];
         })}
