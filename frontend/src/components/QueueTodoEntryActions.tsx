@@ -40,7 +40,8 @@ export function PowerOnAgain({ printerId }: { printerId: number }) {
     onError: (error: unknown) =>
       showToast(error instanceof Error && error.message ? error.message : t('queueTodo.actionFailed'), 'error'),
   });
-  if (!hasPermission('smart_plugs:control')) return null;
+  // The lookup of the printer's plug is a read (GET /smart-plugs/by-printer/{id}), the switching a control.
+  if (!hasPermission('smart_plugs:read') || !hasPermission('smart_plugs:control')) return null;
   return (
     <button type="button" onClick={() => mutation.mutate()} disabled={mutation.isPending} className={mainClass}>
       {t('queueTodo.actions.powerOnAgain')}

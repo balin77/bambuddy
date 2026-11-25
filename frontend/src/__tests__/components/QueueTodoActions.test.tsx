@@ -101,7 +101,7 @@ beforeEach(() => {
 
 describe('Switch on again', () => {
   it('looks the plug up, switches it on, says so and refreshes the list', async () => {
-    perms.granted = new Set(['smart_plugs:control']);
+    perms.granted = new Set(['smart_plugs:read', 'smart_plugs:control']);
     const lookup = vi.spyOn(api, 'getSmartPlugByPrinter').mockResolvedValue({ id: 42 } as never);
     const control = vi.spyOn(api, 'controlSmartPlug').mockResolvedValue({ success: true } as never);
     const invalidate = renderList([powerOff]);
@@ -113,13 +113,26 @@ describe('Switch on again', () => {
   });
 
   it('says so when the printer has no plug, and switches nothing', async () => {
-    perms.granted = new Set(['smart_plugs:control']);
+    perms.granted = new Set(['smart_plugs:read', 'smart_plugs:control']);
     vi.spyOn(api, 'getSmartPlugByPrinter').mockResolvedValue(null as never);
     const control = vi.spyOn(api, 'controlSmartPlug');
     renderList([powerOff]);
     fireEvent.click(screen.getByRole('button', { name: 'Switch on again' }));
     expect(await screen.findByText('No smart plug found for this printer')).toBeInTheDocument();
     expect(control).not.toHaveBeenCalled();
+  });
+
+  it('is absent with smart_plugs:control but without smart_plugs:read: the plug lookup would be refused', () => {
+    perms.granted = new Set(['smart_plugs:control']);
+    renderList([powerOff]);
+    expect(screen.queryByRole('button', { name: 'Switch on again' })).toBeNull();
+    expect(screen.getByTestId('todo-entry-power_on_failed')).toBeInTheDocument();
+  });
+
+  it('is absent with smart_plugs:read but without smart_plugs:control', () => {
+    perms.granted = new Set(['smart_plugs:read']);
+    renderList([powerOff]);
+    expect(screen.queryByRole('button', { name: 'Switch on again' })).toBeNull();
   });
 
   it('is absent without smart_plugs:control, the entry stays as it was', () => {
@@ -235,7 +248,7 @@ describe('Add spool', () => {
 
 describe('a sensor interlock', () => {
   it('stays a hint with the link, whatever is granted', () => {
-    perms.granted = new Set(['smart_plugs:control', 'queue:update_all', 'inventory:create']);
+    perms.granted = new Set(['smart_plugs:read', 'smart_plugs:control', 'queue:update_all', 'inventory:create']);
     renderList([interlock]);
     expect(screen.getByText('Enclosure Door')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open printer' })).toBeInTheDocument();
