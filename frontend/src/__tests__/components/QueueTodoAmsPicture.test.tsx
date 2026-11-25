@@ -210,7 +210,8 @@ describe('AmsPicture', () => {
     const compact = picture([unit([slot(0), slot(1, { remaining_g: 90 })])], { compact: true });
     render(<AmsPicture picture={compact} filaments={[]} />);
     const cards = screen.getAllByTestId('todo-ams-slot');
-    expect(cards[0].textContent).toBe('A1\u00a0');
+    // The label, the number in the slot circle, and no dash.
+    expect(cards[0].textContent).toBe('A11\u00a0');
     expect(cards[1]).toHaveTextContent('90 g');
     expect(screen.queryByText('—')).toBeNull();
   });
@@ -236,6 +237,99 @@ describe('AmsPicture', () => {
   it('lists filaments that have no slot', () => {
     render(<AmsPicture picture={picture([unit([slot(0)])], { unplaced: [0] })} filaments={[lavaRed]} />);
     expect(screen.getByTestId('todo-ams-unplaced')).toHaveTextContent('No slot for: PLA Lava Red');
+  });
+});
+
+describe('the circles of the picture are the printer card\'s slot circles', () => {
+  it('draws every slot and every incoming spool with the slot circle and none with the swatch', () => {
+    render(<AmsPicture picture={replaceA3} filaments={[lavaRed]} />);
+    expect(screen.getAllByTestId('todo-ams-circle')).toHaveLength(4);
+    expect(screen.getAllByTestId('todo-ams-incoming-circle')).toHaveLength(1);
+    expect(screen.queryByTestId('filament-swatch')).toBeNull();
+    // The number in a circle is the slot's, as on the printer card.
+    expect(screen.getAllByTestId('todo-ams-circle').map((c) => c.textContent)).toEqual(['1', '2', '3', '4']);
+    expect(screen.getByTestId('todo-ams-incoming-circle').textContent).toBe('');
+  });
+
+  it('draws a multicolour spool in a slot as segments', () => {
+    const multi = picture([
+      unit([slot(0, { extra_colors: 'ec984c,6cd4bc,a66eb9', subtype: 'Multicolor', color_name: 'Rainbow' })]),
+    ]);
+    render(<AmsPicture picture={multi} filaments={[]} />);
+    expect(screen.getByTestId('todo-ams-circle').style.backgroundImage.toLowerCase()).toMatch(/conic-gradient[^]*#ec984c/);
+  });
+
+  it('keeps the alpha of a translucent spool', () => {
+    const clear = picture([unit([slot(0, { color: '#FFFFFF40', type: 'PETG', color_name: 'Clear' })])]);
+    render(<AmsPicture picture={clear} filaments={[]} />);
+    expect(screen.getByTestId('todo-ams-circle').style.backgroundImage.toLowerCase()).toContain('#ffffff40');
+  });
+
+  it('draws an empty slot as a dashed circle and dims the spool that goes out', () => {
+    render(<AmsPicture picture={replaceA3} filaments={[lavaRed]} />);
+    const circles = screen.getAllByTestId('todo-ams-circle');
+    expect(circles[3].style.borderStyle).toBe('dashed');
+    expect(circles[2].className).toContain('opacity-[0.55]');
+    expect(circles[1].className).not.toContain('opacity');
+  });
+});
+
+describe('the build forms', () => {
+  const ext = (trayId: number, overrides: Partial<QueueTodoPictureSlot> = {}) =>
+    slot(trayId, { ams_id: 255, is_external: true, ams_type: null, ...overrides });
+  const extUnit = (slots: QueueTodoPictureSlot[], overrides: Partial<QueueTodoPictureUnit> = {}) =>
+    unit(slots, { ams_id: 255, ams_type: null, kind: 'external', ...overrides });
+
+  it('an AMS-HT is one slot with the new spool above it', () => {
+    const ht = picture([
+      unit([slot(0, { ams_id: 128, is_ht: true, ams_type: 4, state: 'out', incoming: incoming(0) })], { ams_id: 128, ams_type: 4, kind: 'ht' }),
+    ]);
+    render(<AmsPicture picture={ht} filaments={[lavaRed]} />);
+    expect(screen.getAllByTestId('todo-ams-slot')).toHaveLength(1);
+    expect(screen.getByTestId('todo-ams-incoming')).toHaveStyle({ gridRow: '1', gridColumn: '1' });
+    expect(screen.getByTestId('todo-ams-slot')).toHaveTextContent('HT-A');
+  });
+
+  it('the external spool alone is the only slot, with Ext and the new spool above it', () => {
+    const only = picture([extUnit([ext(0, { type: '', color: '', state: 'empty', incoming: incoming(0) })])]);
+    render(<AmsPicture picture={only} filaments={[lavaRed]} />);
+    expect(screen.getAllByTestId('todo-ams-unit')).toHaveLength(1);
+    expect(screen.getByTestId('todo-ams-unit')).toHaveAccessibleName('External spool');
+    expect(screen.getByTestId('todo-ams-slot')).toHaveTextContent('Ext');
+    expect(screen.getByTestId('todo-ams-incoming')).toBeInTheDocument();
+    expect(screen.getByTestId('todo-ams-circle').style.borderStyle).toBe('dashed');
+  });
+
+  it('a printer without an AMS whose external spool is the wrong filament puts the new spool above it', () => {
+    const wrong = picture([extUnit([ext(0, { type: 'PETG', color: '#00FF00', state: 'out', incoming: incoming(0) })])]);
+    render(<AmsPicture picture={wrong} filaments={[lavaRed]} />);
+    expect(screen.getByTestId('todo-ams-slot')).toHaveAttribute('data-state', 'out');
+    expect(screen.getByTestId('todo-ams-incoming')).toHaveTextContent('Lava Red');
+    expect(screen.getByTestId('todo-ams-arrow')).toHaveStyle({ gridColumn: '1' });
+  });
+
+  it('an H2D has an AMS per nozzle and an external holder per nozzle, numbered L and R', () => {
+    const h2d = picture([
+      unit([slot(0), slot(1), slot(2), slot(3, { type: '', color: '', state: 'empty', incoming: incoming(0) })], { ams_id: 0, nozzle: 'right' }),
+      unit([slot(0, { ams_id: 1 }), slot(1, { ams_id: 1 }), slot(2, { ams_id: 1 }), slot(3, { ams_id: 1 })], { ams_id: 1, nozzle: 'left' }),
+      extUnit([ext(0)], { nozzle: 'left' }),
+      extUnit([ext(1)], { nozzle: 'right' }),
+    ]);
+    render(<AmsPicture picture={h2d} filaments={[lavaRed]} />);
+    expect(screen.getAllByTestId('todo-ams-unit').map((u) => u.getAttribute('aria-label'))).toEqual([
+      'AMS-A · Right nozzle',
+      'AMS-B · Left nozzle',
+      'External spool · Left nozzle',
+      'External spool · Right nozzle',
+    ]);
+    const external = screen.getAllByTestId('todo-ams-circle').slice(-2).map((c) => c.textContent);
+    expect(external).toEqual(['L', 'R']);
+  });
+
+  it('an AMS 3H numbers its nine circles', () => {
+    const nine = Array.from({ length: 9 }, (_, i) => slot(i, { ams_id: 32, ams_type: 6 }));
+    render(<AmsPicture picture={picture([unit(nine, { ams_id: 32, ams_type: 6, kind: 'ams3h' })])} filaments={[]} />);
+    expect(screen.getAllByTestId('todo-ams-circle').map((c) => c.textContent)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9']);
   });
 });
 
