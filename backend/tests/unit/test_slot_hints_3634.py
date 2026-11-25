@@ -358,10 +358,21 @@ class TestExternalHolder:
         assert (hints[1].state, hints[1].slots) == (HINT_ALL_NEEDED, ())
 
     @pytest.mark.asyncio
-    async def test_it_is_never_called_free(self):
+    async def test_it_is_never_called_free_next_to_an_ams(self):
+        vt = [{"id": 254, "tray_type": "", "tray_color": "", "tray_info_idx": ""}]
+        ams = [{"id": 0, "tray": [_tray(0, "PLA", RED), _tray(1, "PLA", BLUE)]}]
+        scheduler = _scheduler_with({1: _need(RED, BLUE)})
+        hints = await _hints(scheduler, {1: _status(ams, vt=vt)}, [_job(1)], _holds(1))
+        assert (hints[1].state, hints[1].slots) == (HINT_ALL_NEEDED, ())
+
+    @pytest.mark.asyncio
+    async def test_it_is_free_when_it_is_the_only_slot_of_the_printer(self):
+        # A printer with no AMS (A1 mini): the empty holder is where the filament goes (#3726).
         vt = [{"id": 254, "tray_type": "", "tray_color": "", "tray_info_idx": ""}]
         scheduler = _scheduler_with({1: _need(RED)})
-        assert await _hints(scheduler, {1: _status(vt=vt)}, [_job(1)], _holds(1)) == {}
+        hints = await _hints(scheduler, {1: _status(vt=vt)}, [_job(1)], _holds(1))
+        assert hints[1].state == HINT_FREE
+        assert [(s.is_external, s.type) for s in hints[1].slots] == [(True, "")]
 
 
 def _dual(ams, fts=False, **fields):
