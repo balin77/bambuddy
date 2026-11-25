@@ -342,6 +342,7 @@ function BulkEditModal({
   onClose,
   isSaving,
   canControlPrinter,
+  canClearPlate,
   hasGcodeSnippets,
   t,
 }: {
@@ -351,6 +352,8 @@ function BulkEditModal({
   onClose: () => void;
   isSaving: boolean;
   canControlPrinter: boolean;
+  /** Without it plate clearing can be switched off, not on (#3576). */
+  canClearPlate: boolean;
   hasGcodeSnippets: boolean;
   t: (key: string, options?: Record<string, unknown>) => string;
 }) {
@@ -464,7 +467,13 @@ function BulkEditModal({
               <TriStateToggle label={t('queue.bulkEdit.useAms')} value={useAms} onChange={setUseAms} t={t} />
               <TriStateToggle label={t('queue.bulkEdit.confirmOutcome')} value={confirmOutcome} onChange={setConfirmOutcome} t={t} />
               <div title={t('queue.bulkEdit.clearsPlateHint')}>
-                <TriStateToggle label={t('queue.bulkEdit.clearsPlate')} value={clearsPlate} onChange={setClearsPlate} t={t} />
+                <TriStateToggle
+                  label={t('queue.bulkEdit.clearsPlate')}
+                  value={clearsPlate}
+                  onChange={setClearsPlate}
+                  onDisabledTitle={canClearPlate ? undefined : t('printers.permission.noControl')}
+                  t={t}
+                />
                 <p className="text-[11px] text-bambu-gray mt-0.5">{t('queue.bulkEdit.clearsPlateHint')}</p>
               </div>
               {hasDualNozzlePrinter && (
@@ -494,12 +503,15 @@ function TriStateToggle({
   value,
   onChange,
   disabled,
+  onDisabledTitle,
   t,
 }: {
   label: string;
   value: boolean | 'unchanged';
   onChange: (val: boolean | 'unchanged') => void;
   disabled?: boolean;
+  /** Set, only "on" is disabled and shows this as its hint. */
+  onDisabledTitle?: string;
   t: (key: string) => string;
 }) {
   return (
@@ -522,8 +534,9 @@ function TriStateToggle({
         </button>
         <button
           onClick={() => onChange(true)}
-          disabled={disabled}
-          className={`px-2 py-1 text-xs rounded ${value === true ? 'bg-bambu-green/20 text-bambu-green' : 'text-bambu-gray hover:text-white'} disabled:cursor-not-allowed`}
+          disabled={disabled || !!onDisabledTitle}
+          title={onDisabledTitle}
+          className={`px-2 py-1 text-xs rounded ${value === true ? 'bg-bambu-green/20 text-bambu-green' : 'text-bambu-gray hover:text-white'} disabled:cursor-not-allowed ${onDisabledTitle ? 'opacity-50' : ''}`}
         >
           {t('common.on')}
         </button>
@@ -3387,6 +3400,7 @@ export function QueuePage() {
           onClose={() => setShowBulkEditModal(false)}
           isSaving={bulkUpdateMutation.isPending}
           canControlPrinter={hasPermission('printers:control')}
+          canClearPlate={hasPermission('printers:clear_plate')}
           hasGcodeSnippets={hasGcodeSnippets(settings)}
           t={t}
         />
