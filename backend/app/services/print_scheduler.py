@@ -3031,7 +3031,7 @@ class PrintScheduler:
                             # that lack filament are not what it waits for (#3725).
                             blocked_on = {pid: d for pid, d in blocked_on.items() if printer_manager.is_connected(pid)}
                         # A short spool is told at once, for the first printer that has one (#3725).
-                        for blocked_pid in blocked_on:
+                        for blocked_pid in blocked_on if filament_first else ():
                             if short_detail.get(blocked_pid):
                                 await self._notify_short_once(
                                     db,
@@ -3357,6 +3357,7 @@ class PrintScheduler:
                 (busy_printers - reserved_printers) | interlocked.keys() | drying_held,
                 require_plate_clear,
                 held=set(interlocked) | drying_held,
+                filament_first=filament_first,
                 wakeable_ids=wakeable_printer_ids,
             )
 
@@ -3480,6 +3481,7 @@ class PrintScheduler:
         unavailable: set[int],
         require_plate_clear: bool,
         held: set[int] | None = None,
+        filament_first: bool = True,
         wakeable_ids: set[int] | None = None,
     ) -> None:
         """Tell the user which printers have stood idle for five minutes with only filament-blocked jobs (#3725).
@@ -3492,6 +3494,13 @@ class PrintScheduler:
         (``_record_filament_block``); this only decides, once per pass.
         """
         try:
+            if not filament_first:
+                # The event belongs to "Loaded filament first": without it a job waits for its
+                # printer, not for a spool. No clock runs, so turning the setting on starts it afresh.
+                if self._idle_watch.entries:
+                    self._idle_watch.entries = {}
+                    await self._idle_watch.save_if_changed(db)
+                return
             qualifying = {}
             for pid, blocks in self._pass_filament_blocks.items():
                 if pid in unavailable:
