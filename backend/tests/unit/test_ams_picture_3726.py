@@ -245,6 +245,45 @@ class TestPrinterWithoutAms:
         assert _slots_of(picture)[(255, 0)]["incoming"] is None
 
 
+class TestTranslucentAndExternalUnits:
+    @pytest.mark.asyncio
+    async def test_the_alpha_of_a_translucent_tray_reaches_the_picture_and_an_opaque_one_has_none(self):
+        clear = _tray(1, "PETG", "FFFFFF", tray_color="FFFFFF40")
+        ams = [{"id": 0, "tray": [_tray(0, "PLA", RED), clear, _tray(2, exists=False)]}]
+        vt = [{"id": 254, "tray_type": "PETG", "tray_color": "AABBCC80", "tray_info_idx": ""}]
+        _hint, picture = await _picture({1: _status(ams, vt=vt)})
+        slots = _slots_of(picture)
+        assert slots[(0, 1)]["rgba"] == "FFFFFF40"
+        # The colour the decisions read stays six digits.
+        assert slots[(0, 1)]["color"] == "#FFFFFF"
+        assert slots[(255, 0)]["rgba"] == "AABBCC80"
+        assert slots[(0, 0)]["rgba"] == ""
+        assert slots[(0, 2)]["rgba"] == ""
+        QueueTodoResponse.model_validate({"count": 0, "groups": []})
+
+    @pytest.mark.asyncio
+    async def test_empty_external_holders_next_to_ams_units_are_collapsed(self):
+        ams = [
+            {"id": 0, "tray": [_tray(0, "PLA", RED), _tray(1, exists=False)]},
+            {"id": 1, "tray": [_tray(0, "PLA", BLUE)]},
+        ]
+        vt = [
+            {"id": 254, "tray_type": "", "tray_color": "", "tray_info_idx": ""},
+            {"id": 255, "tray_type": "", "tray_color": "", "tray_info_idx": ""},
+        ]
+        _hint, picture = await _picture({1: _dual(ams, vt=vt)})
+        by_kind = {(u["kind"], u["nozzle"]): u["collapsed"] for u in picture["units"]}
+        assert by_kind[("external", "left")] is True
+        assert by_kind[("external", "right")] is True
+        assert _open(picture) == [0]
+
+    @pytest.mark.asyncio
+    async def test_the_external_holder_of_a_printer_without_an_ams_stays_open(self):
+        vt = [{"id": 254, "tray_type": "", "tray_color": "", "tray_info_idx": ""}]
+        _hint, picture = await _picture({1: _status([], vt=vt)})
+        assert [(u["kind"], u["collapsed"]) for u in picture["units"]] == [("external", False)]
+
+
 class TestUnits:
     AMS_AB = [
         {
