@@ -267,6 +267,68 @@ describe('Spoolman mode', () => {
   });
 });
 
+describe('Spoolman mode: scan, errors and Spoolman going down', () => {
+  const smSpool = (id: number) => spool(id);
+
+  // The photo fallback with a stubbed decoder: jsdom has no camera.
+  function scanLabel(rawValue: string) {
+    vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({ width: 10, height: 10, close: vi.fn() }));
+    vi.stubGlobal('BarcodeDetector', class { detect = vi.fn().mockResolvedValue([{ rawValue }]); });
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(['qr'], 'qr.jpg', { type: 'image/jpeg' })] } });
+  }
+
+  it('a scanned Spoolman label assigns that spool to the slot of the entry, moving it', async () => {
+    const sent = setup({ spoolman: 'on', spoolmanSpools: [smSpool(41)] });
+    renderActions();
+    fireEvent.click(await screen.findByRole('button', { name: 'Assign spool for A3' }));
+    await screen.findAllByTestId('todo-assign-spool');
+    fireEvent.click(screen.getByRole('button', { name: 'Scan label' }));
+    await screen.findByRole('button', { name: /take photo/i });
+    scanLabel('web+spoolman:s-12');
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toEqual({ path: 'spoolman', body: { spoolman_spool_id: 12, printer_id: 7, ams_id: 0, tray_id: 2, move: true } });
+    // Nothing went to the built-in inventory.
+    expect(sent.some((s) => s.path === 'assign')).toBe(false);
+  });
+
+  it('shows the error toast and keeps the picker open when Spoolman refuses the assign', async () => {
+    const sent = setup({ spoolman: 'on', spoolmanSpools: [smSpool(41)] });
+    server.use(
+      http.post('/api/v1/spoolman/inventory/slot-assignments', async ({ request }) => {
+        sent.push({ path: 'spoolman', body: await request.json() });
+        return HttpResponse.json({ detail: 'Spoolman server is not reachable' }, { status: 502 });
+      }),
+    );
+    const { invalidate } = renderActions();
+    fireEvent.click(await screen.findByRole('button', { name: 'Assign spool for A3' }));
+    const rows = await screen.findAllByTestId('todo-assign-spool');
+    fireEvent.click(within(rows[0]).getByRole('button', { name: /Assign spool/ }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(await screen.findByText(/Failed to assign spool: Spoolman server is not reachable/)).toBeInTheDocument();
+    expect(screen.getByTestId('todo-assign-picker')).toBeInTheDocument();
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ['queue-todo'] });
+  });
+
+  it('stops assigning when Spoolman goes down while the picker is open', async () => {
+    const sent = setup({ spoolman: 'on', spoolmanSpools: [smSpool(41)] });
+    const { client } = renderActions();
+    fireEvent.click(await screen.findByRole('button', { name: 'Assign spool for A3' }));
+    await screen.findAllByTestId('todo-assign-spool');
+    // Spoolman stops answering; the status is asked again.
+    server.use(
+      http.get('/api/v1/spoolman/status', () => HttpResponse.json({ enabled: true, connected: false, url: 'http://sm' })),
+    );
+    await client.invalidateQueries({ queryKey: ['spoolman-status'] });
+    // Wait for the answer "down" to be in the cache, so that "no picker" is not just "not loaded yet".
+    await waitFor(() => expect(client.getQueryData<{ connected: boolean }>(['spoolman-status'])?.connected).toBe(false));
+    await waitFor(() => expect(screen.queryByTestId('todo-assign-spool')).toBeNull());
+    expect(screen.queryByRole('button', { name: /Assign spool/ })).toBeNull();
+    // The built-in inventory is not offered in its place.
+    expect(sent).toHaveLength(0);
+  });
+});
+
 describe('what happens while the list refetches', () => {
   it('keeps the picker open when the list hands over new slot objects', async () => {
     setup();
