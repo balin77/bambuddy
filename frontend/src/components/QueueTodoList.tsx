@@ -27,7 +27,7 @@ import { AmsPicture, AmsPictures } from './QueueTodoAmsPicture';
 import { PictureWithActions } from './QueueTodoSlotActions';
 import { AddSpoolActions, JobActions, PowerOnAgain } from './QueueTodoEntryActions';
 import { PausedActions } from './QueueTodoPausedActions';
-import { formatSlotLabel } from '../utils/amsHelpers';
+import { formatSlotLabel, onePerPrinter } from '../utils/amsHelpers';
 import { getColorName } from '../utils/colors';
 import { formatDuration } from '../utils/date';
 
@@ -332,7 +332,7 @@ function EntryRow({ group, entry, onNavigate, onOpenQueue, onStart, startPending
   const jobs = entry.jobs;
   // The AMS picture stands in for the slot sentence (#3726).
   const picture = entry.kind === 'load_filament' ? entry.ams_picture ?? null : null;
-  const pictures = entry.kind === 'load_filament' ? entry.ams_pictures ?? [] : [];
+  const pictures = entry.kind === 'load_filament' ? onePerPrinter(entry.ams_pictures ?? []) : [];
   const hasPicture = picture !== null || pictures.length > 0;
   // The printer of an "Any <model>" entry whose picture is shown: the first
   // one until another is picked. Its picture brings the filaments it misses,
@@ -575,7 +575,7 @@ function EntryRow({ group, entry, onNavigate, onOpenQueue, onStart, startPending
             // The title already names the one printer there is.
             nameSingle={!(modelPrinters.length === 1 && modelPrinters[0].id === pictures[0].printer_id)}
             renderPicture={(p, shown) => (
-              <PictureWithActions key={p.printer_id} picture={p} filaments={shown} overlayZIndex={overlayZIndex} />
+              <PictureWithActions picture={p} filaments={shown} overlayZIndex={overlayZIndex} />
             )}
             // For the printer shown: none on a printer that lacks a filament.
             renderActions={(p) => printAnyway(p.printer_id)}

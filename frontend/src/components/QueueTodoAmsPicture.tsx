@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, Lock } from 'lucide-react';
 import type {
@@ -9,7 +9,7 @@ import type {
 } from '../api/client';
 import { SlotMenuCard, type SlotMenuActions } from './FilamentHoverCard';
 import { FilamentSlotCircle } from './FilamentSlotCircle';
-import { formatSlotLabel, getAmsLabel } from '../utils/amsHelpers';
+import { formatSlotLabel, getAmsLabel, onePerPrinter } from '../utils/amsHelpers';
 import { getColorName } from '../utils/colors';
 
 // How many slots one row of a unit holds: the AMS 3H has nine, shown as
@@ -407,8 +407,8 @@ interface AmsPicturesProps {
 }
 
 // A model job's picture: the printer it would likely go to first, with a
-// switch to the other candidates.
-export function AmsPictures({ pictures, filaments, renderActions, renderPicture, selected: selectedProp, onSelect, nameSingle = true }: AmsPicturesProps) {
+// switch to the other candidates. One picture is drawn, whatever the list holds.
+export function AmsPictures({ pictures: listed, filaments, renderActions, renderPicture, selected: selectedProp, onSelect, nameSingle = true }: AmsPicturesProps) {
   const { t } = useTranslation();
   const [ownSelected, setOwnSelected] = useState<number | null>(null);
   const selected = selectedProp === undefined ? ownSelected : selectedProp;
@@ -416,6 +416,7 @@ export function AmsPictures({ pictures, filaments, renderActions, renderPicture,
     setOwnSelected(printerId);
     onSelect?.(printerId);
   };
+  const pictures = onePerPrinter(listed);
   if (pictures.length === 0) return null;
   const current = pictures.find((p) => p.printer_id === selected) ?? pictures[0];
   return (
@@ -444,10 +445,16 @@ export function AmsPictures({ pictures, filaments, renderActions, renderPicture,
       {pictures.length === 1 && nameSingle && (
         <div data-testid="todo-ams-printer-name" className="text-xs text-bambu-gray-light">{current.printer_name}</div>
       )}
-      {renderPicture
-        ? renderPicture(current, current.filaments ?? filaments)
-        : <AmsPicture picture={current} filaments={current.filaments ?? filaments} />}
-      {renderActions?.(current)}
+      {/* Each part under a key of its own: what the caller renders may carry
+          a key, and two parts with the same key would leave a picture behind
+          whenever the parts above change. The picture's key starts it anew
+          for another printer. */}
+      <Fragment key={`picture-${current.printer_id}`}>
+        {renderPicture
+          ? renderPicture(current, current.filaments ?? filaments)
+          : <AmsPicture picture={current} filaments={current.filaments ?? filaments} />}
+      </Fragment>
+      <Fragment key="actions">{renderActions?.(current)}</Fragment>
     </div>
   );
 }

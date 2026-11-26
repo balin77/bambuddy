@@ -1015,6 +1015,17 @@ def _filament_dicts(filaments: Iterable[TodoFilament], trays: bool) -> list[dict
     ]
 
 
+def one_per_printer(candidates: Iterable[tuple[int, str, tuple[TodoFilament, ...]]]) -> list[tuple]:
+    """The picture candidates of an entry with each printer once: the first of a printer named again."""
+    seen: set[int] = set()
+    out = []
+    for candidate in candidates:
+        if candidate[0] not in seen:
+            seen.add(candidate[0])
+            out.append(candidate)
+    return out
+
+
 def _outs(picture: dict) -> int:
     return sum(1 for u in picture["units"] for s in u["slots"] if s["state"] == PICTURE_OUT)
 
@@ -1292,7 +1303,8 @@ def build_todo(
                         candidates = [(p["id"], p["name"], by_printer.get(p["id"], fils)) for p in entry["printers"]]
                         candidates += [(pid, printers[pid], more) for pid, more in others.items()]
                         pictures = []
-                        for pid, name, own_fils in candidates:
+                        # Never two pictures of one printer, whatever the entry gathered.
+                        for pid, name, own_fils in one_per_printer(candidates):
                             picture = picture_dict(slot_hints.get(pid), pid, name, own_fils, slot_extras, stock_for)
                             if picture is not None:
                                 picture["filaments"] = _filament_dicts(own_fils, trays=False)

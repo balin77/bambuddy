@@ -942,3 +942,16 @@ export function computeBackupGroups(
     return a.members[0].globalTrayId - b.members[0].globalTrayId;
   });
 }
+
+/**
+ * The items with each printer once: the first of a printer the list names
+ * again. The To do list draws one AMS picture per printer from it.
+ */
+export function onePerPrinter<T extends { printer_id: number }>(items: T[]): T[] {
+  const seen = new Set<number>();
+  return items.filter((item) => {
+    if (seen.has(item.printer_id)) return false;
+    seen.add(item.printer_id);
+    return true;
+  });
+}
