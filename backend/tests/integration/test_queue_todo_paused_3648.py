@@ -172,3 +172,96 @@ class TestPausedAccess:
             body = (await async_client.get(URL, headers=_auth(member))).json()
         assert [g["printer_id"] for g in body["groups"]] == [a.id]
         assert body["count"] == 1
+
+
+class TestRunoutPicture:
+    """The runout's AMS picture: the slot that ran out and the filament the print needs there (#3726)."""
+
+    @staticmethod
+    def _a1_runout(**changes) -> PrinterState:
+        # An A1 with its AMS Lite: A4 ran out, the printer reports only the hms[] fault.
+        state = _runout_state(
+            tray_tar=None,
+            tray_pre=None,
+            print_ams_mapping=[0, 3],
+            raw_data={
+                "ams": [
+                    {
+                        "id": 0,
+                        "info": "1002",
+                        "tray": [
+                            {"id": 0, "tray_type": "PLA", "tray_color": "FFFFFFFF"},
+                            {"id": 1, "tray_type": "PLA", "tray_color": "000000FF"},
+                            {"id": 2, "tray_type": "PETG", "tray_color": "00FF00FF"},
+                            {"id": 3, "tray_type": "", "tray_color": "00000000", "state": 9},
+                        ],
+                    }
+                ],
+                "vt_tray": [{"id": 254, "tray_type": ""}],
+            },
+            hms_errors=[
+                HMSError(
+                    code="0x00020001",
+                    attr=0x12002300,
+                    module=0x12,
+                    severity=2,
+                    description="AMS A Slot4 filament has run out; please insert a new filament.",
+                    full_code="1200230000020001",
+                )
+            ],
+        )
+        for key, value in changes.items():
+            setattr(state, key, value)
+        return state
+
+    async def test_the_slot_that_ran_out_carries_the_queue_jobs_filament(
+        self, async_client, printer_factory, make_item
+    ):
+        from unittest.mock import AsyncMock
+
+        from backend.app.services.print_scheduler import scheduler
+
+        a = await printer_factory(name="A1 rechts", model="A1")
+        await make_item(
+            a.id,
+            name="hello_kitty",
+            status="printing",
+            ams_mapping="[0, 3]",
+            filament_overrides='[{"slot_id": 2, "type": "PLA", "color": "#F5A9B8", "color_name": "Pink"}]',
+        )
+        requirements = [
+            {"slot_id": 1, "type": "PLA", "color": "#FFFFFF"},
+            {"slot_id": 2, "type": "PLA", "color": "#000000"},
+        ]
+        with (
+            _serve({a.id: self._a1_runout()}),
+            patch.object(scheduler, "_get_filament_requirements", AsyncMock(return_value=requirements)),
+        ):
+            body = (await async_client.get(URL)).json()
+        paused = _only_entries(body)[0]["paused"]
+        assert paused["cause"] == "runout_ams"
+        slots = {(s["ams_id"], s["tray_id"]): s for u in paused["ams_picture"]["units"] for s in u["slots"]}
+        assert slots[(0, 3)]["state"] == "ran_out"
+        assert slots[(0, 3)]["incoming"]["color"] == "#F5A9B8"
+        assert slots[(0, 3)]["incoming"]["color_name"] == "Pink"
+        assert [s["state"] for key, s in slots.items() if key != (0, 3)].count("ran_out") == 0
+        assert paused["filaments"] == [
+            {
+                "type": "PLA",
+                "color": "#F5A9B8",
+                "color_name": "Pink",
+                "no_stock": False,
+                "nozzle": None,
+                "short": False,
+                "short_trays": [],
+                "required_grams": None,
+            }
+        ]
+
+    async def test_a_plain_pause_has_no_picture(self, async_client, printer_factory):
+        a = await printer_factory(name="A", model="X1C")
+        with _serve({a.id: _runout_state(hms_errors=[])}):
+            body = (await async_client.get(URL)).json()
+        paused = _only_entries(body)[0]["paused"]
+        assert paused["cause"] == "paused"
+        assert paused["ams_picture"] is None

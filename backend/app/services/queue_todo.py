@@ -348,6 +348,47 @@ CAUSE_PAUSED = "paused"
 _AMS_RUNOUT_CODES = frozenset({f"07{unit:02X}_8011" for unit in (*range(8), 0xFF)})
 _EXTERNAL_RUNOUT_CODE = "0300_8004"
 
+# The hms[] runout of one slot, "<module><unit><2 slot>00 00020001": the AMS
+# (07), the AMS Lite (12) and the AMS-HT (18), each AMS 3H slot in two forms
+# (2A, "<7 slot>00 00020007" as well). A unit from F7 up is an external input,
+# numbered as its global tray (FF the main one, FE the left nozzle's).
+_HMS_RUNOUT_MODULES = frozenset({0x07, 0x12, 0x18, 0x2A})
+_HMS_RUNOUT_CODE = 0x00020001
+_HMS_RUNOUT_3H_CODE = 0x00020007
+_FIRST_EXTERNAL_UNIT = 0xF7
+
+
+@dataclass(frozen=True)
+class HmsRunout:
+    """A slot an hms[] fault says ran out, as the code names it: module, unit and slot."""
+
+    module: int
+    unit: int
+    slot: int
+
+    @property
+    def external(self) -> bool:
+        return self.module != 0x2A and self.unit >= _FIRST_EXTERNAL_UNIT
+
+
+def hms_runout(fault: Mapping) -> HmsRunout | None:
+    """The slot an hms[] fault names as run out (waiting for a new spool), else None."""
+    full = fault.get("full_code")
+    if not isinstance(full, str) or len(full) != 16:
+        return None
+    try:
+        attr, code = int(full[:8], 16), int(full[8:], 16)
+    except ValueError:
+        return None
+    module, unit, slot_byte = attr >> 24, (attr >> 16) & 0xFF, (attr >> 8) & 0xFF
+    if module not in _HMS_RUNOUT_MODULES or attr & 0xFF:
+        return None
+    if code == _HMS_RUNOUT_CODE and 0x20 <= slot_byte <= 0x28:
+        return HmsRunout(module, unit, slot_byte - 0x20)
+    if module == 0x2A and code == _HMS_RUNOUT_3H_CODE and 0x70 <= slot_byte <= 0x78:
+        return HmsRunout(module, unit, slot_byte - 0x70)
+    return None
+
 
 @dataclass(frozen=True)
 class PausedSlot:
@@ -377,16 +418,26 @@ class PauseCause:
     error_code: str | None = None
     error_description: str | None = None
     more_errors: int = 0
+    # The slots the hms[] faults name as run out, in the order reported.
+    runouts: tuple[HmsRunout, ...] = ()
 
 
 @dataclass(frozen=True)
 class PausedInfo:
-    """A paused print as the list shows it (#3648)."""
+    """A paused print as the list shows it (#3648).
+
+    ``slots`` are the printer's slots as the AMS picture draws them (#3726),
+    ``needs`` what the print loads from each tray, by global tray id: the
+    filaments the file was sliced with (or the queue job's overrides) on the
+    trays its mapping sent them to. Both only feed a runout's picture.
+    """
 
     job_name: str | None
     progress: int | None
     remaining_minutes: int | None
     cause: PauseCause = field(default_factory=PauseCause)
+    slots: tuple[PictureSlot, ...] = ()
+    needs: Mapping[int, TodoFilament] = field(default_factory=dict)
 
 
 def _fault_short_code(fault: Mapping) -> str:
@@ -430,21 +481,25 @@ def pause_cause(
 ) -> PauseCause:
     """Why a PAUSE-state printer waits: a runout, another fault, or no reason.
 
-    A runout wins over any other fault. ``more_errors`` counts the other faults
-    that count as problems.
+    A runout wins over any other fault, an AMS one over the external spool's.
+    It is read from the print_error code (07XX_8011, 0300_8004) and from the
+    hms[] fault that names the slot (the AMS Lite of an A1 reports only that
+    one), whose slots are kept in ``runouts``. ``more_errors`` counts the
+    other faults that count as problems.
     """
     listed = [f for f in faults if isinstance(f, Mapping)]
     codes = [_fault_short_code(f) for f in listed]
-    if any(code in _AMS_RUNOUT_CODES for code in codes):
-        others = sum(
-            1 for f, c in zip(listed, codes, strict=True) if c not in _AMS_RUNOUT_CODES and _counts_as_fault(f)
-        )
-        return PauseCause(CAUSE_RUNOUT_AMS, ran_out=ran_out, expected=expected, more_errors=others)
-    if _EXTERNAL_RUNOUT_CODE in codes:
-        others = sum(
-            1 for f, c in zip(listed, codes, strict=True) if c != _EXTERNAL_RUNOUT_CODE and _counts_as_fault(f)
-        )
-        return PauseCause(CAUSE_RUNOUT_EXTERNAL, more_errors=others)
+    slots = [hms_runout(f) for f in listed]
+    runouts = tuple(dict.fromkeys(r for r in slots if r is not None))
+
+    def is_runout(code: str, slot: HmsRunout | None) -> bool:
+        return slot is not None or code in _AMS_RUNOUT_CODES or code == _EXTERNAL_RUNOUT_CODE
+
+    others = sum(1 for f, c, r in zip(listed, codes, slots, strict=True) if not is_runout(c, r) and _counts_as_fault(f))
+    if any(code in _AMS_RUNOUT_CODES for code in codes) or any(not r.external for r in runouts):
+        return PauseCause(CAUSE_RUNOUT_AMS, ran_out=ran_out, expected=expected, more_errors=others, runouts=runouts)
+    if _EXTERNAL_RUNOUT_CODE in codes or runouts:
+        return PauseCause(CAUSE_RUNOUT_EXTERNAL, more_errors=others, runouts=runouts)
     severe = [f for f in listed if _counts_as_fault(f)]
     if not severe:
         return PauseCause()
@@ -734,8 +789,15 @@ def _paused_slot_dict(slot: PausedSlot | None) -> dict | None:
     return None if slot is None else {f: getattr(slot, f) for f in PausedSlot.__dataclass_fields__}
 
 
-def _paused_dict(info: PausedInfo) -> dict:
+def _paused_dict(
+    info: PausedInfo,
+    printer_id: int,
+    printer_name: str,
+    extras: Mapping[tuple[int, int, int], SlotExtra] | None = None,
+    stock_for: Callable[[TodoFilament], int | None] | None = None,
+) -> dict:
     cause = info.cause
+    picture, filaments = runout_picture(info, printer_id, printer_name, extras, stock_for)
     return {
         "job_name": info.job_name,
         "progress": info.progress,
@@ -747,6 +809,10 @@ def _paused_dict(info: PausedInfo) -> dict:
             {"code": cause.error_code, "description": cause.error_description} if cause.cause == CAUSE_ERROR else None
         ),
         "more_errors": cause.more_errors,
+        # A runout's AMS picture (#3648, #3726): the slots that ran out, and
+        # above each the filament the print needs there (``filaments``).
+        "ams_picture": picture,
+        "filaments": _filament_dicts(filaments, trays=False),
     }
 
 
@@ -791,6 +857,8 @@ PICTURE_EMPTY = "empty"
 PICTURE_FITS = "fits"
 PICTURE_LOCKED = "locked"
 PICTURE_UNKNOWN = "unknown"
+# A slot a paused print ran out of (#3648): the new spool goes there.
+PICTURE_RAN_OUT = "ran_out"
 
 # AmsType values (utils/tray_ids) by what the picture calls the unit.
 _KIND_AMS_LITE = {2, 5}
@@ -905,6 +973,8 @@ def picture_dict(
     extras: Mapping[tuple[int, int, int], SlotExtra] | None = None,
     stock_for: Callable[[TodoFilament], int | None] | None = None,
     compact: bool = False,
+    placed: Mapping[tuple[int, int], int] | None = None,
+    ran_out: Collection[tuple[int, int]] = (),
 ) -> dict | None:
     """The AMS picture of one printer for an entry (#3726), or None when the printer reported no slots.
 
@@ -916,17 +986,29 @@ def picture_dict(
     grams and looks of the assigned spool; a short filament's own grams are
     used for its trays when there are none. ``stock_for`` counts the spools in
     stock for an incoming filament; left out in a compact picture.
+
+    ``placed`` (slot key to filament index) puts the filaments on slots the
+    caller already knows, in place of ``place_filaments``; ``ran_out`` are
+    slots a paused print ran out of, drawn as such whatever they report (#3648).
     """
     if hint is None or not hint.picture:
         return None
     filaments = tuple(filaments)
     extras = extras or {}
-    incoming, out, unplaced = place_filaments(hint, filaments)
+    incoming: dict[tuple[int, int], int]
+    out: set[tuple[int, int]]
+    unplaced: list[int]
+    if placed is None:
+        incoming, out, unplaced = place_filaments(hint, filaments)
+    else:
+        incoming, out, unplaced = dict(placed), set(), []
     short_grams = {
         (t.ams_id, t.tray_id): t.remaining_grams for f in filaments if f.short for t in f.short_trays
     }  # fmt: skip
 
     def state_of(slot: PictureSlot) -> str:
+        if slot.key in ran_out:
+            return PICTURE_RAN_OUT
         if slot.key in out:
             return PICTURE_OUT
         if slot.key in incoming and not slot.loaded:
@@ -994,7 +1076,9 @@ def picture_dict(
                 "slots": [slot_dict(s) for s in unit_slots],
             }
         )
-    involved = [u for u in units if any(s["incoming"] or s["state"] == PICTURE_OUT for s in u["slots"])]
+    involved = [
+        u for u in units if any(s["incoming"] or s["state"] in (PICTURE_OUT, PICTURE_RAN_OUT) for s in u["slots"])
+    ]
     shown = involved or units[:1]
     for unit in units:
         unit["collapsed"] = unit not in shown
@@ -1005,6 +1089,105 @@ def picture_dict(
         "units": units,
         "unplaced": unplaced,
     }
+
+
+def _runout_slot(runout: HmsRunout, slots: tuple[PictureSlot, ...]) -> PictureSlot | None:
+    """The picture slot an hms[] runout names, or None when the printer reports no such slot.
+
+    An external input is the holder with that global tray (FF the main one);
+    a printer with one holder reports it as 254 whatever the code says, so
+    its only holder is meant. An AMS-HT unit is 128 up and holds one spool;
+    an AMS Lite or an AMS 3H not listed under its own unit number is the
+    printer's n-th unit of that kind (the A2L lists its AMS Lite as unit 6).
+    """
+    if runout.external:
+        holders = [s for s in slots if s.is_external]
+        exact = next((s for s in holders if s.global_tray_id == runout.unit), None)
+        return exact or (holders[0] if len(holders) == 1 else None)
+    units = [s for s in slots if not s.is_external]
+    if runout.module == 0x18:
+        in_unit = [s for s in units if s.ams_id == 0x80 + runout.unit]
+        return next((s for s in in_unit if s.tray_id == runout.slot), in_unit[0] if in_unit else None)
+    ams_id = runout.unit
+    kind_of = {s.ams_id: _unit_kind(s) for s in units}
+    wanted = {0x12: "ams_lite", 0x2A: "ams3h"}.get(runout.module)
+    of_kind = sorted(u for u, kind in kind_of.items() if kind == wanted)
+    if wanted is not None and kind_of.get(runout.unit) != wanted and runout.unit < len(of_kind):
+        ams_id = of_kind[runout.unit]
+    return next((s for s in units if s.ams_id == ams_id and s.tray_id == runout.slot), None)
+
+
+def runout_slots(info: PausedInfo) -> list[PictureSlot]:
+    """The slots a paused print ran out of, in the printer's picture (#3648).
+
+    The ones the hms[] faults name, and the slot the printer left (its
+    ``tray_pre``); without either the slot it expects (``tray_tar``), and for
+    the external spool's runout its only holder. Empty when the pause is no
+    runout or the printer reports no slots.
+    """
+    cause = info.cause
+    if cause.cause not in (CAUSE_RUNOUT_AMS, CAUSE_RUNOUT_EXTERNAL) or not info.slots:
+        return []
+    found = [_runout_slot(r, info.slots) for r in cause.runouts]
+    if cause.ran_out is not None:
+        found.append(_find_slot(info.slots, cause.ran_out.ams_id, cause.ran_out.tray_id))
+    if not any(found) and cause.expected is not None:
+        found.append(_find_slot(info.slots, cause.expected.ams_id, cause.expected.tray_id))
+    if not any(found) and cause.cause == CAUSE_RUNOUT_EXTERNAL:
+        holders = [s for s in info.slots if s.is_external]
+        found += holders[:1] if len(holders) == 1 else []
+    unique = {s.key: s for s in found if s is not None}
+    return sorted(unique.values(), key=lambda s: (s.is_external, s.ams_id, s.tray_id))
+
+
+def runout_filament(info: PausedInfo, slot: PictureSlot) -> TodoFilament | None:
+    """What goes into a slot a paused print ran out of (#3648).
+
+    What the print loads from that tray (``PausedInfo.needs``), else what the
+    tray still reports, else None: nothing is known, and the slot is drawn as
+    run out without a filament above it.
+    """
+    if (need := info.needs.get(slot.global_tray_id)) is not None:
+        return need
+    if slot.loaded:
+        return TodoFilament(slot.type.upper(), normalize_hex(slot.color), tray_info_idx=slot.tray_info_idx)
+    return None
+
+
+def runout_picture(
+    info: PausedInfo,
+    printer_id: int,
+    printer_name: str,
+    extras: Mapping[tuple[int, int, int], SlotExtra] | None = None,
+    stock_for: Callable[[TodoFilament], int | None] | None = None,
+) -> tuple[dict | None, list[TodoFilament]]:
+    """A runout's AMS picture and the filaments drawn on it (#3648, #3726).
+
+    The printer's slots as a Load entry shows them, every slot that ran out
+    marked so in the one picture, and above each the filament it needs (see
+    ``runout_filament``) with the spools in stock for it. (None, []) when the
+    pause is no runout or no slot that ran out is known.
+    """
+    slots = runout_slots(info)
+    if not slots:
+        return None, []
+    filaments: list[TodoFilament] = []
+    placed: dict[tuple[int, int], int] = {}
+    for slot in slots:
+        if (filament := runout_filament(info, slot)) is not None:
+            placed[slot.key] = len(filaments)
+            filaments.append(filament)
+    picture = picture_dict(
+        SlotHint(printer_id, HINT_FREE, picture=info.slots),
+        printer_id,
+        printer_name,
+        filaments,
+        extras,
+        stock_for,
+        placed=placed,
+        ran_out={s.key for s in slots},
+    )
+    return picture, filaments
 
 
 def _filament_dicts(filaments: Iterable[TodoFilament], trays: bool) -> list[dict]:
@@ -1168,7 +1351,13 @@ def build_todo(
         group = group_for(pid, None, None, -1)
         group.entries.setdefault(
             (KIND_PRINT_PAUSED, ()),
-            {"kind": KIND_PRINT_PAUSED, "jobs": [], "detail": None, "printers": [], "paused": _paused_dict(info)},
+            {
+                "kind": KIND_PRINT_PAUSED,
+                "jobs": [],
+                "detail": None,
+                "printers": [],
+                "paused": _paused_dict(info, pid, printers[pid], slot_extras, stock_for),
+            },
         )
         for job in waiting:
             add(group, KIND_PRINT_PAUSED, (), job)

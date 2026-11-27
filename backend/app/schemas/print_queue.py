@@ -695,7 +695,7 @@ class QueueTodoPictureSlot(BaseModel):
     remaining_g: float | None = None
     remain_percent: int | None = None
     rfid: bool = False
-    state: Literal["keep", "out", "empty", "fits", "locked", "unknown"]
+    state: Literal["keep", "out", "empty", "fits", "locked", "unknown", "ran_out"]
     incoming: QueueTodoPictureIncoming | None = None
 
 
@@ -764,6 +764,11 @@ class QueueTodoPaused(BaseModel):
     error: QueueTodoPausedError | None = None
     # Other faults that stop or pause the task, besides the one named.
     more_errors: int = 0
+    # A runout: the printer's AMS picture with every slot that ran out (state
+    # "ran_out") and, above each, the filament the print needs there, an
+    # index into ``filaments``. None when the pause is no runout or no slot is known.
+    ams_picture: QueueTodoPicture | None = None
+    filaments: list[QueueTodoFilament] = []
 
 
 class QueueTodoEntry(BaseModel):

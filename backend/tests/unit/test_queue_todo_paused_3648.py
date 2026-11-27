@@ -124,6 +124,9 @@ class TestBuildTodo:
             "expected": None,
             "error": None,
             "more_errors": 2,
+            # No slots reported: no runout picture (#3726).
+            "ams_picture": None,
+            "filaments": [],
         }
 
 

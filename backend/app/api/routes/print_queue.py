@@ -5,6 +5,7 @@ import logging
 import re
 import zipfile
 from collections.abc import Callable, Iterable, Mapping
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -82,6 +83,8 @@ from backend.app.services.queue_announcements import announce_queue_jobs_added
 from backend.app.services.queue_item_printer import PRINTER_RESOLVED_DEFAULTS, drop_printer_resolved
 from backend.app.services.queue_position import lock_queue_positions, max_queue_position
 from backend.app.services.queue_todo import (
+    CAUSE_RUNOUT_AMS,
+    CAUSE_RUNOUT_EXTERNAL,
     PausedInfo,
     PauseEpisodes,
     SlotExtra,
@@ -90,6 +93,7 @@ from backend.app.services.queue_todo import (
     TodoJob,
     build_todo,
     paused_info_from_status,
+    todo_filament_from_requirement,
 )
 from backend.app.utils.printer_models import (
     is_gcode_compatible,
@@ -944,7 +948,11 @@ _pause_episodes = PauseEpisodes()
 def _paused_prints(
     printer_ids: Iterable[int], actor: User | ApiKeyActor | None, models: Mapping[int, str | None]
 ) -> dict[int, PausedInfo]:
-    """The paused prints among ``printer_ids``, as the To do list shows them (#3648)."""
+    """The paused prints among ``printer_ids``, as the To do list shows them (#3648).
+
+    Each with the printer's slots, which a runout's AMS picture is drawn from.
+    """
+    from backend.app.services.print_scheduler import _picture_slots
 
     def is_paused(printer_id: int) -> bool:
         state = printer_manager.get_status(printer_id)
@@ -970,14 +978,110 @@ def _paused_prints(
             (state.subtask_name or None) if may_name else None,
             lambda cause, pid=pid, episode=episode: _pause_episodes.resolve(pid, episode, cause),
         )
+        if paused[pid].cause.cause in (CAUSE_RUNOUT_AMS, CAUSE_RUNOUT_EXTERNAL):
+            paused[pid] = replace(paused[pid], slots=_picture_slots(state))
     _pause_episodes.prune(is_paused)
     return paused
+
+
+# The filaments of a running file by (path, modification time, plate): parsed
+# once per file and plate, not on every poll of the list.
+_RUNNING_FILE_FILAMENTS: dict[tuple[str, int, int | None], list[dict]] = {}
+_RUNNING_FILE_FILAMENTS_MAX = 32
+
+
+def _file_filaments(file_path: Path, plate_id: int | None) -> list[dict]:
+    from backend.app.services.filament_requirements import extract_filament_requirements
+
+    try:
+        key = (str(file_path), file_path.stat().st_mtime_ns, plate_id)
+    except OSError:
+        return []
+    if key not in _RUNNING_FILE_FILAMENTS:
+        if len(_RUNNING_FILE_FILAMENTS) >= _RUNNING_FILE_FILAMENTS_MAX:
+            _RUNNING_FILE_FILAMENTS.clear()
+        _RUNNING_FILE_FILAMENTS[key] = extract_filament_requirements(file_path, plate_id=plate_id)
+    return [dict(f) for f in _RUNNING_FILE_FILAMENTS[key]]
+
+
+async def _running_print_needs(db: AsyncSession, printer_id: int) -> dict[int, TodoFilament]:
+    """What the print running on a printer loads from each tray, by global tray id (#3648).
+
+    The print's mapping (the one captured from its print command, else its
+    queue job's) puts each filament of the file on a tray. The filaments are
+    the queue job's, with its overrides, as the scheduler matched them; for a
+    print the queue did not start, its archive's file and plate. Empty when
+    the mapping or the file cannot be read: the picture then falls back to
+    what the tray reports.
+    """
+    from backend.app.main import running_print_archive
+    from backend.app.services.print_scheduler import scheduler as _scheduler
+    from backend.app.services.printer_manager import print_ams_mapping, resolve_plate_id
+
+    state = printer_manager.get_status(printer_id)
+    if state is None:
+        return {}
+    item = await db.scalar(
+        select(PrintQueueItem)
+        .where(PrintQueueItem.status == "printing", PrintQueueItem.printer_id == printer_id)
+        .order_by(PrintQueueItem.started_at.desc())
+        .limit(1)
+    )
+    mapping = print_ams_mapping(state)
+    if not mapping and item is not None and item.ams_mapping:
+        try:
+            mapping = json.loads(item.ams_mapping)
+        except (json.JSONDecodeError, TypeError):
+            mapping = []
+    if not isinstance(mapping, list) or not mapping:
+        return {}
+    requirements: list[dict] | None = None
+    if item is not None:
+        requirements = await _scheduler._get_filament_requirements(db, item)
+        if requirements:
+            _scheduler._apply_filament_overrides(item, requirements)
+    if not requirements:
+        archive = await running_print_archive(db, printer_id, state, printing_only=False, by_name=True)
+        if archive is not None and archive.file_path:
+            requirements = _file_filaments(settings.base_dir / archive.file_path, resolve_plate_id(state))
+    needs: dict[int, TodoFilament] = {}
+    for requirement in requirements or []:
+        try:
+            tray = mapping[int(requirement["slot_id"]) - 1]
+        except (KeyError, IndexError, TypeError, ValueError):
+            continue
+        if isinstance(tray, int) and not isinstance(tray, bool) and tray >= 0 and requirement.get("type"):
+            needs.setdefault(tray, todo_filament_from_requirement(requirement))
+    return needs
+
+
+async def _with_running_needs(
+    db: AsyncSession, paused: dict[int, PausedInfo], actor: User | ApiKeyActor | None
+) -> dict[int, PausedInfo]:
+    """``paused`` with what each runout's print needs on its trays (#3648).
+
+    The file is the printer card's information, as its name is: only for who
+    may read printers. Without it the picture shows what the trays report.
+    """
+    if actor is not None and not actor.has_permission(Permission.PRINTERS_READ.value):
+        return paused
+    out = dict(paused)
+    for printer_id, info in paused.items():
+        if not info.slots:
+            continue
+        try:
+            out[printer_id] = replace(info, needs=await _running_print_needs(db, printer_id))
+        except Exception:
+            # The picture is drawn from what the trays report when this fails.
+            logger.debug("To do list: filaments of the paused print on %s not read", printer_id, exc_info=True)
+    return out
 
 
 async def _picture_inputs(
     db: AsyncSession,
     hints: Mapping[int, SlotHint],
     prepare: Mapping[int, Any],
+    more_printers: Iterable[int] = (),
 ) -> tuple[dict[tuple[int, int, int], SlotExtra], Callable[[TodoFilament], int | None] | None]:
     """What the AMS picture adds to the scheduler's hints from the inventory (#3726).
 
@@ -990,7 +1094,8 @@ async def _picture_inputs(
     from backend.app.utils.color_utils import colors_are_similar
     from backend.app.utils.filament_types import canonical_filament_type
 
-    printer_ids = set(hints) | set(prepare)
+    # ``more_printers``: printers drawn for another entry, a paused print's runout (#3648).
+    printer_ids = set(hints) | set(prepare) | set(more_printers)
     if not printer_ids or await _scheduler._is_spoolman_mode(db):
         return {}, None
     extras: dict[tuple[int, int, int], SlotExtra] = {}
@@ -1177,14 +1282,20 @@ async def queue_todo(
         interlock = {}
     power_failed = [pid for pid in _scheduler.power_on_failed_printers() if pid in printer_names]
 
-    paused = _paused_prints(printer_names, actor, {row.id: row.model for row in printer_rows})
+    paused = await _with_running_needs(
+        db, _paused_prints(printer_names, actor, {row.id: row.model for row in printer_rows}), actor
+    )
 
     hints = visible_slot_hints(_scheduler.slot_hints_snapshot(), printer_names)
     prepare = _scheduler.prepare_snapshot()
     # Grams, looks and stock come from the inventory: only for who may read it.
     can_read_inventory = actor is None or actor.has_permission(Permission.INVENTORY_READ.value)
     try:
-        slot_extras, stock_for = await _picture_inputs(db, hints, prepare) if can_read_inventory else ({}, None)
+        slot_extras, stock_for = (
+            await _picture_inputs(db, hints, prepare, [pid for pid, info in paused.items() if info.slots])
+            if can_read_inventory
+            else ({}, None)
+        )
     except Exception:
         # The picture is drawn without the inventory's grams when this fails.
         logger.debug("To do list: inventory for the AMS picture not read", exc_info=True)
