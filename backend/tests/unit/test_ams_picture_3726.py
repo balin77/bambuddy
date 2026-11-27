@@ -146,6 +146,8 @@ class TestSlots:
                 "tray": [
                     _tray(0, "PLA", RED, tray_uuid="A1" * 16, remain=80),
                     _tray(1, "PLA", BLUE, tray_uuid="0" * 32, tag_uid="0" * 16, remain=-1),
+                    # Without a tag the AMS lite reports 100 as a placeholder (#3738).
+                    _tray(2, "PLA", BLUE, tray_uuid="0" * 32, tag_uid="0" * 16, remain=100),
                 ],
             }
         ]
@@ -153,6 +155,7 @@ class TestSlots:
         slots = _slots_of(picture)
         assert (slots[(0, 0)]["rfid"], slots[(0, 0)]["remain_percent"]) == (True, 80)
         assert (slots[(0, 1)]["rfid"], slots[(0, 1)]["remain_percent"]) == (False, None)
+        assert (slots[(0, 2)]["rfid"], slots[(0, 2)]["remain_percent"]) == (False, None)
 
 
 class TestPlacementAgainstTheHint:
@@ -469,6 +472,8 @@ class TestEntries:
 
         scheduler = _scheduler_with({1: _need(RED)})
         ams = _loaded_ams(RED, BLUE)
+        # An RFID spool: only a measured spool has a percentage (#3738).
+        ams[0]["tray"][1]["tray_uuid"] = "B2" * 16
         ams[0]["tray"][1]["remain"] = 80
         first = (await _hints(scheduler, {1: _status(ams)}, [_job(1)], _holds(1)))[1]
         assert _slots_of(picture_dict(first, 1, "P", (PINK,)))[(0, 1)]["remain_percent"] == 80

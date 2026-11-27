@@ -1044,7 +1044,9 @@ def picture_dict(
             "tray_sub_brands": slot.tray_sub_brands,
             "tray_info_idx": slot.tray_info_idx,
             "remaining_g": grams,
-            "remain_percent": slot.remain if slot.remain is not None and slot.remain >= 0 else None,
+            # Only an RFID spool is measured: without a tag the AMS reports a
+            # placeholder (100 on an A1 with AMS lite), not the spool (#3738).
+            "remain_percent": slot.remain if slot.rfid and slot.remain is not None and slot.remain >= 0 else None,
             "rfid": slot.rfid,
             "state": state_of(slot),
             "incoming": None
