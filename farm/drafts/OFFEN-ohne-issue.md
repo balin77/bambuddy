@@ -10,6 +10,7 @@ Stand 27. November 2026. Nicht vergessen: Bevor der jeweilige Code upstream geht
 | 4 | Slot im To-do-Bild öffnet das Slot-Menü der Druckerkarte statt Knopfreihe | `0d4d48a5a` | nur #3726-Code | in PR-3726.md erwähnen |
 | 5 | Modell-Auftrag: To-do-Eintrag zeigt zuerst den freien Drucker; keine Düsen-Beschriftung bei Einzeldüse | `919a15596`, `a24d76643` | nur #3726-Code | in PR-3726.md erwähnen |
 | 7 | To-do-Bild: Slot ohne RFID zeigt keinen AMS-Prozentwert mehr (Platzhalter 100 %, wie #3738) | (siehe Commit "To do picture … RFID") | nur #3726-Code | beim Neuaufbau von `feature/queue-todo-ams-picture` mitnehmen |
+| 8 | #3725-Tests hatten ein festes Datum (24.11.) und scheitern seit 27.11. | `6d677f27a` (Test `T0` = jetzt) | betrifft auch `feature/notify-idle-waiting-for-filament` | beim Neuaufbau von #3725 mitnehmen, sonst ist die CI rot |
 | 6 | Spulenformular liest `hasPermission` (useAuth) | `338b194ce` | nur farm (Port-Fehler) | kein Issue nötig |
 
 Ergänzen, sobald der Nutzer weitere Punkte nennt.
