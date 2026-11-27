@@ -14,6 +14,7 @@ import type {
   QueueTodoKind,
   QueueTodoPaused,
   QueueTodoPausedSlot,
+  QueueTodoPicture,
   QueueTodoPrepare,
   QueueTodoSlotHint,
 } from '../api/client';
@@ -247,8 +248,31 @@ function pausedProgressLine(paused: QueueTodoPaused, t: (key: string, options?: 
   ].filter(Boolean).join(' \u00b7 ');
 }
 
+// The slots a runout's picture marks as run out, as the picture labels them.
+function ranOutSlots(picture: QueueTodoPicture): string[] {
+  return picture.units.flatMap((u) => u.slots.filter((s) => s.state === 'ran_out'))
+    .map((s) => formatSlotLabel(s.ams_id, s.tray_id, s.is_ht, s.is_external, s.ams_type));
+}
+
+// A runout's picture with the colour of each filament to load named the way
+// the printer card names a colour, where the file gave it no name (#3648).
+function withColorNames(picture: QueueTodoPicture): QueueTodoPicture {
+  return {
+    ...picture,
+    units: picture.units.map((unit) => ({
+      ...unit,
+      slots: unit.slots.map((slot) => (slot.incoming && !slot.incoming.color_name && slot.incoming.color
+        ? { ...slot, incoming: { ...slot.incoming, color_name: getColorName(slot.incoming.color) } }
+        : slot)),
+    })),
+  };
+}
+
 // What the paused print waits for, in a sentence; null when the printer gave no reason.
 function pausedCauseText(paused: QueueTodoPaused, t: (key: string, options?: Record<string, unknown>) => string): string | null {
+  // With the picture, the slots are named and the picture shows what goes there.
+  const shown = paused.ams_picture ? ranOutSlots(paused.ams_picture) : [];
+  if (shown.length > 0) return t('queueTodo.printPaused.runoutPicture', { slots: shown.join(', ') });
   switch (paused.cause) {
     case 'runout_ams': {
       const { ran_out: ranOut, expected } = paused;
@@ -331,6 +355,10 @@ function EntryRow({ group, entry, onNavigate, onOpenQueue, onStart, startPending
     : t('queue.permissions.noStartPrint');
 
   const jobs = entry.jobs;
+  // A runout's picture: the slots that ran out and what goes into them (#3648).
+  const pausedPicture = entry.kind === 'print_paused' && entry.paused?.ams_picture
+    ? withColorNames(entry.paused.ams_picture)
+    : null;
   // The AMS picture stands in for the slot sentence (#3726).
   const picture = entry.kind === 'load_filament' ? entry.ams_picture ?? null : null;
   const pictures = entry.kind === 'load_filament' ? onePerPrinter(entry.ams_pictures ?? []) : [];
@@ -519,6 +547,9 @@ function EntryRow({ group, entry, onNavigate, onOpenQueue, onStart, startPending
               </div>
             )}
           </>
+        )}
+        {pausedPicture && (
+          <PictureWithActions picture={pausedPicture} filaments={entry.paused?.filaments ?? []} overlayZIndex={overlayZIndex} />
         )}
         {entry.kind === 'print_paused' && group.printer_id != null && (
           <PausedActions printerId={group.printer_id} printerName={group.printer_name} overlayZIndex={overlayZIndex} />

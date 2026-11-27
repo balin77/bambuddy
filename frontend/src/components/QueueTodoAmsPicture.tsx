@@ -90,6 +90,8 @@ function stateLine(t: TFn, language: string, slot: QueueTodoPictureSlot, compact
   switch (slot.state) {
     case 'out':
       return { text: amount ? t('queueTodo.picture.outWith', { amount }) : t('queueTodo.picture.out'), className: 'font-semibold text-amber-400' };
+    case 'ran_out':
+      return { text: t('queueTodo.picture.ranOut'), className: 'font-semibold text-amber-400' };
     case 'fits':
       return { text: amount ? t('queueTodo.picture.fitsWith', { amount }) : t('queueTodo.picture.fits'), className: 'text-bambu-green' };
     case 'locked':
@@ -110,6 +112,7 @@ const CARD_STATE_CLASS: Record<QueueTodoPictureSlot['state'], string> = {
   fits: 'border border-bambu-green/60 bg-bambu-green/10',
   empty: 'border border-dashed border-bambu-gray/60 bg-bambu-dark',
   unknown: 'border border-dashed border-amber-400/70 bg-bambu-dark',
+  ran_out: 'border-2 border-dashed border-amber-400 bg-amber-500/10',
 };
 
 // The menu a slot opens, or null for a slot that is no button.
@@ -162,7 +165,7 @@ function SlotCard({ slot, compact, row, column, menu, menuZIndex }: SlotCardProp
         sizeClass={swatch}
         numberClass={compact ? 'text-[10px]' : 'text-xs'}
         borderColor="rgba(156,163,175,0.7)"
-        className={`flex-shrink-0 ${slot.state === 'out' ? 'opacity-[0.55]' : ''}`.trim()}
+        className={`flex-shrink-0 ${slot.state === 'out' || slot.state === 'ran_out' ? 'opacity-[0.55]' : ''}`.trim()}
       />
       {!compact && loaded && (
         <div className="w-full min-w-0 text-[10px] sm:text-[11px] leading-tight text-white line-clamp-2 break-words" title={filament}>

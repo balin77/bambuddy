@@ -2953,9 +2953,15 @@ export interface QueueTodoPaused {
   expected: QueueTodoPausedSlot | null;
   error: { code: string; description: string | null } | null;
   more_errors: number;
+  // A runout: the printer's AMS picture with every slot that ran out (state
+  // "ran_out") and, above each, the filament the print needs there, an index
+  // into `filaments`. Null when the pause is no runout or no slot is known.
+  ams_picture?: QueueTodoPicture | null;
+  filaments?: QueueTodoFilament[];
 }
 // The AMS picture of an entry (#3726): every slot of the printer, and the filaments to load on the slot they go to.
-export type QueueTodoPictureState = 'keep' | 'out' | 'empty' | 'fits' | 'locked' | 'unknown';
+// `ran_out`: a slot a paused print ran out of (#3648).
+export type QueueTodoPictureState = 'keep' | 'out' | 'empty' | 'fits' | 'locked' | 'unknown' | 'ran_out';
 export interface QueueTodoPictureSlot {
   // Keyed as the inventory stores a slot: the external holder is unit 255.
   ams_id: number;
