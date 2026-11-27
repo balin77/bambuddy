@@ -27,7 +27,9 @@ from backend.app.services.filament_idle_watch import SETTING_KEY
 from backend.app.services.print_scheduler import PrintScheduler
 from backend.app.services.queue_todo import todo_filament_from_requirement
 
-T0 = datetime(2026, 11, 24, 12, 0, tzinfo=timezone.utc)
+# The idle clock is patched, but the maximum wait and a scheduled start read the
+# real clock: T0 has to be "now", or the jobs gain priority once 60 hours pass.
+T0 = datetime.now(timezone.utc).replace(microsecond=0)
 DEFICIT = [
     FilamentDeficit(slot_id=1, ams_id=0, tray_id=2, filament_type="PLA", required_grams=505.0, remaining_grams=196.0)
 ]
