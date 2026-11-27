@@ -13,7 +13,7 @@ import time
 from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 
-from backend.app.utils.color_utils import colors_are_similar
+from backend.app.utils.color_utils import colors_are_similar, forced_colors_match
 from backend.app.utils.filament_types import canonical_filament_type
 from backend.app.utils.tray_ids import TrayLayout, external_slot_index, is_ams_ht_id
 
@@ -278,8 +278,9 @@ def _more_urgent(candidate: tuple[str, int | None], current: tuple[str, int | No
 def tray_fits_filament(slot: HintSlot, filament: TodoFilament) -> bool:
     """Whether a loaded tray is a spool of ``filament``, as the dispatch matcher reads it (#3634).
 
-    The same canonical type, and a colour that is the same (exact when the
-    filament forces the colour match) or similar (the matcher's per-channel
+    The same canonical type, and a colour that is the same (when the filament
+    forces the colour match, one no eye tells apart counts as the same:
+    ``forced_colors_match``, #3763) or similar (the matcher's per-channel
     threshold); and when both sides name a filament preset (``tray_info_idx``),
     the same one. A tray that fits is not offered as a place to load that
     filament: the matcher would use it. See ``_match_filaments_to_slots`` and
@@ -298,11 +299,13 @@ def tray_fits_filament(slot: HintSlot, filament: TodoFilament) -> bool:
         return False
     if filament.tray_info_idx and slot.tray_info_idx and filament.tray_info_idx != slot.tray_info_idx:
         return False
+    if filament.forced:
+        return forced_colors_match(slot.color, filament.color)
     want = filament.color.replace("#", "").lower()[:6]
     have = slot.color.replace("#", "").lower()[:6]
     if want == have:
         return True
-    return not filament.forced and colors_are_similar(slot.color, filament.color)
+    return colors_are_similar(slot.color, filament.color)
 
 
 def normalize_hex(value: object) -> str:

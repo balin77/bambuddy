@@ -189,6 +189,13 @@ class TestMissingFilamentNeverOffersItsOwnColour:
         forced = TodoFilament("PLA", LAVA, "Lava Red", forced=True)
         assert _ids(_hint_dict(hint, (forced,), {})) == [(0, 4)]
 
+    def test_a_forced_colour_no_eye_tells_apart_is_not_offered(self):
+        # The scheduler takes 55B687 for a forced 55B688 (#3763), so the list must not offer it.
+        twin = _slot(0, 4, color="#55B687")
+        hint = SlotHint(1, HINT_REPLACEABLE, (twin, FARM[1]), loaded=(twin, FARM[1]))
+        forced = TodoFilament("PLA", "#55B688", "Mint", forced=True)
+        assert _ids(_hint_dict(hint, (forced,), {})) == [(0, 1)]
+
     def test_a_different_preset_is_still_offered(self):
         matte = _slot(0, 1, color=LAVA, idx="GFA01")
         hint = SlotHint(1, HINT_REPLACEABLE, (matte,), loaded=(matte,))
@@ -224,6 +231,8 @@ class TestPredicateAgreesWithTheMatcher:
         (("PLA", "#C12E1F", "", False), ("PETG", "#C12E1F", "")),
         (("PLA-CF", "#C12E1F", "", False), ("PLA-CF", "#C12E1F", "")),
         (("PLA", "#C12E1F", "", True), ("PLA", "#00FF00", "")),
+        # A shade of rounding no eye tells apart counts as the forced colour (#3763).
+        (("PLA", "#55B688", "", True), ("PLA", "#55B687", "")),
     ]
 
     @staticmethod
