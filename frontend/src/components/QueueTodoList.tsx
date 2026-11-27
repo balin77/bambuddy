@@ -27,7 +27,7 @@ import { AmsPicture, AmsPictures } from './QueueTodoAmsPicture';
 import { PictureWithActions } from './QueueTodoSlotActions';
 import { AddSpoolActions, JobActions, PowerOnAgain } from './QueueTodoEntryActions';
 import { PausedActions } from './QueueTodoPausedActions';
-import { formatSlotLabel, onePerPrinter } from '../utils/amsHelpers';
+import { formatAssignmentSlotLabel, formatSlotLabel, onePerPrinter } from '../utils/amsHelpers';
 import { getColorName } from '../utils/colors';
 import { formatDuration } from '../utils/date';
 
@@ -77,23 +77,24 @@ function formatGrams(grams: number): string {
 }
 
 // The label of a tray of a short filament. The tray's own slot in the entry's
-// hint knows if it is an AMS-HT or the external holder; without it the ids say.
-function trayLabel(tray: { ams_id: number; tray_id: number }, slots: QueueTodoHintSlot[]): string {
+// hint knows if it is an AMS-HT or an AMS 3H; without it the ids and the
+// printer's model say, as the printer card names the slot, the external
+// inputs of a rack printer included.
+function trayLabel(tray: { ams_id: number; tray_id: number }, slots: QueueTodoHintSlot[], printerModel?: string | null): string {
   const slot = slots.find((s) => s.ams_id === tray.ams_id && s.tray_id === tray.tray_id);
-  if (slot) return formatSlotLabel(slot.ams_id, slot.tray_id, slot.is_ht, slot.is_external, slot.ams_type);
-  const isExternal = tray.ams_id >= 254;
-  return formatSlotLabel(tray.ams_id, tray.tray_id, !isExternal && tray.ams_id >= 128, isExternal);
+  if (slot && !slot.is_external) return formatSlotLabel(slot.ams_id, slot.tray_id, slot.is_ht, slot.is_external, slot.ams_type);
+  return formatAssignmentSlotLabel({ ams_id: tray.ams_id, tray_id: tray.tray_id, printer_model: printerModel });
 }
 
 // "Not enough PLA Lava Red: A2 has 12 g, the job needs 30 g". A pooled amount
 // (AMS Filament Backup counts every spool of the filament together) is the sum;
 // an amount that is not known for every tray is left out, and so is a job
 // amount that is not known.
-function shortText(t: TFn, f: QueueTodoFilament, slots: QueueTodoHintSlot[]): string {
+function shortText(t: TFn, f: QueueTodoFilament, slots: QueueTodoHintSlot[], printerModel?: string | null): string {
   const filament = [f.type, f.color_name].filter(Boolean).join(' ');
   const trays = f.short_trays ?? [];
   if (trays.length === 0) return t('queueTodo.short.plain', { filament });
-  const where = trays.map((tray) => trayLabel(tray, slots)).join(' + ');
+  const where = trays.map((tray) => trayLabel(tray, slots, printerModel)).join(' + ');
   const amounts = trays.map((tray) => tray.remaining_grams);
   if (amounts.some((g) => typeof g !== 'number')) return t('queueTodo.short.in', { filament, slots: where });
   const remaining = formatGrams((amounts as number[]).reduce((a, b) => a + b, 0));
@@ -548,7 +549,7 @@ function EntryRow({ group, entry, onNavigate, onOpenQueue, onStart, startPending
                 )}
                 {f.short ? (
                   <span data-testid="todo-short" className="min-w-0 break-words">
-                    {shortText(t, f, entry.slot_hint?.state === 'replace' ? entry.slot_hint.slots : [])}
+                    {shortText(t, f, entry.slot_hint?.state === 'replace' ? entry.slot_hint.slots : [], group.printer_model)}
                   </span>
                 ) : (
                   <span>{[f.type, f.color_name].filter(Boolean).join(' ')}</span>

@@ -293,12 +293,14 @@ class TestBuildTodoKeepsShortAndMissingApart:
         assert entry["slot_hint"]["state"] == HINT_REPLACE
 
     def test_two_jobs_short_on_different_trays_name_both(self):
+        # Short spools in different trays are two entries (upstream 874a703ad),
+        # each naming its own tray.
         holds = {
             1: [FilamentHold(1, 1, None, (_short([ShortTray(0, 1, 12.0)]),))],
             2: [FilamentHold(2, 1, None, (_short([ShortTray(0, 2, 7.0)]),))],
         }
-        (entry,) = self._build(holds, {1: _farm_hint()})["groups"][0]["entries"]
-        assert _ids(entry["slot_hint"]) == [(0, 1), (0, 2)]
+        entries = self._build(holds, {1: _farm_hint()})["groups"][0]["entries"]
+        assert [(e["jobs"][0]["id"], _ids(e["slot_hint"])) for e in entries] == [(1, [(0, 1)]), (2, [(0, 2)])]
 
     def test_a_model_entry_names_each_printers_own_tray(self):
         jobs = [TodoJob(1, "Any", frozenset({1, 2}), None, "p1s", "P1S", False)]

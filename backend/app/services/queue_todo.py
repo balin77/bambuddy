@@ -566,9 +566,22 @@ def _sorted(filaments: Iterable[TodoFilament]) -> tuple[TodoFilament, ...]:
     return tuple(sorted(filaments, key=lambda f: (f.type, f.color, f.color_name, -1 if f.nozzle is None else f.nozzle)))
 
 
-def _fil_key(filaments: Iterable[TodoFilament]) -> tuple:
-    # A short spool and a missing one of the same filament are two things to do.
-    return tuple((f.type, f.color, f.nozzle, f.short) for f in _sorted(filaments))
+def _fil_key(filaments: Iterable[TodoFilament], trays: bool = True) -> tuple:
+    # A short spool and a missing one of the same filament are two things to
+    # do, and so are a filament to load and one to buy (#3590). Short spools in
+    # different trays are too, except where the trays are not named anyway (a
+    # model job's printers, which share one entry listed without a slot).
+    return tuple(
+        (
+            f.type,
+            f.color,
+            f.nozzle,
+            f.short,
+            f.no_stock,
+            tuple((t.ams_id, t.tray_id) for t in f.short_trays) if trays else (),
+        )
+        for f in _sorted(filaments)
+    )
 
 
 def _identity(f: TodoFilament) -> tuple:
@@ -1046,6 +1059,7 @@ def build_todo(
     idle_printers: Collection[int] = (),
     *,
     paused: Mapping[int, PausedInfo] | None = None,
+    printer_models: Mapping[int, str | None] | None = None,
 ) -> dict:
     """The response of GET /queue/todo.
 
@@ -1079,6 +1093,11 @@ def build_todo(
     and looks, ``stock_for`` the spools in stock, ``idle_printers`` the
     printers that are connected and not printing. None of them changes an
     entry, the count or a hint.
+
+    ``printer_models`` maps printer ids to their model, which names the slot
+    of a short spool as the printer card does (the external inputs of a rack
+    printer); a group carries it as ``printer_model``, a model group its
+    target model.
     """
     slot_hints = slot_hints or {}
     groups: dict[tuple, _Group] = {}
@@ -1199,10 +1218,12 @@ def build_todo(
                 for hold in visible:
                     assert hold.printer_id is not None
                     if hold in pool and len(hold.filaments) == fewest:
-                        sets = by_set.setdefault(_fil_key(hold.filaments), (_sorted(hold.filaments), set()))
+                        # The printers share an entry whatever trays their short spools are in.
+                        key = _fil_key(hold.filaments, trays=False)
+                        sets = by_set.setdefault(key, (_sorted(hold.filaments), set()))
                         sets[1].add(hold.printer_id)
                         # A short spool is a tray of that printer.
-                        own.setdefault(_fil_key(hold.filaments), {})[hold.printer_id] = _sorted(hold.filaments)
+                        own.setdefault(key, {})[hold.printer_id] = _sorted(hold.filaments)
                     else:
                         merge_todo_filaments(others.setdefault(hold.printer_id, []), hold.filaments)
                 listed = {pid for _fils, ids in by_set.values() for pid in ids}
@@ -1210,7 +1231,9 @@ def build_todo(
                     add(
                         group_for(None, job.model_key, job.model_label, index),
                         KIND_LOAD_FILAMENT,
-                        (key, tuple(sorted(ids))),
+                        # The tray of a short spool tells two entries apart
+                        # for one printer only.
+                        (_fil_key(fils, trays=len(ids) == 1), tuple(sorted(ids))),
                         job,
                         _filaments=fils,
                         _by_printer=own[key],
@@ -1335,6 +1358,9 @@ def build_todo(
                 "printer_id": group.printer_id,
                 "printer_name": group.printer_name,
                 "target_model": group.target_model,
+                "printer_model": (printer_models or {}).get(group.printer_id)
+                if group.printer_id is not None
+                else group.target_model,
                 "entries": entries,
                 "prepare": lines,
             }

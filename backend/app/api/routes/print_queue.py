@@ -1205,6 +1205,7 @@ async def queue_todo(
         stock_for,
         _idle_printers(printer_names),
         paused=paused,
+        printer_models={row.id: row.model for row in printer_rows},
     )
 
 
